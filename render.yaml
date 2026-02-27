@@ -67,7 +67,7 @@ services:
       - key: MAIL_PASS
         value: "uikcptploswockgb"
       - key: MAIL_FROM
-        value: "vybekart88@vybekart.com"
+        value: "vybekart88@gmail.com"
 
       - key: USE_REAL_IVS
         value: "false"

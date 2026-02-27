@@ -128,6 +128,7 @@ export class SupportService {
         host: this.config.get<string>('MAIL_HOST'),
         port: this.config.get<number>('MAIL_PORT') ?? 587,
         secure: this.config.get<string>('MAIL_SECURE') === 'true',
+        family: 4, // Force IPv4 (avoids ENETUNREACH on IPv6-only resolution e.g. on Render)
         auth: this.config.get<string>('MAIL_USER')
           ? {
               user: this.config.get<string>('MAIL_USER'),
