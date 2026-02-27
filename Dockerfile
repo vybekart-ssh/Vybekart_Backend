@@ -14,7 +14,7 @@ COPY prisma ./prisma/
 RUN npx prisma generate
 
 COPY . .
-RUN npm run build && ls -laR /app/dist && test -f /app/dist/main.js || test -f /app/dist/src/main.js || (echo "Expected dist/main.js or dist/src/main.js" && exit 1)
+RUN npm run build
 
 # Production image (slim = Debian; Prisma needs OpenSSL at runtime for migrate deploy)
 FROM node:22-slim AS runner
@@ -36,5 +36,5 @@ COPY --from=builder /app/dist ./dist
 
 EXPOSE 3000
 
-# Migrations then start (Render sets PORT)
-CMD ["/bin/sh", "-c", "npx prisma migrate deploy && ls -la /app/dist && exec node /app/dist/main.js"]
+# Nest outputs to dist/src/main.js when sourceRoot is src
+CMD ["/bin/sh", "-c", "npx prisma migrate deploy && exec node /app/dist/src/main.js"]
