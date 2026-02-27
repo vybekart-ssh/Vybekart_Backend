@@ -1,0 +1,53 @@
+# VybeKart Backend – Render Blueprint (free tier)
+# Push to GitHub, then in Render: New → Blueprint → Connect repo and deploy.
+# Set JWT_SECRET and JWT_REFRESH_SECRET in the dashboard (or use generateValue below).
+
+databases:
+  - name: vybekart-db
+    databaseName: vybekart
+    plan: free
+
+services:
+  # Redis-compatible Key Value store (OTP, refresh tokens, stream viewers)
+  - type: keyvalue
+    name: vybekart-redis
+    plan: free
+    ipAllowList:
+      - source: 0.0.0.0/0
+        description: allow all (use private network from web service)
+
+  # NestJS API
+  - type: web
+    runtime: node
+    name: vybekart-backend
+    plan: free
+
+    buildCommand: npm ci && npx prisma generate && npm run build
+    startCommand: npm run start:prod
+    preDeployCommand: npx prisma migrate deploy
+
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: DATABASE_URL
+        fromDatabase:
+          name: vybekart-db
+          property: connectionString
+      - key: REDIS_URL
+        fromService:
+          type: keyvalue
+          name: vybekart-redis
+          property: connectionString
+      - key: JWT_SECRET
+        generateValue: true
+      - key: JWT_REFRESH_SECRET
+        generateValue: true
+      - key: JWT_EXPIRES_IN
+        value: "7d"
+      - key: JWT_REFRESH_EXPIRES_IN
+        value: "30d"
+      # Optional – set in Render Dashboard if you use them:
+      # LIVEKIT_URL, LIVEKIT_API_KEY, LIVEKIT_API_SECRET
+      # MAIL_HOST, MAIL_PORT, MAIL_USER, MAIL_PASS, MAIL_FROM
+      # SUPPORT_ACCOUNT_MANAGER_*, SUPPORT_ESCALATION_LEVELS_JSON
+      # CORS_ORIGIN (e.g. https://your-app.com)
