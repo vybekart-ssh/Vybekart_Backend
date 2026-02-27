@@ -33,6 +33,8 @@ export const envValidationSchema = Joi.object({
   SUPPORT_ACCOUNT_MANAGER_EMAIL: Joi.string().optional(),
   SUPPORT_ESCALATION_LEVELS_JSON: Joi.string().optional(),
   // Mail (optional – for sending concern emails)
+  // Prefer RESEND_API_KEY on Render (free tier blocks SMTP). Else use MAIL_* SMTP.
+  RESEND_API_KEY: Joi.string().optional(),
   MAIL_HOST: Joi.string().optional(),
   MAIL_PORT: Joi.number().optional(),
   MAIL_SECURE: Joi.boolean().optional(),

@@ -76,14 +76,6 @@ export class SupportService {
       select: { id: true, subject: true, createdAt: true },
     });
 
-    const mailHost = this.config.get<string>('MAIL_HOST')?.trim();
-    if (!mailHost || mailHost.includes('@')) {
-      if (mailHost?.includes('@')) {
-        console.warn('Support: MAIL_HOST must be the SMTP server hostname (e.g. smtp.gmail.com), not an email address. Skipping send.');
-      }
-      return ticket;
-    }
-
     const toEmail = dto.toEmail?.trim();
     if (!toEmail) {
       console.warn('Support: No recipient email (toEmail) provided. Skipping send.');
@@ -123,14 +115,37 @@ export class SupportService {
       user: user!,
     });
 
+    const resendKey = this.config.get<string>('RESEND_API_KEY')?.trim();
+    if (resendKey) {
+      try {
+        await this.sendViaResend(resendKey, {
+          from: this.config.get<string>('MAIL_FROM') ?? 'VybeKart Support <onboarding@resend.dev>',
+          to: toEmail,
+          subject: dto.subject,
+          html,
+          replyTo: sellerEmail,
+        });
+      } catch (err) {
+        console.error('Support: failed to send concern email (Resend)', err);
+      }
+      return ticket;
+    }
+
+    const mailHost = this.config.get<string>('MAIL_HOST')?.trim();
+    if (!mailHost || mailHost.includes('@')) {
+      if (mailHost?.includes('@')) {
+        console.warn('Support: MAIL_HOST must be the SMTP server hostname (e.g. smtp.gmail.com), not an email. Skipping send.');
+      }
+      return ticket;
+    }
+
     try {
-      const mailHost = this.config.get<string>('MAIL_HOST');
       const mailPort = this.config.get<number>('MAIL_PORT') ?? 587;
       const transporter = nodemailer.createTransport({
         host: mailHost,
         port: mailPort,
         secure: this.config.get<string>('MAIL_SECURE') === 'true',
-        family: 4, // Force IPv4 (avoids ENETUNREACH on Render when Gmail resolves to IPv6)
+        family: 4,
         auth: this.config.get<string>('MAIL_USER')
           ? {
               user: this.config.get<string>('MAIL_USER'),
@@ -147,10 +162,34 @@ export class SupportService {
         replyTo: sellerEmail,
       });
     } catch (err) {
-      console.error('Support: failed to send concern email', err);
+      console.error('Support: failed to send concern email (SMTP)', err);
     }
 
     return ticket;
+  }
+
+  private async sendViaResend(
+    apiKey: string,
+    opts: { from: string; to: string; subject: string; html: string; replyTo: string },
+  ): Promise<void> {
+    const res = await fetch('https://api.resend.com/emails', {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${apiKey}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        from: opts.from,
+        to: [opts.to],
+        subject: opts.subject,
+        html: opts.html,
+        reply_to: opts.replyTo,
+      }),
+    });
+    if (!res.ok) {
+      const body = await res.text();
+      throw new Error(`Resend API ${res.status}: ${body}`);
+    }
   }
 }
 

@@ -1,6 +1,6 @@
 # VybeKart Backend – Render Blueprint (free tier)
-# Values from .env – for production, set LIVEKIT_URL to your LiveKit Cloud URL (e.g. wss://xxx.livekit.cloud).
-# If repo is public, move MAIL_PASS / LIVEKIT_API_SECRET to Render Dashboard → Environment (secret).
+# Render free tier blocks outbound SMTP (ports 25/465/587). For "Highlight your concerns" email,
+# set RESEND_API_KEY in Dashboard (get one at https://resend.com). App uses Resend when set, else SMTP.
 
 databases:
   - name: vybekart-db
@@ -68,6 +68,9 @@ services:
         value: "uikcptploswockgb"
       - key: MAIL_FROM
         value: "vybekart88@gmail.com"
+      # Set in Dashboard for concern emails (Render free tier blocks SMTP). Get key: https://resend.com
+      - key: RESEND_API_KEY
+        sync: false
 
       - key: USE_REAL_IVS
         value: "false"
