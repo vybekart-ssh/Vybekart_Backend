@@ -53,8 +53,6 @@ services:
 
       - key: SUPPORT_ACCOUNT_MANAGER_NAME
         value: "Shubham Pol"
-      - key: SUPPORT_ACCOUNT_MANAGER_PHONE
-        value: ""
       - key: SUPPORT_ACCOUNT_MANAGER_EMAIL
         value: "support@vybekart.com"
       - key: SUPPORT_ESCALATION_LEVELS_JSON
