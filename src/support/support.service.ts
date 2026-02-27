@@ -124,18 +124,20 @@ export class SupportService {
     });
 
     try {
+      const mailHost = this.config.get<string>('MAIL_HOST');
+      const mailPort = this.config.get<number>('MAIL_PORT') ?? 587;
       const transporter = nodemailer.createTransport({
-        host: this.config.get<string>('MAIL_HOST'),
-        port: this.config.get<number>('MAIL_PORT') ?? 587,
+        host: mailHost,
+        port: mailPort,
         secure: this.config.get<string>('MAIL_SECURE') === 'true',
-        family: 4, // Force IPv4 (avoids ENETUNREACH on IPv6-only resolution e.g. on Render)
+        family: 4, // Force IPv4 (avoids ENETUNREACH on Render when Gmail resolves to IPv6)
         auth: this.config.get<string>('MAIL_USER')
           ? {
               user: this.config.get<string>('MAIL_USER'),
               pass: this.config.get<string>('MAIL_PASS'),
             }
           : undefined,
-      });
+      } as any);
       await transporter.sendMail({
         from: sellerEmail,
         to: toEmail,
