@@ -1,6 +1,6 @@
 # VybeKart Backend – Render Blueprint (free tier)
-# Push to GitHub, then in Render: New → Blueprint → Connect repo and deploy.
-# Set JWT_SECRET and JWT_REFRESH_SECRET in the dashboard (or use generateValue below).
+# Values from .env – for production, set LIVEKIT_URL to your LiveKit Cloud URL (e.g. wss://xxx.livekit.cloud).
+# If repo is public, move MAIL_PASS / LIVEKIT_API_SECRET to Render Dashboard → Environment (secret).
 
 databases:
   - name: vybekart-db
@@ -8,15 +8,13 @@ databases:
     plan: free
 
 services:
-  # Redis-compatible Key Value store (OTP, refresh tokens, stream viewers)
   - type: keyvalue
     name: vybekart-redis
     plan: free
     ipAllowList:
       - source: 0.0.0.0/0
-        description: allow all (use private network from web service)
+        description: allow all
 
-  # NestJS API (Docker so dist/ is guaranteed in the image at runtime)
   - type: web
     runtime: docker
     name: vybekart-backend
@@ -35,15 +33,43 @@ services:
           name: vybekart-redis
           property: connectionString
       - key: JWT_SECRET
-        generateValue: true
+        value: "2f7c9e5a8a4d9e3a0c1b8e9d4f6a7c8b1d3e5f6a9b8c7d6e5f4a3b2c786"
       - key: JWT_REFRESH_SECRET
-        generateValue: true
+        value: "2f7c9e5a8a4d9e3a0c1b8e9d4f6a7c8b1d3e5f6a9b8c7d6e5f4a3b2c777"
       - key: JWT_EXPIRES_IN
         value: "7d"
       - key: JWT_REFRESH_EXPIRES_IN
         value: "30d"
-      # Optional – set in Render Dashboard if you use them:
-      # LIVEKIT_URL, LIVEKIT_API_KEY, LIVEKIT_API_SECRET
-      # MAIL_HOST, MAIL_PORT, MAIL_USER, MAIL_PASS, MAIL_FROM
-      # SUPPORT_ACCOUNT_MANAGER_*, SUPPORT_ESCALATION_LEVELS_JSON
-      # CORS_ORIGIN (e.g. https://your-app.com)
+
+      - key: CORS_ORIGIN
+        value: "https://your-app.onrender.com"
+
+      - key: LIVEKIT_URL
+        value: "http://192.168.1.111:7880"
+      - key: LIVEKIT_API_KEY
+        value: "devkey"
+      - key: LIVEKIT_API_SECRET
+        value: "secret"
+
+      - key: SUPPORT_ACCOUNT_MANAGER_NAME
+        value: "Shubham Pol"
+      - key: SUPPORT_ACCOUNT_MANAGER_PHONE
+        value: ""
+      - key: SUPPORT_ACCOUNT_MANAGER_EMAIL
+        value: "support@vybekart.com"
+      - key: SUPPORT_ESCALATION_LEVELS_JSON
+        value: '[{"level":1,"title":"CEO","description":"...","contactName":"Hiren Prajapati","contactEmail":"ceo@vybekart.co.in"}]'
+
+      - key: MAIL_HOST
+        value: "smtp.gmail.com"
+      - key: MAIL_PORT
+        value: "587"
+      - key: MAIL_USER
+        value: "vybekart88@gmail.com"
+      - key: MAIL_PASS
+        value: "uikcptploswockgb"
+      - key: MAIL_FROM
+        value: "vybekart88@vybekart.com"
+
+      - key: USE_REAL_IVS
+        value: "false"
