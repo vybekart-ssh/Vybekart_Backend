@@ -20,15 +20,42 @@ A production-ready generic backend for the VybeKart Android application, built w
 ### 2. Environment Variables
 The `.env` file is already configured for local Docker development:
 ```bash
-DATABASE_URL="postgresql://postgres:password@localhost:5432/vybekart?schema=public"
-JWT_SECRET="supersecret_production_key"
-REDIS_HOST="localhost"
+# LiveKit (required for streaming)
+#LIVEKIT_URL="wss://your-project.livekit.cloud"
+LIVEKIT_URL="http://192.168.1.111:7880"
+LIVEKIT_API_KEY="devkey"
+LIVEKIT_API_SECRET="secret"
+
+# Required – replace with your PostgreSQL user, password, host, port, and DB name
+DATABASE_URL="postgresql://postgres:Vishal@7963@localhost:5433/vybekart"
+
+# Required – at least 16 characters (used for JWT access tokens)
+JWT_SECRET=2f7c9e5a8a4d9e3a0c1b8e9d4f6a7c8b1d3e5f6a9b8c7d6e5f4a3b2c786
+
+PORT=3000
+NODE_ENV=development
+JWT_EXPIRES_IN=7d
+JWT_REFRESH_SECRET=2f7c9e5a8a4d9e3a0c1b8e9d4f6a7c8b1d3e5f6a9b8c7d6e5f4a3b2c777
+JWT_REFRESH_EXPIRES_IN=30d
+
+REDIS_HOST=localhost
 REDIS_PORT=6379
 
-# LiveKit (required for streaming)
-LIVEKIT_URL="wss://your-project.livekit.cloud"
-LIVEKIT_API_KEY="your-api-key"
-LIVEKIT_API_SECRET="your-api-secret"
+# Support – account manager (optional)
+SUPPORT_ACCOUNT_MANAGER_NAME=Shubham Pol
+SUPPORT_ACCOUNT_MANAGER_PHONE=8468835994
+SUPPORT_ACCOUNT_MANAGER_EMAIL=support@vybekart.com
+
+# Support – escalation levels JSON (optional; defaults used if not set)
+SUPPORT_ESCALATION_LEVELS_JSON=[{"level":1,"title":"CEO","description":"...","contactName":"Hiren Prajapati","contactEmail":"ceo@vybekart.co.in"}]
+
+# Mail – for sending concern emails (optional)
+# MAIL_HOST = SMTP server hostname only (e.g. smtp.gmail.com), NOT an email address
+MAIL_HOST=smtp.gmail.com
+MAIL_PORT=587
+MAIL_USER=vybekart88@gmail.com
+MAIL_PASS=uikcptploswockgb
+MAIL_FROM=vybekart88@vybekart.com
 ```
 
 ### 3. Start Infrastructure (DB & Redis)
