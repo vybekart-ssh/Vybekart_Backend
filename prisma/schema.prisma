@@ -1,0 +1,363 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// Enums for Scalability
+enum Role {
+  BUYER
+  SELLER
+  ADMIN
+}
+
+enum AddressType {
+  SHIPPING
+  BILLING
+  PICKUP // For Sellers
+}
+
+enum VerificationStatus {
+  PENDING
+  VERIFIED
+  REJECTED
+}
+
+// --------------------------------------
+// Core Identity Module
+// --------------------------------------
+
+model User {
+  id        String   @id @default(uuid())
+  email     String   @unique
+  phone     String?  @unique
+  password  String
+  name      String
+  isActive  Boolean  @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  // Roles & Relations
+  roles     Role[]    @default([BUYER]) // Array to allow a user to be both
+  
+  // Profile Links
+  sellerProfile Seller?
+  buyerProfile  Buyer?
+  
+  // Common Data
+  addresses Address[]
+  
+  supportTickets SupportTicket[]
+
+  // Legacy/Direct Relations (can be refactored to profiles later if needed, keeping simple for now)
+  // Note: Orders usually link to a Buyer profile in strict systems, 
+  // but linking to User is easier for auth. We'll link to User for now.
+}
+
+// --------------------------------------
+// Address Module (Scalable)
+// --------------------------------------
+
+model Address {
+  id        String      @id @default(uuid())
+  userId    String
+  user      User        @relation(fields: [userId], references: [id], onDelete: Cascade)
+  
+  type      AddressType @default(SHIPPING)
+  isDefault Boolean     @default(false)
+  
+  line1     String
+  line2     String?
+  city      String
+  state     String
+  zip       String
+  country   String      @default("IN")
+  
+  createdAt DateTime    @default(now())
+}
+
+// --------------------------------------
+// Seller Module
+// --------------------------------------
+
+model Seller {
+  id             String   @id @default(uuid())
+  userId         String   @unique
+  user           User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  
+  // Business Details
+  businessName     String
+  description      String?  @db.Text
+  logoUrl          String?
+  bannerUrl        String?
+  gstNumber        String?
+  businessAddress  String?  @db.Text
+  primaryCategoryId String?
+  primaryCategory  Category? @relation(fields: [primaryCategoryId], references: [id])
+  
+  // Banking (Consider encrypting specific fields in implementation)
+  bankAccount      String?
+  bankName         String?
+  accountHolderName String?
+  accountType      String?
+  ifscCode         String?
+  
+  // Official documents
+  signatureUrl     String?
+  
+  // Verification
+  status         VerificationStatus @default(PENDING)
+  rejectionReason String?
+  
+  // Scalability: Categories this seller operates in
+  categories     SellerCategory[]
+  
+  // Operations
+  products       Product[]
+  streams        Stream[]
+  
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+}
+
+// Many-to-Many Link Table for Seller <-> Category
+model SellerCategory {
+  sellerId   String
+  seller     Seller   @relation(fields: [sellerId], references: [id])
+  categoryId String
+  category   Category @relation(fields: [categoryId], references: [id])
+
+  @@id([sellerId, categoryId])
+}
+
+// --------------------------------------
+// Buyer Module
+// --------------------------------------
+
+model Buyer {
+  id             String   @id @default(uuid())
+  userId         String   @unique
+  user           User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  
+  // Preferences
+  interests      String[] // E.g ["Tech", "Fashion"] - can be normalized later
+  
+  // Activity
+  orders         Order[]
+  
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+}
+
+// --------------------------------------
+// Reference Data: Countries & States
+// --------------------------------------
+
+model Country {
+  id     String  @id @default(uuid())
+  code   String  @unique // e.g. IN, US
+  name   String
+  states State[]
+}
+
+model State {
+  id        String  @id @default(uuid())
+  countryId String
+  country   Country @relation(fields: [countryId], references: [id], onDelete: Cascade)
+  code      String  // e.g. MH, KA
+  name      String
+}
+
+// --------------------------------------
+// Product & Category System
+// --------------------------------------
+
+model Category {
+  id        String           @id @default(uuid())
+  name      String           @unique
+  slug      String           @unique
+  iconUrl   String?
+  
+  products  Product[]
+  sellers   SellerCategory[]
+  primaryForSellers Seller[]
+  streams   Stream[]
+  
+  parentId  String?
+  parent    Category?        @relation("CategoryHierarchy", fields: [parentId], references: [id])
+  children  Category[]       @relation("CategoryHierarchy")
+}
+
+enum ProductStatus {
+  DRAFT
+  ACTIVE
+  OUT_OF_STOCK
+}
+
+model Product {
+  id          String   @id @default(uuid())
+  name        String
+  description String?  @db.Text
+  price       Float
+  stock       Int      @default(0)
+  images      String[]
+  videoUrl    String?  // Optional product video for live listings
+  
+  sellerId    String
+  seller      Seller   @relation(fields: [sellerId], references: [id])
+  
+  categoryId  String?
+  category    Category? @relation(fields: [categoryId], references: [id])
+
+  // Step 1 – Basic info
+  material             String?
+  suitableForOccasion  String?
+
+  // Step 3 – Inventory & pricing
+  status       ProductStatus @default(DRAFT)
+  mrp          Float?
+  discountPercent Float?
+  priceType    String?   // FIXED | VARIABLE
+  sku          String?
+  barcode      String?
+  hsnCode      String?
+  gstPercent   Float?
+
+  // Step 4 – Logistics & policies
+  weightKg        Float?
+  lengthCm        Float?
+  widthCm         Float?
+  heightCm        Float?
+  leadTimeDays    Int?
+  returnable      Boolean? @default(true)
+  refundType      String?
+  returnWindowDays Int?
+
+  // Step 2 – Variants (option name + values; per-variant price/SKU/stock can be in JSON)
+  variants     Json?
+
+  orderItems   OrderItem[]
+  streamProducts StreamProduct[]
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+}
+
+// --------------------------------------
+// Streaming Module
+// --------------------------------------
+
+enum StreamVisibility {
+  PUBLIC
+  FOLLOWERS_ONLY
+}
+
+model Stream {
+  id             String   @id @default(uuid())
+  title          String
+  description    String?
+  isLive         Boolean  @default(false)
+  visibility     StreamVisibility @default(PUBLIC)
+  categoryId     String?
+  category       Category? @relation(fields: [categoryId], references: [id])
+  
+  rtmpIngestUrl  String?
+  hlsPlaybackUrl String?
+  streamKey      String?  @unique
+  
+  livekitRoomName String?
+  livekitUrl      String?
+  
+  viewCount      Int      @default(0)
+  startedAt      DateTime?
+  endedAt        DateTime?
+  
+  sellerId       String
+  seller         Seller   @relation(fields: [sellerId], references: [id])
+  streamProducts StreamProduct[]
+  createdAt      DateTime @default(now())
+}
+
+model StreamProduct {
+  id        String   @id @default(uuid())
+  streamId  String
+  stream    Stream   @relation(fields: [streamId], references: [id], onDelete: Cascade)
+  productId String
+  product   Product  @relation(fields: [productId], references: [id], onDelete: Cascade)
+  sortOrder Int      @default(0)
+  createdAt DateTime @default(now())
+  @@unique([streamId, productId])
+}
+
+// --------------------------------------
+// Order Module
+// --------------------------------------
+
+model Order {
+  id          String      @id @default(uuid())
+  
+  buyerId     String?     // Nullable temporarily if we want guest checkout, but usually required
+  buyer       Buyer?      @relation(fields: [buyerId], references: [id])
+  
+  // Snapshot of address at time of order
+  shippingAddress String? @db.Text 
+  
+  status      OrderStatus @default(PENDING)
+  totalAmount Float
+  
+  // Shipping & delivery (seller fills these)
+  trackingId   String?
+  carrierName String?
+  shippedAt   DateTime?
+  deliveredAt DateTime?
+  
+  items       OrderItem[]
+  
+  createdAt   DateTime    @default(now())
+  updatedAt   DateTime    @updatedAt
+}
+
+enum OrderStatus {
+  PENDING
+  PAID
+  SHIPPED
+  DELIVERED
+  CANCELLED
+  RETURNED
+}
+
+// --------------------------------------
+// Support Module
+// --------------------------------------
+
+model Faq {
+  id        String   @id @default(uuid())
+  question  String   @db.Text
+  answer    String   @db.Text
+  sortOrder Int      @default(0)
+  createdAt DateTime @default(now())
+}
+
+model SupportTicket {
+  id        String   @id @default(uuid())
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  subject   String   @db.Text
+  message   String   @db.Text
+  createdAt DateTime @default(now())
+}
+
+model OrderItem {
+  id        String  @id @default(uuid())
+  orderId   String
+  order     Order   @relation(fields: [orderId], references: [id])
+  productId String
+  product   Product @relation(fields: [productId], references: [id])
+  quantity  Int
+  price     Float
+}

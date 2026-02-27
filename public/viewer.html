@@ -1,0 +1,156 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <title>VybeKart Stream Viewer</title>
+  <script src="https://cdn.jsdelivr.net/npm/livekit-client/dist/livekit-client.umd.min.js"></script>
+  <style>
+    body { font-family: system-ui, sans-serif; max-width: 720px; margin: 24px auto; padding: 0 16px; }
+    h1 { font-size: 1.25rem; }
+    input, button { padding: 8px 12px; margin: 4px 0; }
+    #status { margin: 12px 0; padding: 8px; background: #f0f0f0; border-radius: 6px; min-height: 24px; }
+    #videoContainer { margin-top: 16px; background: #000; border-radius: 8px; overflow: hidden; aspect-ratio: 16/9; }
+    #videoContainer video { width: 100%; height: 100%; object-fit: contain; }
+    .error { color: #c00; }
+    .ok { color: #080; }
+  </style>
+</head>
+<body>
+  <h1>Stream viewer (HTTP – no mixed content)</h1>
+  <p>Use this page from the same host as the API (e.g. <code>http://YOUR_IP:3000/viewer?streamId=STREAM_ID</code>).</p>
+  <div>
+    <label>Stream ID: <input type="text" id="streamId" placeholder="paste stream id" /></label>
+    <button type="button" id="connectBtn">Connect</button>
+    <button type="button" id="disconnectBtn" disabled>Disconnect</button>
+  </div>
+  <div id="status">Enter stream ID and click Connect.</div>
+  <div id="videoContainer" style="display: none;">
+    <video id="remoteVideo" autoplay playsinline muted></video>
+  </div>
+
+  <script>
+    (function() {
+      const streamIdInput = document.getElementById('streamId');
+      const connectBtn = document.getElementById('connectBtn');
+      const disconnectBtn = document.getElementById('disconnectBtn');
+      const statusEl = document.getElementById('status');
+      const videoContainer = document.getElementById('videoContainer');
+      const remoteVideo = document.getElementById('remoteVideo');
+
+      const params = new URLSearchParams(location.search);
+      const qStreamId = params.get('streamId');
+      if (qStreamId) streamIdInput.value = qStreamId;
+
+      let room = null;
+
+      function setStatus(msg, isError) {
+        statusEl.textContent = msg;
+        statusEl.className = isError ? 'error' : 'ok';
+      }
+
+      function setConnected(connected) {
+        connectBtn.disabled = connected;
+        disconnectBtn.disabled = !connected;
+        videoContainer.style.display = connected ? 'block' : 'none';
+      }
+
+      disconnectBtn.addEventListener('click', function() {
+        if (room) {
+          room.disconnect(true);
+          room = null;
+          setStatus('Disconnected.');
+          setConnected(false);
+        }
+      });
+
+      connectBtn.addEventListener('click', async function() {
+        const streamId = (streamIdInput.value || '').trim();
+        if (!streamId) {
+          setStatus('Enter a stream ID.', true);
+          return;
+        }
+
+        connectBtn.disabled = true;
+        setStatus('Fetching token…');
+
+        let data;
+        try {
+          var identity = 'viewer-' + Date.now() + '-' + Math.random().toString(36).slice(2, 9);
+          var url = (location.origin || '') + '/streams/viewer-token/' + encodeURIComponent(streamId) + '?identity=' + encodeURIComponent(identity);
+          var res = await fetch(url);
+          if (!res.ok) {
+            var t = await res.text();
+            if (res.status === 404) {
+              setStatus('Stream not found. Go Live from the app first and use that stream ID.', true);
+            } else {
+              setStatus('Token error: ' + res.status + ' – ' + (t || res.statusText), true);
+            }
+            connectBtn.disabled = false;
+            return;
+          }
+          data = await res.json();
+        } catch (e) {
+          setStatus('Token error: ' + e.message, true);
+          connectBtn.disabled = false;
+          return;
+        }
+
+        var wsUrl = data.wsUrl;
+        var token = data.token;
+        if (!wsUrl || !token) {
+          setStatus('Invalid token response (no wsUrl or token).', true);
+          connectBtn.disabled = false;
+          return;
+        }
+
+        setStatus('Connecting to ' + wsUrl + '…');
+        var Livekit = window.LivekitClient || window.livekitClient;
+        if (!Livekit || !Livekit.Room) {
+          setStatus('LiveKit SDK not loaded. Check console.', true);
+          connectBtn.disabled = false;
+          return;
+        }
+        var Room = Livekit.Room;
+        var RoomEvent = Livekit.RoomEvent || { TrackSubscribed: 'trackSubscribed', TrackUnsubscribed: 'trackUnsubscribed', Disconnected: 'disconnected' };
+
+        room = new Room();
+        room.on(RoomEvent.TrackSubscribed, function(track, publication, participant) {
+          setStatus('Live: ' + participant.identity);
+          if (track.kind === 'video') {
+            track.attach(remoteVideo);
+          }
+        });
+        room.on(RoomEvent.TrackUnsubscribed, function() {
+          remoteVideo.srcObject = null;
+        });
+        room.on(RoomEvent.Disconnected, function(reason) {
+          var DisconnectReason = Livekit.DisconnectReason || {};
+          var isRoomClosed = reason === DisconnectReason.ROOM_DELETED || (reason && String(reason) === 'ROOM_DELETED');
+          if (isRoomClosed) {
+            setStatus('Stream ended. Connect again when the seller goes live.');
+          } else {
+            setStatus('Connection lost. Click Connect to rejoin (stream may still be on).');
+          }
+          setConnected(false);
+        });
+
+        try {
+          await room.connect(wsUrl, token, {
+            peerConnectionTimeout: 20000,
+            websocketTimeout: 10000,
+          });
+          setStatus('Connected. Waiting for video…');
+          setConnected(true);
+        } catch (e) {
+          setStatus('Connect failed: ' + e.message, true);
+          if (e.message && e.message.indexOf('pc connection') !== -1) {
+            statusEl.innerHTML = 'Connect failed: ' + e.message + '. <br><small>Tip: Run LiveKit with <code>--node-ip</code> (your LAN IP), allow firewall for 7881 TCP and 7882 UDP, or run LiveKit natively (see README).</small>';
+          }
+          room = null;
+          connectBtn.disabled = false;
+        }
+      });
+    })();
+  </script>
+</body>
+</html>
