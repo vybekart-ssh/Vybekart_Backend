@@ -16,17 +16,11 @@ services:
       - source: 0.0.0.0/0
         description: allow all (use private network from web service)
 
-  # NestJS API
+  # NestJS API (Docker so dist/ is guaranteed in the image at runtime)
   - type: web
-    runtime: node
+    runtime: docker
     name: vybekart-backend
     plan: free
-    # Use repo root so dist/, prisma/, start-render.sh are all available at deploy
-    rootDir: .
-
-    # Install devDependencies so @nestjs/cli (nest) is available for the build
-    buildCommand: NPM_CONFIG_PRODUCTION=false npm ci && npx prisma generate && npm run build && chmod +x start-render.sh
-    startCommand: ./start-render.sh
 
     envVars:
       - key: NODE_ENV

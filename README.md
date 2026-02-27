@@ -99,7 +99,7 @@ The server will start at `http://localhost:3000`.
 
 Your API will be available at `https://<your-service-name>.onrender.com`. Free web services spin down after inactivity; the first request may be slow.
 
-**If you see "dist/main.js not found"**: In Render Dashboard → your Web Service → **Settings** → **Root Directory**, leave it **blank** (or set to `.`). The service must use the repo root so `dist/`, `prisma/`, and `start-render.sh` are present at deploy.
+The service uses a **Dockerfile** so the build runs inside the image and `dist/` is always present at runtime (avoids "dist/main.js not found" on Render's native Node runtime).
 
 ---
 
