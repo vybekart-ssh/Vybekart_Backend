@@ -1,5 +1,6 @@
 # VybeKart Backend – build and run for Render (dist is inside the image)
-FROM node:22-alpine AS builder
+# Use Debian-based image so Prisma engine has OpenSSL and runs reliably
+FROM node:22-slim AS builder
 
 WORKDIR /app
 
@@ -12,8 +13,8 @@ RUN npx prisma generate
 COPY . .
 RUN npm run build
 
-# Production image
-FROM node:22-alpine AS runner
+# Production image (slim = Debian; Prisma needs OpenSSL, avoid Alpine here)
+FROM node:22-slim AS runner
 
 WORKDIR /app
 
