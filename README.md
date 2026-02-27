@@ -1,0 +1,225 @@
+# VybeKart Backend
+
+A production-ready generic backend for the VybeKart Android application, built with **NestJS**, **Prisma**, **PostgreSQL**, and **Redis**.
+
+## 🚀 Technology Stack
+
+- **Framework**: [NestJS](https://nestjs.com/) (Node.js) - Modular, scalable architecture.
+- **Database**: [PostgreSQL](https://www.postgresql.org/) - Relational data (Users, Products, Orders).
+- **ORM**: [Prisma](https://www.prisma.io/) - Type-safe database access.
+- **Real-time**: [Socket.io](https://socket.io/) - Live chat, likes, and notifications.
+- **Streaming**: [LiveKit](https://livekit.io/) - WebRTC-based live streaming (create rooms, publish/subscribe).
+- **Caching/Queues**: [Redis](https://redis.io/) - For high-performance data and background jobs.
+
+## 🛠️ Setup & Installation
+
+### 1. Prerequisites
+- Node.js (v18+)
+- Docker & Docker Compose (for local DB/Redis)
+
+### 2. Environment Variables
+The `.env` file is already configured for local Docker development:
+```bash
+DATABASE_URL="postgresql://postgres:password@localhost:5432/vybekart?schema=public"
+JWT_SECRET="supersecret_production_key"
+REDIS_HOST="localhost"
+REDIS_PORT=6379
+
+# LiveKit (required for streaming)
+LIVEKIT_URL="wss://your-project.livekit.cloud"
+LIVEKIT_API_KEY="your-api-key"
+LIVEKIT_API_SECRET="your-api-secret"
+```
+
+### 3. Start Infrastructure (DB & Redis)
+```bash
+docker compose up -d
+```
+
+### 4. API Documentation
+See [API.md](./API.md) for full endpoint reference, request/response formats, and validation rules.
+
+### 5. Run Migrations
+Initialize the database schema (run when DB is available):
+```bash
+npx prisma migrate dev --name init
+```
+For schema updates (e.g. order shipping, product video), run:
+```bash
+npx prisma migrate dev --name add_order_shipping_product_video
+```
+Seed categories (Fashion, Beauty, Handmade, Art):
+```bash
+npx prisma db seed
+```
+
+### 6. Start the Server
+```bash
+npm run start:dev
+```
+The server will start at `http://localhost:3000`.
+
+---
+
+## 🧪 Testing LiveKit and Go Live locally
+
+To test the full **Go Live** flow (Select Products → Live Details → Camera Preview → Start Livestream) on your machine:
+
+### 1. Run LiveKit server (Docker)
+
+**If the viewer is on the same laptop as LiveKit (or on the same LAN), use `--node-ip`** so the server advertises your laptop’s IP in ICE (otherwise Docker’s internal IP is used and the peer connection fails):
+
+```bash
+docker run --rm -p 7880:7880 -p 7881:7881 -p 7882:7882/udp -e LIVEKIT_KEYS="devkey: secret" livekit/livekit-server --dev --node-ip 192.168.1.12
+```
+
+Replace `192.168.1.12` with your laptop’s actual LAN IP (same as in `LIVEKIT_URL`).
+
+- **7880**: API / WebSocket (signaling).
+- **7881**: ICE over TCP (WebRTC when UDP is blocked).
+- **7882/UDP**: ICE over UDP (single-port in `--dev`; required for media). Without it you may see *"could not establish pc connection"*.
+
+Leave this running.
+
+**If you still get "could not establish pc connection"** with Docker (common on Windows): run LiveKit **natively** so UDP 7882 is bound on the host. **→ Step-by-step: [LIVEKIT-NATIVE-WINDOWS.md](LIVEKIT-NATIVE-WINDOWS.md)**
+
+1. Download the Windows binary from [LiveKit releases](https://github.com/livekit/livekit/releases) (e.g. `livekit_amd64.exe` or the Windows zip).
+2. Open a terminal in the same folder and run (replace `192.168.1.12` with your laptop’s LAN IP):
+   ```bash
+   .\livekit-server.exe --dev --node-ip 192.168.1.12 --bind 0.0.0.0
+   ```
+   **`--bind 0.0.0.0`** is required on Windows so the server listens on the LAN IP (not only 127.0.0.1). No Docker; ports 7880, 7881, 7882 will be on the host. Keep `LIVEKIT_URL="http://192.168.1.12:7880"` in `.env` and add firewall rules for 7881 (TCP) and 7882 (UDP) as in step 5 below.
+
+### 2. Backend `.env`
+
+Set LiveKit config to point at your local server:
+
+```bash
+# Use ws for local Docker (no TLS)
+LIVEKIT_URL="http://localhost:7880"
+LIVEKIT_API_KEY="devkey"
+LIVEKIT_API_SECRET="secret"
+```
+
+If your backend runs in Docker or on another host, use your machine’s IP instead of `localhost` (e.g. `http://192.168.1.5:7880`). The Android app will receive this URL in the create-stream response; the SDK typically expects a WebSocket URL, so if you use `http://` the app will try `wss://` (or you can normalize to `ws://` / `wss://` in the client).
+
+### 3. Run backend and apply migrations
+
+```bash
+cd VybeKart-Backend
+npx prisma migrate deploy   # or: npx prisma migrate dev --name stream_products_visibility
+npm run start:dev
+```
+
+### 4. Android app
+
+- In **app/build.gradle.kts**, set `buildConfigField("String", "BASE_URL", "\"http://<YOUR_PC_IP>:3000/\"")` so the device/emulator can reach the backend (use your PC’s LAN IP, not `localhost`).
+- Log in as a **seller** and create at least one product (optional but useful for “Select Products”).
+- Open **Go Live** tab → **Select Products** (optional) → **Continue** → **Live Details** (name, description, category, visibility) → **Continue** → **Camera Preview** → grant camera/mic → **Start Livestream**.
+- After connecting, the “You’re live!” overlay appears; use **End stream** to stop and call `PATCH /streams/:id/stop`.
+
+### 5. Watch the stream from another device (viewer test)
+
+To see the live stream from a browser or another phone:
+
+1. **Get the stream ID**  
+   When the seller taps “Start Livestream”, the API returns the stream (e.g. `id: "abc-123-..."`). Use that as `streamId`, or list active streams with `GET /streams/active` and pick one.
+
+2. **Get a viewer token**  
+   Call your backend (with any logged-in user or a test JWT):
+   ```http
+   POST http://<YOUR_PC_IP>:3000/streams/<streamId>/token
+   Content-Type: application/json
+   Authorization: Bearer <any-valid-jwt>
+
+   { "identity": "viewer-1" }
+   ```
+   Response: `{ "token": "...", "livekitUrl": "http://192.168.1.12:7880", "roomName": "abc-123-..." }`.  
+   For **no-auth** testing you can use **GET** `/streams/<streamId>/viewer-token?identity=viewer-1`; response includes `token` and `wsUrl` (use `wsUrl` as Server URL in Meet).
+
+3. **Open LiveKit Meet in a browser**  
+   - Go to **https://meet.livekit.io**
+   - **Server URL:** `ws://<YOUR_PC_IP>:7880` (same host as in `livekitUrl`, use `ws` for local).
+   - **Token:** paste the `token` from step 2.  
+   - Click **Connect**. You should see and hear the seller’s stream.
+
+   **If Meet does not connect** (e.g. “unexpected end of stream” or connection fails):  
+   Browsers often block **mixed content**: an HTTPS page (meet.livekit.io) cannot open a `ws://` connection to your PC. Use the **built-in viewer** instead (same host as API, so HTTP → ws is allowed):
+
+   - Open **http://&lt;YOUR_PC_IP&gt;:3000/viewer?streamId=&lt;streamId&gt;** in the browser (same device/network as above).
+   - The page fetches a viewer token from `GET /streams/:id/viewer-token` (no auth) and connects to LiveKit. You should see the stream when the seller is live.
+
+4. **Same network**  
+   The device/browser must be on the same LAN as the laptop (or use your laptop’s IP and ensure ports 7880/7881/7882 are reachable).
+
+
+5. **"Could not establish pc connection"**  
+   WebSocket connects but WebRTC media fails.
+
+   - **Viewer on laptop, streamer on mobile (same LAN):** Restart LiveKit with **`--node-ip`** set to your laptop’s LAN IP (e.g. `--node-ip 192.168.1.12`) so ICE candidates are reachable. See step 1 for the full command.
+   - **Windows:** Allow inbound TCP **7881** and UDP **7882** on Private networks (Windows Defender Firewall → Advanced → Inbound rules, or run in an elevated PowerShell):
+     ```powershell
+     New-NetFirewallRule -DisplayName "LiveKit 7881 TCP" -Direction Inbound -Protocol TCP -LocalPort 7881 -Action Allow -Profile Private
+     New-NetFirewallRule -DisplayName "LiveKit 7882 UDP" -Direction Inbound -Protocol UDP -LocalPort 7882 -Action Allow -Profile Private
+     ```
+   - On other machines, allow Docker/firewall for 7880, 7881, 7882. If the viewer is on another device, set `LIVEKIT_URL` to the laptop's LAN IP and open the viewer at that host (e.g. `http://192.168.1.12:3000/viewer?streamId=...`).
+
+6. **Still "could not establish pc connection"? What to share**  
+   To debug further, please share:
+
+   - **Where are you running things?**  
+     - Viewer: same PC as backend (e.g. `http://localhost:3000/viewer`) or another device (e.g. phone/tablet at `http://192.168.x.x:3000/viewer`)?  
+     - Backend and LiveKit: on the same Windows PC, or in WSL2 / another VM?
+   - **Exact LiveKit Docker command** you run (copy-paste the full `docker run ...` line). Confirm it includes `-p 7882:7882/udp`.
+   - **Backend `.env`**: value of `LIVEKIT_URL` only (e.g. `http://localhost:7880` or `http://192.168.1.12:7880`). No secrets.
+   - **Try same-machine test**: On the PC where backend + LiveKit run, set `LIVEKIT_URL="http://localhost:7880"`, open `http://localhost:3000/viewer?streamId=YOUR_STREAM_ID` in the browser, seller is live from the app. Does it work there? (If yes, the issue is network/firewall when viewer or app is on another device.)
+
+   Optional: Browser DevTools → Console: any red errors before or after "could not establish pc connection". Network tab: after clicking Connect, do you see a successful WebSocket to the LiveKit URL (e.g. `ws://localhost:7880` or `ws://192.168.x.x:7880`)?
+
+7. **Console logs: "leave-reconnect disconnected", "Received leave request"**  
+   When the **seller ends the stream** (or the room is closed), the server tells the viewer to leave. The LiveKit client then tries to reconnect, gets "leave request", and logs "WebSocket is already in CLOSING or CLOSED state". That is **expected**. The viewer page will show "Stream ended. Connect again when the seller goes live." Refresh and connect again when the seller goes live with a new stream.
+
+---
+
+## 📱 Android Integration Guide
+
+### 1. Networking (Retrofit)
+Use Retrofit to communicate with the REST API.
+- **Base URL**: `http://<YOUR_PC_IP>:3000/` (Use IP, not localhost for Emulator/Device).
+- **Endpoints**:
+  - `POST /auth/login`: Authenticate user.
+  - `POST /streams`: Create stream (Seller). Returns `token`, `livekitUrl`, `livekitRoomName`.
+  - `GET /streams/active`: Get active streams (Buyer).
+  - `PATCH /streams/:id/stop`: End a stream (Seller).
+
+### 2. Live Streaming (Go Live with LiveKit)
+The **Seller App** uses **LiveKit** for WebRTC-based livestreaming (no RTMP).
+- **Backend**: `POST /streams` with `title`, `description`, `categoryId`, `visibility`, `productIds` returns `token`, `livekitUrl`, `livekitRoomName` (stream id).
+- **Android**: Use [LiveKit Android SDK](https://github.com/livekit/client-sdk-android). Connect with `room.connect(livekitUrl, token)`, then `localParticipant.setCameraEnabled(true)` and `setMicrophoneEnabled(true)`.
+- **End stream**: `PATCH /streams/:id/stop` and disconnect the room.
+- See **Testing LiveKit and Go Live locally** above for running a local LiveKit server.
+
+### 3. Live Playback (Watching)
+For the **Buyer App**, use **ExoPlayer** to play the HLS stream.
+- **Library**: `androidx.media3:media3-exoplayer`
+- **Action**: Pass the `hlsPlaybackUrl` to the player. ExoPlayer handles HLS (m3u8) natively.
+
+### 4. Real-time Chat (Socket.io)
+Use the official Socket.IO Client for Java/Kotlin.
+- **Library**: `io.socket:socket.io-client:2.1.0`
+- **Events**:
+  - `join_room`: When entering a stream.
+  - `chat_message`: Sending/Receiving messages.
+  - `like_stream`: Sending hearts.
+
+## 📂 Project Structure
+
+- `src/prisma`: Database connection module.
+- `src/users`: User management & Authentication hooks.
+- `src/streams`: Logic for creating and managing live streams.
+  - *Mock Logic*: See `streams.service.ts` for where to plug in AWS SDK.
+- `src/products`: E-commerce product management.
+- `src/orders`: Order processing.
+
+## ⚠️ Production Note
+For production LiveKit, use [LiveKit Cloud](https://cloud.livekit.io) or a self-hosted deployment and set `LIVEKIT_URL`, `LIVEKIT_API_KEY`, and `LIVEKIT_API_SECRET` accordingly. The streams module uses the LiveKit server SDK to create rooms and issue tokens.
