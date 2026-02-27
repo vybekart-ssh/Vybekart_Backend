@@ -4,6 +4,9 @@ FROM node:22-slim AS builder
 
 WORKDIR /app
 
+# Prisma engine requires OpenSSL
+RUN apt-get update -y && apt-get install -y openssl ca-certificates && rm -rf /var/lib/apt/lists/*
+
 COPY package.json package-lock.json* ./
 RUN npm ci
 
@@ -13,10 +16,13 @@ RUN npx prisma generate
 COPY . .
 RUN npm run build
 
-# Production image (slim = Debian; Prisma needs OpenSSL, avoid Alpine here)
+# Production image (slim = Debian; Prisma needs OpenSSL at runtime for migrate deploy)
 FROM node:22-slim AS runner
 
 WORKDIR /app
+
+# Prisma migrate deploy needs OpenSSL in the runtime image
+RUN apt-get update -y && apt-get install -y openssl ca-certificates && rm -rf /var/lib/apt/lists/*
 
 ENV NODE_ENV=production
 
