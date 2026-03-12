@@ -7,6 +7,7 @@ import {
   RefreshTokenDto,
 } from './dto/auth.dto';
 import { SendOtpDto, VerifyOtpDto } from './dto/otp.dto';
+import { ForgotPasswordDto, ResetPasswordDto } from './dto/forgot-password.dto';
 
 @Controller('auth')
 export class AuthController {
@@ -40,5 +41,15 @@ export class AuthController {
   @Post('register/buyer')
   async registerBuyer(@Body() dto: RegisterBuyerDto) {
     return this.authService.registerBuyer(dto);
+  }
+
+  @Post('forgot-password')
+  async forgotPassword(@Body() dto: ForgotPasswordDto) {
+    return this.authService.forgotPassword(dto);
+  }
+
+  @Post('reset-password')
+  async resetPassword(@Body() dto: ResetPasswordDto) {
+    return this.authService.resetPassword(dto);
   }
 }
