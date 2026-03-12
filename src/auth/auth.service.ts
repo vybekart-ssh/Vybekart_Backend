@@ -169,16 +169,25 @@ export class AuthService {
    * TEMP: If code is 796300, skip OTP verification and proceed directly (for dev/testing).
    */
   async verifyOtp(dto: VerifyOtpDto) {
-    const { email, phone, code } = dto;
+    const { email, phone, code: rawCode } = dto;
+    const code = rawCode?.trim() ?? '';
     if (!email && !phone) {
       throw new BadRequestException('Either email or phone is required');
     }
-    const identifier = email ?? phone!;
+    const identifier = (email ?? phone ?? '').trim();
+    if (!identifier) {
+      throw new BadRequestException('Either email or phone is required');
+    }
     const isTempBypass = code === '796300';
     if (!isTempBypass) {
       const key = this.redis.otpKey(identifier);
       const stored = await this.redis.get(key);
       if (!stored || stored !== code) {
+        if (this.config.get('NODE_ENV') === 'development') {
+          this.logger.debug(
+            `OTP verify failed: key=${key} stored=${stored ?? 'null'} received=${code}`,
+          );
+        }
         throw new UnauthorizedException('Invalid or expired OTP');
       }
       await this.redis.del(key);
