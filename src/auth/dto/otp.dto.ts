@@ -6,7 +6,6 @@ import {
   Matches,
 } from 'class-validator';
 
-  @Transform(({ value }) => (typeof value === 'string' ? value.trim() : value))
 /** E.164 or local digits; adjust pattern as needed */
 const PHONE_REGEX = /^\+?[1-9]\d{1,14}$/;
 
@@ -25,8 +24,6 @@ export class SendOtpDto {
 
 export class VerifyOtpDto {
   @IsOptional()
-  @MinLength(6, { message: 'OTP must be 6 digits' })
-  @MaxLength(6, { message: 'OTP must be 6 digits' })
   @IsEmail()
   email?: string;
 

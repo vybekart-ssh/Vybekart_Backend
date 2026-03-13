@@ -1,7 +1,16 @@
 import { Controller, Post, Body } from '@nestjs/common';
 import { AuthService } from './auth.service';
-import { RegisterSellerDto } from './dto/auth.dto';
+import {
+  LoginDto,
+  RefreshTokenDto,
+  RegisterBuyerDto,
+  RegisterSellerDto,
+} from './dto/auth.dto';
 import { SendOtpDto, VerifyOtpDto } from './dto/otp.dto';
+
+@Controller('auth')
+export class AuthController {
+  constructor(private readonly authService: AuthService) {}
 
   @Post('login')
   async login(@Body() loginDto: LoginDto) {
@@ -13,15 +22,11 @@ import { SendOtpDto, VerifyOtpDto } from './dto/otp.dto';
     return this.authService.refresh(dto);
   }
 
-@Controller('auth')
-export class AuthController {
-  constructor(private readonly authService: AuthService) {}
-
-
   @Post('register/buyer')
   async registerBuyer(@Body() dto: RegisterBuyerDto) {
     return this.authService.registerBuyer(dto);
   }
+
   @Post('otp/send')
   async sendOtp(@Body() dto: SendOtpDto) {
     return this.authService.sendOtp(dto);
