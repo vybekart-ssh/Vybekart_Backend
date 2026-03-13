@@ -1,17 +1,7 @@
 import { Controller, Post, Body } from '@nestjs/common';
 import { AuthService } from './auth.service';
-import {
-  LoginDto,
-  RegisterBuyerDto,
-  RegisterSellerDto,
-  RefreshTokenDto,
-} from './dto/auth.dto';
+import { RegisterSellerDto } from './dto/auth.dto';
 import { SendOtpDto, VerifyOtpDto } from './dto/otp.dto';
-import { ForgotPasswordDto, ResetPasswordDto } from './dto/forgot-password.dto';
-
-@Controller('auth')
-export class AuthController {
-  constructor(private readonly authService: AuthService) {}
 
   @Post('login')
   async login(@Body() loginDto: LoginDto) {
@@ -23,6 +13,15 @@ export class AuthController {
     return this.authService.refresh(dto);
   }
 
+@Controller('auth')
+export class AuthController {
+  constructor(private readonly authService: AuthService) {}
+
+
+  @Post('register/buyer')
+  async registerBuyer(@Body() dto: RegisterBuyerDto) {
+    return this.authService.registerBuyer(dto);
+  }
   @Post('otp/send')
   async sendOtp(@Body() dto: SendOtpDto) {
     return this.authService.sendOtp(dto);
@@ -36,20 +35,5 @@ export class AuthController {
   @Post('register/seller')
   async registerSeller(@Body() dto: RegisterSellerDto) {
     return this.authService.registerSeller(dto);
-  }
-
-  @Post('register/buyer')
-  async registerBuyer(@Body() dto: RegisterBuyerDto) {
-    return this.authService.registerBuyer(dto);
-  }
-
-  @Post('forgot-password')
-  async forgotPassword(@Body() dto: ForgotPasswordDto) {
-    return this.authService.forgotPassword(dto);
-  }
-
-  @Post('reset-password')
-  async resetPassword(@Body() dto: ResetPasswordDto) {
-    return this.authService.resetPassword(dto);
   }
 }

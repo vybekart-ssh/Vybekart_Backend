@@ -13,15 +13,10 @@ import {
 } from 'class-validator';
 import { Type } from 'class-transformer';
 
-/** Login with email or phone (at least one required) and password. */
 export class LoginDto {
-  @IsOptional()
   @IsEmail()
-  email?: string;
-
-  @IsOptional()
-  @IsString()
-  phone?: string;
+  @IsNotEmpty()
+  email: string;
 
   @IsString()
   @IsNotEmpty()
