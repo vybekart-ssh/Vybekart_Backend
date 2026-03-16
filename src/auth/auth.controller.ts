@@ -5,6 +5,8 @@ import {
   RefreshTokenDto,
   RegisterBuyerDto,
   RegisterSellerDto,
+  ForgotPasswordDto,
+  ResetPasswordDto,
 } from './dto/auth.dto';
 import { SendOtpDto, VerifyOtpDto } from './dto/otp.dto';
 
@@ -40,5 +42,15 @@ export class AuthController {
   @Post('register/seller')
   async registerSeller(@Body() dto: RegisterSellerDto) {
     return this.authService.registerSeller(dto);
+  }
+
+  @Post('forgot-password')
+  async forgotPassword(@Body() dto: ForgotPasswordDto) {
+    return this.authService.forgotPassword(dto);
+  }
+
+  @Post('reset-password')
+  async resetPassword(@Body() dto: ResetPasswordDto) {
+    return this.authService.resetPassword(dto);
   }
 }

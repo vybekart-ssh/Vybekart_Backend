@@ -16,6 +16,8 @@ import {
   RegisterBuyerDto,
   RegisterSellerDto,
   RefreshTokenDto,
+  ForgotPasswordDto,
+  ResetPasswordDto,
 } from './dto/auth.dto';
 import { SendOtpDto, VerifyOtpDto } from './dto/otp.dto';
 import { Role } from '@prisma/client';
@@ -36,10 +38,13 @@ export class AuthService {
   ) {}
 
   async login(loginDto: LoginDto) {
-    const { email, password } = loginDto;
+    const { email, phone, password } = loginDto;
+    if (!email && !phone) {
+      throw new BadRequestException('Either email or phone is required');
+    }
 
-    const user = await this.prisma.user.findUnique({
-      where: { email },
+    const user = await this.prisma.user.findFirst({
+      where: email ? { email } : { phone: phone! },
       include: { sellerProfile: true, buyerProfile: true },
     });
 
@@ -326,13 +331,21 @@ export class AuthService {
   }
 
   async registerBuyer(dto: RegisterBuyerDto) {
-    // Check if user exists
-    const existingUser = await this.prisma.user.findUnique({
+    const existingByEmail = await this.prisma.user.findUnique({
       where: { email: dto.email },
     });
-
-    if (existingUser) {
+    if (existingByEmail) {
       throw new ConflictException('User with this email already exists');
+    }
+    if (dto.phone) {
+      const existingByPhone = await this.prisma.user.findUnique({
+        where: { phone: dto.phone.trim() },
+      });
+      if (existingByPhone) {
+        throw new ConflictException(
+          'An account with this mobile number already exists',
+        );
+      }
     }
 
     const hashedPassword = await bcrypt.hash(dto.password, 10);
@@ -363,9 +376,56 @@ export class AuthService {
       });
 
       // Login immediately
-      return this.login({ email: dto.email, password: dto.password });
+      return this.login({
+        email: dto.email,
+        password: dto.password,
+      });
     } catch {
       throw new ConflictException('Registration failed, please try again.');
     }
+  }
+
+  /** Send OTP to phone for password reset. */
+  async forgotPassword(dto: ForgotPasswordDto) {
+    const phone = dto.phone.trim();
+    const user = await this.prisma.user.findUnique({ where: { phone } });
+    if (!user) {
+      throw new BadRequestException(
+        'No account found with this mobile number',
+      );
+    }
+    const code = randomInt(
+      10 ** (OTP_LENGTH - 1),
+      10 ** OTP_LENGTH - 1,
+    ).toString();
+    const key = this.redis.otpKey(`reset:${phone}`);
+    await this.redis.set(key, code, OTP_TTL_SECONDS);
+    if (this.config.get<string>('OTP_SEND_VIA') !== 'true') {
+      this.logger.log(
+        `[DEV] Reset OTP for ${phone}: ${code} (expires ${OTP_TTL_SECONDS}s)`,
+      );
+    }
+    return { message: 'OTP sent to your mobile number' };
+  }
+
+  /** Verify OTP and set new password. */
+  async resetPassword(dto: ResetPasswordDto) {
+    const { phone, code, newPassword } = dto;
+    const key = this.redis.otpKey(`reset:${phone}`);
+    const stored = await this.redis.get(key);
+    if (!stored || stored !== code.trim()) {
+      throw new UnauthorizedException('Invalid or expired OTP');
+    }
+    await this.redis.del(key);
+    const user = await this.prisma.user.findUnique({ where: { phone } });
+    if (!user) {
+      throw new BadRequestException('No account found with this mobile number');
+    }
+    const hashedPassword = await bcrypt.hash(newPassword, 10);
+    await this.prisma.user.update({
+      where: { id: user.id },
+      data: { password: hashedPassword },
+    });
+    return { message: 'Password reset successfully' };
   }
 }

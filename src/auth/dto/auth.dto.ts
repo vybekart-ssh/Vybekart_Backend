@@ -13,15 +13,51 @@ import {
 } from 'class-validator';
 import { Type } from 'class-transformer';
 
+/** Login with email or phone (at least one required) and password. */
 export class LoginDto {
+  @IsOptional()
   @IsEmail()
-  @IsNotEmpty()
-  email: string;
+  email?: string;
+
+  @IsOptional()
+  @IsString()
+  @Matches(/^\+?[1-9]\d{1,14}$/, {
+    message: 'Phone must be in E.164 format (e.g. +919876543210)',
+  })
+  phone?: string;
 
   @IsString()
   @IsNotEmpty()
   @MinLength(6)
   password: string;
+}
+
+export class ForgotPasswordDto {
+  @IsString()
+  @IsNotEmpty()
+  @Matches(/^\+?[1-9]\d{1,14}$/, {
+    message: 'Phone must be in E.164 format (e.g. +919876543210)',
+  })
+  phone: string;
+}
+
+export class ResetPasswordDto {
+  @IsString()
+  @IsNotEmpty()
+  @Matches(/^\+?[1-9]\d{1,14}$/, {
+    message: 'Phone must be in E.164 format (e.g. +919876543210)',
+  })
+  phone: string;
+
+  @IsString()
+  @IsNotEmpty()
+  @Matches(/^\d{6}$/, { message: 'OTP must be 6 digits' })
+  code: string;
+
+  @IsString()
+  @IsNotEmpty()
+  @MinLength(6)
+  newPassword: string;
 }
 
 export class RegisterBuyerDto {
