@@ -153,18 +153,24 @@ export class StreamsService {
 
   async findAllActive(
     query?: PaginationQueryDto,
+    categoryId?: string,
   ): Promise<PaginatedResult<unknown>> {
     const { page = 1, limit = 20 } = query ?? {};
     const skip = (page - 1) * limit;
+    const where: any = { isLive: true };
+    if (categoryId) {
+      where.categoryId = categoryId;
+    }
+
     const [data, total] = await Promise.all([
       this.prisma.stream.findMany({
-        where: { isLive: true },
+        where,
         include: streamWithSellerInclude,
         orderBy: { startedAt: 'desc' },
         skip,
         take: limit,
       }),
-      this.prisma.stream.count({ where: { isLive: true } }),
+      this.prisma.stream.count({ where }),
     ]);
     const totalPages = Math.ceil(total / limit);
     return {

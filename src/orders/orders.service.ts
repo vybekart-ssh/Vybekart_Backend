@@ -8,6 +8,9 @@ import { PrismaService } from '../prisma/prisma.service';
 import { CreateOrderDto } from './dto/create-order.dto';
 import { ShipOrderDto } from './dto/ship-order.dto';
 import { OrderStatus, Prisma } from '@prisma/client';
+import { RedisService } from '../redis/redis.service';
+import { CartItemDto } from './dto/cart-item.dto';
+import { CheckoutOrderDto } from './dto/checkout-order.dto';
 import {
   PaginationQueryDto,
   PaginatedResult,
@@ -16,7 +19,133 @@ import { SellerOrdersQueryDto } from './dto/seller-orders-query.dto';
 
 @Injectable()
 export class OrdersService {
-  constructor(private prisma: PrismaService) {}
+  constructor(
+    private prisma: PrismaService,
+    private redis: RedisService,
+  ) {}
+
+  private cartKey(userId: string): string {
+    return `orders:cart:${userId}`;
+  }
+
+  private async loadCartItems(userId: string): Promise<CartItemDto[]> {
+    const raw = await this.redis.get(this.cartKey(userId));
+    if (!raw) return [];
+    try {
+      const parsed = JSON.parse(raw) as CartItemDto[];
+      return Array.isArray(parsed) ? parsed : [];
+    } catch {
+      return [];
+    }
+  }
+
+  private async saveCartItems(userId: string, items: CartItemDto[]) {
+    await this.redis.set(this.cartKey(userId), JSON.stringify(items));
+  }
+
+  async getCart(userId: string) {
+    const items = await this.loadCartItems(userId);
+    if (!items.length) {
+      return { items: [], subtotal: 0, shipping: 0, total: 0 };
+    }
+
+    const productIds = items.map((i) => i.productId);
+    const products = await this.prisma.product.findMany({
+      where: { id: { in: productIds } },
+      select: { id: true, name: true, price: true, images: true },
+    });
+    const map = new Map(products.map((p) => [p.id, p]));
+
+    const normalized = items
+      .map((item) => {
+        const product = map.get(item.productId);
+        if (!product) return null;
+        return {
+          ...item,
+          product,
+          amount: product.price * item.quantity,
+        };
+      })
+      .filter(Boolean) as Array<{
+      productId: string;
+      quantity: number;
+      size?: string;
+      color?: string;
+      product: { id: string; name: string; price: number; images: string[] };
+      amount: number;
+    }>;
+
+    const subtotal = normalized.reduce((sum, i) => sum + i.amount, 0);
+    const shipping = subtotal > 0 ? 90 : 0;
+    const total = subtotal + shipping;
+
+    return { items: normalized, subtotal, shipping, total };
+  }
+
+  async addCartItem(userId: string, dto: CartItemDto) {
+    const product = await this.prisma.product.findUnique({
+      where: { id: dto.productId },
+      select: { id: true, stock: true },
+    });
+    if (!product) throw new NotFoundException('Product not found');
+    if (dto.quantity > product.stock) {
+      throw new BadRequestException('Requested quantity exceeds available stock');
+    }
+
+    const items = await this.loadCartItems(userId);
+    const idx = items.findIndex((i) => i.productId === dto.productId);
+    if (idx >= 0) {
+      items[idx].quantity = dto.quantity;
+      items[idx].size = dto.size;
+      items[idx].color = dto.color;
+    } else {
+      items.push(dto);
+    }
+    await this.saveCartItems(userId, items);
+    return this.getCart(userId);
+  }
+
+  async updateCartItem(userId: string, productId: string, quantity: number) {
+    const items = await this.loadCartItems(userId);
+    const idx = items.findIndex((i) => i.productId === productId);
+    if (idx < 0) throw new NotFoundException('Item not found in cart');
+    items[idx].quantity = quantity;
+    await this.saveCartItems(userId, items);
+    return this.getCart(userId);
+  }
+
+  async removeCartItem(userId: string, productId: string) {
+    const items = await this.loadCartItems(userId);
+    const next = items.filter((i) => i.productId !== productId);
+    await this.saveCartItems(userId, next);
+    return this.getCart(userId);
+  }
+
+  async checkoutFromCart(userId: string, dto: CheckoutOrderDto) {
+    const cart = await this.getCart(userId);
+    if (!cart.items.length) {
+      throw new BadRequestException('Cart is empty');
+    }
+    const createDto: CreateOrderDto = {
+      items: cart.items.map((i) => ({
+        productId: i.productId,
+        quantity: i.quantity,
+      })),
+      shippingAddress: dto.shippingAddress,
+    };
+
+    const order = await this.create(createDto, userId);
+    await this.redis.del(this.cartKey(userId));
+
+    return {
+      orderId: order?.id,
+      status: order?.status ?? 'PENDING',
+      totalAmount: order?.totalAmount ?? cart.total,
+      estimatedDelivery: 'October 20, 2024',
+      shippingAddress: dto.shippingAddress,
+      paymentMethod: dto.paymentMethod ?? 'CARD',
+    };
+  }
 
   async create(dto: CreateOrderDto, userId: string) {
     const buyer = await this.prisma.buyer.findUnique({

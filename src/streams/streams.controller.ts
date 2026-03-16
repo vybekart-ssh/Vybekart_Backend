@@ -35,8 +35,11 @@ export class StreamsController {
   }
 
   @Get('active')
-  findAllActive(@Query() query: PaginationQueryDto) {
-    return this.streamsService.findAllActive(query);
+  findAllActive(
+    @Query() query: PaginationQueryDto,
+    @Query('categoryId') categoryId?: string,
+  ) {
+    return this.streamsService.findAllActive(query, categoryId);
   }
 
   /**

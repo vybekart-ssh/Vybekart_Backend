@@ -3,6 +3,7 @@ import {
   Get,
   Post,
   Patch,
+  Delete,
   Body,
   Param,
   UseGuards,
@@ -18,6 +19,8 @@ import { Roles } from '../auth/roles.decorator';
 import { Role } from '@prisma/client';
 import { PaginationQueryDto } from '../common/dto/pagination-query.dto';
 import { SellerOrdersQueryDto } from './dto/seller-orders-query.dto';
+import { CartItemDto, UpdateCartQuantityDto } from './dto/cart-item.dto';
+import { CheckoutOrderDto } from './dto/checkout-order.dto';
 
 @Controller('orders')
 export class OrdersController {
@@ -31,6 +34,54 @@ export class OrdersController {
     @Body() createOrderDto: CreateOrderDto,
   ) {
     return this.ordersService.create(createOrderDto, req.user.id);
+  }
+
+  @Get('cart')
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles(Role.BUYER)
+  getCart(@Request() req: { user: { id: string } }) {
+    return this.ordersService.getCart(req.user.id);
+  }
+
+  @Post('cart/items')
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles(Role.BUYER)
+  addCartItem(
+    @Request() req: { user: { id: string } },
+    @Body() dto: CartItemDto,
+  ) {
+    return this.ordersService.addCartItem(req.user.id, dto);
+  }
+
+  @Patch('cart/items/:productId')
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles(Role.BUYER)
+  updateCartItem(
+    @Request() req: { user: { id: string } },
+    @Param('productId') productId: string,
+    @Body() dto: UpdateCartQuantityDto,
+  ) {
+    return this.ordersService.updateCartItem(req.user.id, productId, dto.quantity);
+  }
+
+  @Patch('checkout')
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles(Role.BUYER)
+  checkout(
+    @Request() req: { user: { id: string } },
+    @Body() dto: CheckoutOrderDto,
+  ) {
+    return this.ordersService.checkoutFromCart(req.user.id, dto);
+  }
+
+  @Delete('cart/items/:productId')
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles(Role.BUYER)
+  removeCartItem(
+    @Request() req: { user: { id: string } },
+    @Param('productId') productId: string,
+  ) {
+    return this.ordersService.removeCartItem(req.user.id, productId);
   }
 
   @Get()
