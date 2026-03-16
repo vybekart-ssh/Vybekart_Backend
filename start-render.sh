@@ -12,4 +12,7 @@ if [ ! -f "$ROOT/dist/main.js" ]; then
 fi
 cd "$ROOT"
 npx prisma migrate deploy
+if [ "${RUN_DUMMY_SEED_ON_DEPLOY:-true}" = "true" ]; then
+  node prisma/seed-dummy.js
+fi
 exec node dist/main.js

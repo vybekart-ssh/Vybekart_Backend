@@ -37,4 +37,4 @@ COPY --from=builder /app/dist ./dist
 EXPOSE 3000
 
 # Nest outputs to dist/src/main.js when sourceRoot is src
-CMD ["/bin/sh", "-c", "npx prisma migrate deploy && exec node /app/dist/src/main.js"]
+CMD ["/bin/sh", "-c", "npx prisma migrate deploy && if [ \"${RUN_DUMMY_SEED_ON_DEPLOY:-true}\" = \"true\" ]; then node /app/prisma/seed-dummy.js; fi && exec node /app/dist/src/main.js"]
