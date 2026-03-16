@@ -11,17 +11,20 @@ import { OrderStatus, Prisma } from '@prisma/client';
 import { RedisService } from '../redis/redis.service';
 import { CartItemDto } from './dto/cart-item.dto';
 import { CheckoutOrderDto } from './dto/checkout-order.dto';
+import { ConfigService } from '@nestjs/config';
 import {
   PaginationQueryDto,
   PaginatedResult,
 } from '../common/dto/pagination-query.dto';
 import { SellerOrdersQueryDto } from './dto/seller-orders-query.dto';
+import { BuyerOrdersQueryDto } from './dto/buyer-orders-query.dto';
 
 @Injectable()
 export class OrdersService {
   constructor(
     private prisma: PrismaService,
     private redis: RedisService,
+    private config: ConfigService,
   ) {}
 
   private cartKey(userId: string): string {
@@ -227,16 +230,33 @@ export class OrdersService {
 
   async findMyOrders(
     userId: string,
-    query: PaginationQueryDto,
+    query: BuyerOrdersQueryDto,
   ): Promise<PaginatedResult<unknown>> {
     const buyer = await this.prisma.buyer.findUnique({
       where: { userId },
     });
     if (!buyer) throw new ForbiddenException('User is not a registered buyer');
 
-    const { page = 1, limit = 20 } = query;
+    const { page = 1, limit = 20, status, search } = query;
     const skip = (page - 1) * limit;
-    const where = { buyerId: buyer.id };
+    const where: Prisma.OrderWhereInput = {
+      buyerId: buyer.id,
+      ...(status ? { status: status as OrderStatus } : {}),
+      ...(search
+        ? {
+            OR: [
+              { id: { contains: search, mode: 'insensitive' } },
+              {
+                items: {
+                  some: {
+                    product: { name: { contains: search, mode: 'insensitive' } },
+                  },
+                },
+              },
+            ],
+          }
+        : {}),
+    };
     const [data, total] = await Promise.all([
       this.prisma.order.findMany({
         where,
@@ -257,6 +277,56 @@ export class OrdersService {
         totalPages,
         hasNext: page < totalPages,
         hasPrev: page > 1,
+      },
+    };
+  }
+
+  async getOrderHelp(orderId: string, userId: string) {
+    const buyer = await this.prisma.buyer.findUnique({
+      where: { userId },
+      include: { user: true },
+    });
+    if (!buyer) throw new ForbiddenException('User is not a registered buyer');
+
+    const order = await this.prisma.order.findUnique({
+      where: { id: orderId },
+      include: {
+        items: {
+          include: {
+            product: { select: { id: true, name: true, images: true } },
+          },
+        },
+      },
+    });
+    if (!order || order.buyerId !== buyer.id) {
+      throw new NotFoundException('Order not found');
+    }
+
+    return {
+      order: {
+        id: order.id,
+        status: order.status,
+        createdAt: order.createdAt,
+        totalAmount: order.totalAmount,
+        shippingAddress: order.shippingAddress,
+        items: order.items,
+      },
+      customer: {
+        name: buyer.user.name,
+        email: buyer.user.email,
+        phone: buyer.user.phone,
+      },
+      support: {
+        chatAvailable: true,
+        phone:
+          this.config.get<string>('SUPPORT_ACCOUNT_MANAGER_PHONE') ??
+          '+91 98765 43210',
+        suggestedQueries: [
+          'Issue with this item',
+          'Did not get the item',
+          'Return or exchange the item',
+          'Other issue',
+        ],
       },
     };
   }

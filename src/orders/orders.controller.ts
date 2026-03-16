@@ -21,6 +21,7 @@ import { PaginationQueryDto } from '../common/dto/pagination-query.dto';
 import { SellerOrdersQueryDto } from './dto/seller-orders-query.dto';
 import { CartItemDto, UpdateCartQuantityDto } from './dto/cart-item.dto';
 import { CheckoutOrderDto } from './dto/checkout-order.dto';
+import { BuyerOrdersQueryDto } from './dto/buyer-orders-query.dto';
 
 @Controller('orders')
 export class OrdersController {
@@ -89,9 +90,19 @@ export class OrdersController {
   @Roles(Role.BUYER)
   findMyOrders(
     @Request() req: { user: { id: string } },
-    @Query() query: PaginationQueryDto,
+    @Query() query: BuyerOrdersQueryDto,
   ) {
     return this.ordersService.findMyOrders(req.user.id, query);
+  }
+
+  @Get(':id/help')
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles(Role.BUYER)
+  getOrderHelp(
+    @Request() req: { user: { id: string } },
+    @Param('id') id: string,
+  ) {
+    return this.ordersService.getOrderHelp(id, req.user.id);
   }
 
   @Get('seller')
