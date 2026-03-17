@@ -6,9 +6,12 @@ import {
   Query,
   Patch,
   Param,
+  Body,
+  Post,
 } from '@nestjs/common';
 import { BuyersService } from './buyers.service';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
+import { UpdateBuyerProfileDto } from './dto/update-buyer-profile.dto';
 
 @Controller('buyers')
 export class BuyersController {
@@ -18,6 +21,15 @@ export class BuyersController {
   @Get('profile')
   getProfile(@Request() req: { user: { id: string } }) {
     return this.buyersService.findOne(req.user.id);
+  }
+
+  @UseGuards(JwtAuthGuard)
+  @Patch('profile')
+  updateProfile(
+    @Request() req: { user: { id: string } },
+    @Body() dto: UpdateBuyerProfileDto,
+  ) {
+    return this.buyersService.updateProfile(req.user.id, dto);
   }
 
   /** Buyer home feed: upcoming live, recently viewed, recommendations. */
@@ -52,5 +64,26 @@ export class BuyersController {
   @Patch('notifications/read-all')
   markAllNotificationsRead(@Request() req: { user: { id: string } }) {
     return this.buyersService.markAllNotificationsRead(req.user.id);
+  }
+
+  @UseGuards(JwtAuthGuard)
+  @Get('referrals')
+  getReferrals(@Request() req: { user: { id: string } }) {
+    return this.buyersService.getReferrals(req.user.id);
+  }
+
+  @UseGuards(JwtAuthGuard)
+  @Post('referrals/apply')
+  applyReferral(
+    @Request() req: { user: { id: string } },
+    @Body('code') code: string,
+  ) {
+    return this.buyersService.applyReferral(req.user.id, code);
+  }
+
+  @UseGuards(JwtAuthGuard)
+  @Get('help-support')
+  getHelpSupport(@Request() req: { user: { id: string } }) {
+    return this.buyersService.getHelpSupport(req.user.id);
   }
 }
