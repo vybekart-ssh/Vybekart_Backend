@@ -45,11 +45,11 @@ services:
         value: "https://your-app.onrender.com"
 
       - key: LIVEKIT_URL
-        value: "http://192.168.1.111:7880"
+        value: "https://vybekart-jw64j04u.livekit.cloud"
       - key: LIVEKIT_API_KEY
-        value: "devkey"
+        value: "API652uzejsxjAQ"
       - key: LIVEKIT_API_SECRET
-        value: "secret"
+        value: "QaSpsD5ZeaKS7VBhHVW64ZdnNPPpDGJXaDRnims0lKY"
 
       - key: SUPPORT_ACCOUNT_MANAGER_NAME
         value: "Shubham Pol"

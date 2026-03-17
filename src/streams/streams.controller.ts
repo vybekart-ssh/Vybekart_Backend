@@ -9,6 +9,7 @@ import {
   UseGuards,
   Request,
   Query,
+  BadRequestException,
 } from '@nestjs/common';
 import { StreamsService } from './streams.service';
 import { CreateStreamDto } from './dto/create-stream.dto';
@@ -66,6 +67,60 @@ export class StreamsController {
   @Get(':id')
   findOne(@Param('id') id: string) {
     return this.streamsService.findOne(id);
+  }
+
+  @Get(':id/store')
+  getStoreProducts(
+    @Param('id') id: string,
+    @Query('search') search?: string,
+    @Query('sort') sort?: 'best_seller' | 'auction' | 'sold',
+    @Query('minPrice') minPrice?: string,
+    @Query('maxPrice') maxPrice?: string,
+  ) {
+    return this.streamsService.getStoreProducts(id, {
+      search,
+      sort,
+      minPrice: minPrice ? Number(minPrice) : undefined,
+      maxPrice: maxPrice ? Number(maxPrice) : undefined,
+    });
+  }
+
+  @Get(':id/comments')
+  getComments(@Param('id') id: string) {
+    return this.streamsService.getComments(id);
+  }
+
+  @Post(':id/comments')
+  @UseGuards(JwtAuthGuard)
+  addComment(
+    @Request() req: { user: { id: string } },
+    @Param('id') id: string,
+    @Body('text') text: string,
+  ) {
+    if (!text || !text.trim()) throw new BadRequestException('Comment text is required');
+    return this.streamsService.addComment(id, req.user.id, text);
+  }
+
+  @Post(':id/like')
+  @UseGuards(JwtAuthGuard)
+  toggleLike(@Request() req: { user: { id: string } }, @Param('id') id: string) {
+    return this.streamsService.toggleLike(id, req.user.id);
+  }
+
+  @Post(':id/follow')
+  @UseGuards(JwtAuthGuard)
+  followSeller(@Request() req: { user: { id: string } }, @Param('id') id: string) {
+    return this.streamsService.followSeller(id, req.user.id);
+  }
+
+  @Post(':id/bid')
+  @UseGuards(JwtAuthGuard)
+  addBid(
+    @Request() req: { user: { id: string } },
+    @Param('id') id: string,
+    @Body('amount') amount: number,
+  ) {
+    return this.streamsService.addBid(id, req.user.id, Number(amount));
   }
 
   @Post(':id/token')
