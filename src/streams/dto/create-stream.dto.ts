@@ -27,7 +27,7 @@ export class CreateStreamDto {
   visibility?: 'PUBLIC' | 'FOLLOWERS_ONLY';
 
   @IsArray()
-  @IsUUID('4', { each: true })
+  @IsString({ each: true })
   @IsOptional()
   productIds?: string[];
 }
