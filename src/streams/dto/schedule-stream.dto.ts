@@ -4,8 +4,8 @@ import {
   IsOptional,
   IsArray,
   IsDateString,
-  ArrayMin,
-  ArrayMax,
+  ArrayMinSize,
+  ArrayMaxSize,
 } from 'class-validator';
 
 /** Create a future scheduled stream (no LiveKit until seller goes live). */
@@ -23,8 +23,8 @@ export class ScheduleStreamDto {
 
   /** Exactly 1–3 seller-owned products; thumbnail is derived from the first product’s image. */
   @IsArray()
-  @ArrayMin(1)
-  @ArrayMax(3)
+  @ArrayMinSize(1)
+  @ArrayMaxSize(3)
   @IsString({ each: true })
   productIds: string[];
 }
