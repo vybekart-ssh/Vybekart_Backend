@@ -182,20 +182,20 @@ export class StreamsService {
       throw new BadRequestException('Scheduled time must be in the future');
     }
 
-    const productIds = dto.productIds ?? [];
-    if (productIds.length > 0) {
-      const sellerProducts = await this.prisma.product.findMany({
-        where: { sellerId: seller.id, id: { in: productIds } },
-        select: { id: true },
-      });
-      const foundIds = new Set(sellerProducts.map((p) => p.id));
-      const invalid = productIds.filter((id) => !foundIds.has(id));
-      if (invalid.length > 0) {
-        throw new BadRequestException(
-          `Products not found or not owned by you: ${invalid.join(', ')}`,
-        );
-      }
+    const productIds = dto.productIds;
+    const sellerProducts = await this.prisma.product.findMany({
+      where: { sellerId: seller.id, id: { in: productIds } },
+      select: { id: true, images: true },
+    });
+    const byId = new Map(sellerProducts.map((p) => [p.id, p]));
+    const invalid = productIds.filter((id) => !byId.has(id));
+    if (invalid.length > 0) {
+      throw new BadRequestException(
+        `Products not found or not owned by you: ${invalid.join(', ')}`,
+      );
     }
+    const first = byId.get(productIds[0]);
+    const thumbnailUrl = first?.images?.[0] ?? null;
 
     return this.prisma.stream.create({
       data: {
@@ -204,7 +204,7 @@ export class StreamsService {
         sellerId: seller.id,
         isLive: false,
         startedAt,
-        thumbnailUrl: dto.thumbnailUrl ?? null,
+        thumbnailUrl,
         visibility: 'PUBLIC',
         streamProducts: {
           create: productIds.map((productId, index) => ({
@@ -285,7 +285,69 @@ export class StreamsService {
   }
 
   async update(id: string, dto: UpdateStreamDto, userId: string) {
-    await this.assertStreamOwnership(id, userId);
+    const stream = await this.assertStreamOwnership(id, userId);
+    const sellerId = stream.sellerId;
+
+    if (dto.productIds !== undefined) {
+      const productIds = dto.productIds;
+      if (productIds.length < 1 || productIds.length > 3) {
+        throw new BadRequestException(
+          'Provide between 1 and 3 products for this stream',
+        );
+      }
+      const sellerProducts = await this.prisma.product.findMany({
+        where: { sellerId, id: { in: productIds } },
+        select: { id: true, images: true },
+      });
+      const byId = new Map(sellerProducts.map((p) => [p.id, p]));
+      const invalid = productIds.filter((pid) => !byId.has(pid));
+      if (invalid.length > 0) {
+        throw new BadRequestException(
+          `Products not found or not owned by you: ${invalid.join(', ')}`,
+        );
+      }
+      const first = byId.get(productIds[0]);
+      const thumbFromProduct = first?.images?.[0] ?? null;
+
+      return this.prisma.stream.update({
+        where: { id },
+        data: {
+          ...(dto.title !== undefined ? { title: dto.title } : {}),
+          ...(dto.description !== undefined
+            ? { description: dto.description }
+            : {}),
+          ...(dto.categoryId !== undefined
+            ? {
+                category: dto.categoryId
+                  ? { connect: { id: dto.categoryId } }
+                  : { disconnect: true },
+              }
+            : {}),
+          ...(dto.visibility !== undefined
+            ? {
+                visibility:
+                  dto.visibility === 'FOLLOWERS_ONLY'
+                    ? 'FOLLOWERS_ONLY'
+                    : 'PUBLIC',
+              }
+            : {}),
+          ...(dto.scheduledAt !== undefined
+            ? { startedAt: new Date(dto.scheduledAt) }
+            : {}),
+          ...(dto.isLive !== undefined ? { isLive: dto.isLive } : {}),
+          thumbnailUrl: thumbFromProduct,
+          streamProducts: {
+            deleteMany: {},
+            create: productIds.map((productId, index) => ({
+              productId,
+              sortOrder: index,
+            })),
+          },
+        },
+        include: streamWithSellerInclude,
+      });
+    }
+
     const data: Prisma.StreamUpdateInput = {};
     if (dto.title !== undefined) data.title = dto.title;
     if (dto.description !== undefined) data.description = dto.description;

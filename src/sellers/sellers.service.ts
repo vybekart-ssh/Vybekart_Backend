@@ -166,7 +166,8 @@ export class SellersService {
       }),
     ]);
 
-    const nextStream = await this.getNextDashboardStream(seller.id);
+    const upcomingScheduled = await this.getUpcomingScheduledStreams(seller.id);
+    const liveNow = await this.getActiveLiveStream(seller.id);
 
     const productCount = await this.prisma.product.count({
       where: { sellerId: seller.id },
@@ -174,6 +175,24 @@ export class SellersService {
 
     const { revenueLast7Days, ordersLast7Days } =
       await this.getLast7DaysChartSeries(sellerOrderWhere);
+
+    const mapSession = (s: {
+      id: string;
+      title: string;
+      description: string | null;
+      isLive: boolean;
+      startedAt: Date | null;
+      endedAt: Date | null;
+      thumbnailUrl: string | null;
+    }) => ({
+      id: s.id,
+      title: s.title,
+      description: s.description,
+      isLive: s.isLive,
+      startedAt: s.startedAt,
+      endedAt: s.endedAt,
+      thumbnailUrl: s.thumbnailUrl,
+    });
 
     return {
       productCount,
@@ -185,22 +204,17 @@ export class SellersService {
       followers: 0,
       revenueLast7Days,
       ordersLast7Days,
-      nextLiveSession: nextStream
-        ? {
-            id: nextStream.id,
-            title: nextStream.title,
-            description: nextStream.description,
-            isLive: nextStream.isLive,
-            startedAt: nextStream.startedAt,
-            endedAt: nextStream.endedAt,
-            thumbnailUrl: nextStream.thumbnailUrl,
-          }
-        : null,
+      /** All future scheduled streams (not yet live), oldest first */
+      scheduledLiveSessions: upcomingScheduled.map(mapSession),
+      /** Currently live stream (if any) */
+      activeLiveSession: liveNow ? mapSession(liveNow) : null,
+      /** @deprecated First scheduled session only — use `scheduledLiveSessions` */
+      nextLiveSession: upcomingScheduled[0] ? mapSession(upcomingScheduled[0]) : null,
     };
   }
 
-  /** Next upcoming scheduled stream, else current live, else null */
-  private async getNextDashboardStream(sellerId: string) {
+  /** All upcoming scheduled streams (future start, not live, not ended) */
+  private async getUpcomingScheduledStreams(sellerId: string) {
     const select = {
       id: true,
       title: true,
@@ -210,7 +224,7 @@ export class SellersService {
       endedAt: true,
       thumbnailUrl: true,
     } as const;
-    const upcoming = await this.prisma.stream.findFirst({
+    return this.prisma.stream.findMany({
       where: {
         sellerId,
         endedAt: null,
@@ -220,13 +234,24 @@ export class SellersService {
       orderBy: { startedAt: 'asc' },
       select,
     });
-    if (upcoming) return upcoming;
-    const live = await this.prisma.stream.findFirst({
+  }
+
+  /** Seller’s current live stream (if any) */
+  private async getActiveLiveStream(sellerId: string) {
+    const select = {
+      id: true,
+      title: true,
+      description: true,
+      isLive: true,
+      startedAt: true,
+      endedAt: true,
+      thumbnailUrl: true,
+    } as const;
+    return this.prisma.stream.findFirst({
       where: { sellerId, endedAt: null, isLive: true },
       orderBy: { startedAt: 'desc' },
       select,
     });
-    return live;
   }
 
   /** Last 7 calendar days (oldest → newest) for dashboard charts */
