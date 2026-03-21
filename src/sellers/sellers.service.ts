@@ -147,7 +147,7 @@ export class SellersService {
       status: { in: ['PAID', 'SHIPPED', 'DELIVERED'] as OrderStatus[] },
     };
 
-    const [todayOrders, todayRevenue, totalOrders, nextStream] = await Promise.all([
+    const [todayOrders, todayRevenue, totalOrders] = await Promise.all([
       this.prisma.order.count({
         where: {
           ...sellerOrderWhere,
@@ -164,23 +164,16 @@ export class SellersService {
       this.prisma.order.count({
         where: { items: { some: { product: { sellerId: seller.id } } } },
       }),
-      this.prisma.stream.findFirst({
-        where: { sellerId: seller.id },
-        orderBy: { createdAt: 'desc' },
-        select: {
-          id: true,
-          title: true,
-          description: true,
-          isLive: true,
-          startedAt: true,
-          endedAt: true,
-        },
-      }),
     ]);
+
+    const nextStream = await this.getNextDashboardStream(seller.id);
 
     const productCount = await this.prisma.product.count({
       where: { sellerId: seller.id },
     });
+
+    const { revenueLast7Days, ordersLast7Days } =
+      await this.getLast7DaysChartSeries(sellerOrderWhere);
 
     return {
       productCount,
@@ -190,6 +183,8 @@ export class SellersService {
       totalOrders,
       liveViewersToday: 0,
       followers: 0,
+      revenueLast7Days,
+      ordersLast7Days,
       nextLiveSession: nextStream
         ? {
             id: nextStream.id,
@@ -198,9 +193,90 @@ export class SellersService {
             isLive: nextStream.isLive,
             startedAt: nextStream.startedAt,
             endedAt: nextStream.endedAt,
+            thumbnailUrl: nextStream.thumbnailUrl,
           }
         : null,
     };
+  }
+
+  /** Next upcoming scheduled stream, else current live, else null */
+  private async getNextDashboardStream(sellerId: string) {
+    const select = {
+      id: true,
+      title: true,
+      description: true,
+      isLive: true,
+      startedAt: true,
+      endedAt: true,
+      thumbnailUrl: true,
+    } as const;
+    const upcoming = await this.prisma.stream.findFirst({
+      where: {
+        sellerId,
+        endedAt: null,
+        isLive: false,
+        startedAt: { gte: new Date() },
+      },
+      orderBy: { startedAt: 'asc' },
+      select,
+    });
+    if (upcoming) return upcoming;
+    const live = await this.prisma.stream.findFirst({
+      where: { sellerId, endedAt: null, isLive: true },
+      orderBy: { startedAt: 'desc' },
+      select,
+    });
+    return live;
+  }
+
+  /** Last 7 calendar days (oldest → newest) for dashboard charts */
+  private async getLast7DaysChartSeries(sellerOrderWhere: {
+    items: { some: { product: { sellerId: string } } };
+    status: { in: OrderStatus[] };
+  }) {
+    const now = new Date();
+    const revenueLast7Days: { dayLabel: string; amount: number }[] = [];
+    const ordersLast7Days: { dayLabel: string; count: number }[] = [];
+
+    for (let dayOffset = 6; dayOffset >= 0; dayOffset--) {
+      const dayStart = new Date(
+        now.getFullYear(),
+        now.getMonth(),
+        now.getDate() - dayOffset,
+      );
+      const dayEnd = new Date(dayStart.getTime() + 24 * 60 * 60 * 1000);
+
+      const [revAgg, ordCount] = await Promise.all([
+        this.prisma.order.aggregate({
+          where: {
+            ...sellerOrderWhere,
+            createdAt: { gte: dayStart, lt: dayEnd },
+          },
+          _sum: { totalAmount: true },
+        }),
+        this.prisma.order.count({
+          where: {
+            ...sellerOrderWhere,
+            createdAt: { gte: dayStart, lt: dayEnd },
+          },
+        }),
+      ]);
+
+      const dayLabel = dayStart.toLocaleDateString('en-IN', {
+        day: 'numeric',
+        month: 'short',
+      });
+      revenueLast7Days.push({
+        dayLabel,
+        amount: Number(revAgg._sum?.totalAmount ?? 0),
+      });
+      ordersLast7Days.push({
+        dayLabel,
+        count: ordCount,
+      });
+    }
+
+    return { revenueLast7Days, ordersLast7Days };
   }
 
   /** GET /sellers/revenue/today - today's revenue and comparison with yesterday */

@@ -13,6 +13,7 @@ import {
 } from '@nestjs/common';
 import { StreamsService } from './streams.service';
 import { CreateStreamDto } from './dto/create-stream.dto';
+import { ScheduleStreamDto } from './dto/schedule-stream.dto';
 import { UpdateStreamDto } from './dto/update-stream.dto';
 import { JoinTokenDto } from './dto/join-token.dto';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
@@ -33,6 +34,16 @@ export class StreamsController {
     @Body() createStreamDto: CreateStreamDto,
   ) {
     return this.streamsService.create(createStreamDto, req.user.id);
+  }
+
+  @Post('schedule')
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles(Role.SELLER)
+  schedule(
+    @Request() req: { user: { id: string } },
+    @Body() dto: ScheduleStreamDto,
+  ) {
+    return this.streamsService.scheduleStream(dto, req.user.id);
   }
 
   @Get('active')

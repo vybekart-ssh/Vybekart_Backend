@@ -311,6 +311,9 @@ model Stream {
   startedAt DateTime?
   endedAt   DateTime?
 
+  /// Preview image URL for dashboard / listings (scheduled or live)
+  thumbnailUrl String?
+
   sellerId       String
   seller         Seller          @relation(fields: [sellerId], references: [id])
   streamProducts StreamProduct[]

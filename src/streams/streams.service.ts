@@ -8,7 +8,9 @@ import {
 } from '@nestjs/common';
 import { CreateStreamDto } from './dto/create-stream.dto';
 import { UpdateStreamDto } from './dto/update-stream.dto';
+import { ScheduleStreamDto } from './dto/schedule-stream.dto';
 import { PrismaService } from '../prisma/prisma.service';
+import { Prisma } from '@prisma/client';
 import {
   PaginationQueryDto,
   PaginatedResult,
@@ -166,6 +168,55 @@ export class StreamsService {
     }
   }
 
+  /** Schedule a future stream (no LiveKit room until seller starts live). */
+  async scheduleStream(dto: ScheduleStreamDto, userId: string) {
+    const seller = await this.prisma.seller.findUnique({
+      where: { userId },
+    });
+    if (!seller) {
+      throw new ForbiddenException('User is not a registered seller');
+    }
+
+    const startedAt = new Date(dto.scheduledAt);
+    if (!(startedAt.getTime() > Date.now())) {
+      throw new BadRequestException('Scheduled time must be in the future');
+    }
+
+    const productIds = dto.productIds ?? [];
+    if (productIds.length > 0) {
+      const sellerProducts = await this.prisma.product.findMany({
+        where: { sellerId: seller.id, id: { in: productIds } },
+        select: { id: true },
+      });
+      const foundIds = new Set(sellerProducts.map((p) => p.id));
+      const invalid = productIds.filter((id) => !foundIds.has(id));
+      if (invalid.length > 0) {
+        throw new BadRequestException(
+          `Products not found or not owned by you: ${invalid.join(', ')}`,
+        );
+      }
+    }
+
+    return this.prisma.stream.create({
+      data: {
+        title: dto.title,
+        description: dto.description ?? null,
+        sellerId: seller.id,
+        isLive: false,
+        startedAt,
+        thumbnailUrl: dto.thumbnailUrl ?? null,
+        visibility: 'PUBLIC',
+        streamProducts: {
+          create: productIds.map((productId, index) => ({
+            productId,
+            sortOrder: index,
+          })),
+        },
+      },
+      include: streamWithSellerInclude,
+    });
+  }
+
   async findAllActive(
     query?: PaginationQueryDto,
     categoryId?: string,
@@ -233,11 +284,29 @@ export class StreamsService {
     return stream;
   }
 
-  async update(id: string, updateStreamDto: UpdateStreamDto, userId: string) {
+  async update(id: string, dto: UpdateStreamDto, userId: string) {
     await this.assertStreamOwnership(id, userId);
+    const data: Prisma.StreamUpdateInput = {};
+    if (dto.title !== undefined) data.title = dto.title;
+    if (dto.description !== undefined) data.description = dto.description;
+    if (dto.categoryId !== undefined) {
+      data.category = dto.categoryId
+        ? { connect: { id: dto.categoryId } }
+        : { disconnect: true };
+    }
+    if (dto.visibility !== undefined) {
+      data.visibility =
+        dto.visibility === 'FOLLOWERS_ONLY' ? 'FOLLOWERS_ONLY' : 'PUBLIC';
+    }
+    if (dto.thumbnailUrl !== undefined) data.thumbnailUrl = dto.thumbnailUrl;
+    if (dto.scheduledAt !== undefined) {
+      data.startedAt = new Date(dto.scheduledAt);
+    }
+    if (dto.isLive !== undefined) data.isLive = dto.isLive;
     return this.prisma.stream.update({
       where: { id },
-      data: updateStreamDto,
+      data,
+      include: streamWithSellerInclude,
     });
   }
 

@@ -3,11 +3,11 @@ import {
   IsNotEmpty,
   IsOptional,
   IsArray,
-  IsUUID,
-  IsIn,
+  IsDateString,
 } from 'class-validator';
 
-export class CreateStreamDto {
+/** Create a future scheduled stream (no LiveKit until seller goes live). */
+export class ScheduleStreamDto {
   @IsString()
   @IsNotEmpty()
   title: string;
@@ -16,22 +16,15 @@ export class CreateStreamDto {
   @IsOptional()
   description?: string;
 
-  @IsString()
-  @IsUUID()
-  @IsOptional()
-  categoryId?: string;
+  @IsDateString()
+  scheduledAt: string;
 
   @IsString()
   @IsOptional()
-  @IsIn(['PUBLIC', 'FOLLOWERS_ONLY'])
-  visibility?: 'PUBLIC' | 'FOLLOWERS_ONLY';
+  thumbnailUrl?: string;
 
   @IsArray()
   @IsString({ each: true })
   @IsOptional()
   productIds?: string[];
-
-  @IsString()
-  @IsOptional()
-  thumbnailUrl?: string;
 }
