@@ -9,7 +9,10 @@ import {
   UseGuards,
   Request,
   Query,
+  UseInterceptors,
+  UploadedFile,
 } from '@nestjs/common';
+import { FileInterceptor } from '@nestjs/platform-express';
 import { OrdersService } from './orders.service';
 import { CreateOrderDto } from './dto/create-order.dto';
 import { ShipOrderDto } from './dto/ship-order.dto';
@@ -131,6 +134,38 @@ export class OrdersController {
     @Param('id') id: string,
   ) {
     return this.ordersService.acceptOrder(id, req.user.id);
+  }
+
+  @Post(':id/packing-video')
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles(Role.SELLER)
+  @UseInterceptors(FileInterceptor('video', { limits: { fileSize: 80 * 1024 * 1024 } }))
+  uploadPackingVideo(
+    @Request() req: { user: { id: string } },
+    @Param('id') id: string,
+    @UploadedFile() file: Express.Multer.File,
+  ) {
+    return this.ordersService.uploadPackingVideo(id, req.user.id, file);
+  }
+
+  @Patch(':id/request-delivery')
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles(Role.SELLER)
+  requestDelivery(
+    @Request() req: { user: { id: string } },
+    @Param('id') id: string,
+  ) {
+    return this.ordersService.requestDeliveryFromPartner(id, req.user.id);
+  }
+
+  @Get(':id/delivery-status')
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles(Role.SELLER)
+  getDeliveryStatus(
+    @Request() req: { user: { id: string } },
+    @Param('id') id: string,
+  ) {
+    return this.ordersService.getOrderDeliveryStatus(id, req.user.id);
   }
 
   @Get(':id')

@@ -69,18 +69,21 @@ export class StreamsService {
     }
 
     const productIds = createStreamDto.productIds ?? [];
-    if (productIds.length > 0) {
-      const sellerProducts = await this.prisma.product.findMany({
-        where: { sellerId: seller.id, id: { in: productIds } },
-        select: { id: true },
-      });
-      const foundIds = new Set(sellerProducts.map((p) => p.id));
-      const invalid = productIds.filter((id) => !foundIds.has(id));
-      if (invalid.length > 0) {
-        throw new BadRequestException(
-          `Products not found or not owned by you: ${invalid.join(', ')}`,
-        );
-      }
+    if (productIds.length < 1 || productIds.length > 3) {
+      throw new BadRequestException(
+        'Select between 1 and 3 products to go live.',
+      );
+    }
+    const sellerProducts = await this.prisma.product.findMany({
+      where: { sellerId: seller.id, id: { in: productIds } },
+      select: { id: true },
+    });
+    const foundIds = new Set(sellerProducts.map((p) => p.id));
+    const invalid = productIds.filter((id) => !foundIds.has(id));
+    if (invalid.length > 0) {
+      throw new BadRequestException(
+        `Products not found or not owned by you: ${invalid.join(', ')}`,
+      );
     }
 
     if (createStreamDto.categoryId) {

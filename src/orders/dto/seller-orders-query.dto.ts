@@ -1,4 +1,4 @@
-import { IsOptional, IsIn, IsInt, Min, Max } from 'class-validator';
+import { IsOptional, IsIn, IsInt, Min, Max, IsString } from 'class-validator';
 import { Type } from 'class-transformer';
 
 export class SellerOrdersQueryDto {
@@ -15,8 +15,9 @@ export class SellerOrdersQueryDto {
   @Max(100)
   limit?: number = 20;
 
+  /** Single status or comma-separated e.g. `PAID,PACKED` */
   @IsOptional()
-  @IsIn(['PENDING', 'PAID', 'SHIPPED', 'DELIVERED', 'CANCELLED', 'RETURNED'])
+  @IsString()
   status?: string;
 
   @IsOptional()

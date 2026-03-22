@@ -50,6 +50,14 @@ export class CreateProductDto {
   @IsOptional()
   suitableForOccasion?: string;
 
+  @IsString()
+  @IsOptional()
+  brand?: string;
+
+  @IsObject()
+  @IsOptional()
+  categoryAttributes?: Record<string, unknown>;
+
   // Step 3 – Inventory & pricing
   @IsString()
   @IsOptional()

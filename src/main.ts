@@ -1,10 +1,16 @@
 import { NestFactory } from '@nestjs/core';
+import { NestExpressApplication } from '@nestjs/platform-express';
 import { ValidationPipe } from '@nestjs/common';
 import { AppModule } from './app.module';
 import helmet from 'helmet';
+import { join } from 'path';
+import * as fs from 'fs/promises';
 
 async function bootstrap() {
-  const app = await NestFactory.create(AppModule);
+  const app = await NestFactory.create<NestExpressApplication>(AppModule);
+  const uploadsRoot = join(process.cwd(), 'uploads');
+  await fs.mkdir(uploadsRoot, { recursive: true });
+  app.useStaticAssets(uploadsRoot, { prefix: '/uploads/' });
 
   app.use(
     helmet({

@@ -15,6 +15,11 @@ export class CartItemDto {
   @IsOptional()
   @IsString()
   color?: string;
+
+  /** Live stream the buyer is shopping from (required when cart is empty). */
+  @IsOptional()
+  @IsUUID()
+  streamId?: string;
 }
 
 export class UpdateCartQuantityDto {

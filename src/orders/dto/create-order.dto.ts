@@ -1,4 +1,4 @@
-import { IsString, IsOptional, IsArray, ValidateNested } from 'class-validator';
+import { IsString, IsOptional, IsArray, ValidateNested, IsUUID } from 'class-validator';
 import { Type } from 'class-transformer';
 import { CreateOrderItemDto } from './create-order-item.dto';
 
@@ -11,4 +11,8 @@ export class CreateOrderDto {
   @IsString()
   @IsOptional()
   shippingAddress?: string;
+
+  @IsOptional()
+  @IsUUID()
+  streamId?: string;
 }

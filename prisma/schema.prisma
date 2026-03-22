@@ -220,6 +220,9 @@ model Product {
   // Step 1 – Basic info
   material            String?
   suitableForOccasion String?
+  /// Optional brand (e.g. electronics); optional structured specs per category
+  brand               String?
+  categoryAttributes  Json?
 
   // Step 3 – Inventory & pricing
   status          ProductStatus @default(DRAFT)
@@ -317,6 +320,7 @@ model Stream {
   sellerId       String
   seller         Seller          @relation(fields: [sellerId], references: [id])
   streamProducts StreamProduct[]
+  orders         Order[]
   createdAt      DateTime        @default(now())
 }
 
@@ -342,6 +346,10 @@ model Order {
   buyerId String? // Nullable temporarily if we want guest checkout, but usually required
   buyer   Buyer?  @relation(fields: [buyerId], references: [id])
 
+  /// Set for purchases originating from a live stream (D.1)
+  streamId String?
+  stream   Stream? @relation(fields: [streamId], references: [id])
+
   // Snapshot of address at time of order
   shippingAddress String? @db.Text
 
@@ -354,6 +362,14 @@ model Order {
   shippedAt   DateTime?
   deliveredAt DateTime?
 
+  /// Seller packing proof (D.4)
+  packingVideoUrl String?
+  packedAt        DateTime?
+
+  /// Mock / test provider tracking (D.6, D.7)
+  deliveryStatus         String?
+  deliveryMockShipmentId String?
+
   items OrderItem[]
 
   createdAt DateTime @default(now())
@@ -363,6 +379,7 @@ model Order {
 enum OrderStatus {
   PENDING
   PAID
+  PACKED
   SHIPPED
   DELIVERED
   CANCELLED

@@ -26,12 +26,15 @@ export class ProductsService {
       throw new ForbiddenException('User is not a registered seller');
     }
 
-    const { variants, ...rest } = createProductDto;
+    const { variants, categoryAttributes, ...rest } = createProductDto;
     return this.prisma.product.create({
       data: {
         ...rest,
         sellerId: seller.id,
         ...(variants != null && { variants: variants as Prisma.InputJsonValue }),
+        ...(categoryAttributes != null && {
+          categoryAttributes: categoryAttributes as Prisma.InputJsonValue,
+        }),
       },
     });
   }
@@ -85,13 +88,19 @@ export class ProductsService {
       throw new ForbiddenException('You can only update your own products');
     }
 
-    const dto = updateProductDto as UpdateProductDto & { variants?: Record<string, unknown> };
-    const { variants, ...rest } = dto;
+    const dto = updateProductDto as UpdateProductDto & {
+      variants?: Record<string, unknown>;
+      categoryAttributes?: Record<string, unknown>;
+    };
+    const { variants, categoryAttributes, ...rest } = dto;
     return this.prisma.product.update({
       where: { id },
       data: {
         ...rest,
         ...(variants !== undefined && { variants: variants as Prisma.InputJsonValue }),
+        ...(categoryAttributes !== undefined && {
+          categoryAttributes: categoryAttributes as Prisma.InputJsonValue,
+        }),
       },
     });
   }
