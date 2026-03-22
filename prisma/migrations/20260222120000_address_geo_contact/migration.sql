@@ -1,0 +1,5 @@
+-- AlterTable
+ALTER TABLE "Address" ADD COLUMN "latitude" DOUBLE PRECISION;
+ALTER TABLE "Address" ADD COLUMN "longitude" DOUBLE PRECISION;
+ALTER TABLE "Address" ADD COLUMN "contactName" TEXT;
+ALTER TABLE "Address" ADD COLUMN "phone" TEXT;

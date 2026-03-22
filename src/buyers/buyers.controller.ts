@@ -8,10 +8,13 @@ import {
   Param,
   Body,
   Post,
+  Delete,
 } from '@nestjs/common';
 import { BuyersService } from './buyers.service';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
 import { UpdateBuyerProfileDto } from './dto/update-buyer-profile.dto';
+import { CreateAddressDto } from './dto/create-address.dto';
+import { UpdateAddressDto } from './dto/update-address.dto';
 
 @Controller('buyers')
 export class BuyersController {
@@ -85,5 +88,39 @@ export class BuyersController {
   @Get('help-support')
   getHelpSupport(@Request() req: { user: { id: string } }) {
     return this.buyersService.getHelpSupport(req.user.id);
+  }
+
+  @UseGuards(JwtAuthGuard)
+  @Get('addresses')
+  listAddresses(@Request() req: { user: { id: string } }) {
+    return this.buyersService.listAddresses(req.user.id);
+  }
+
+  @UseGuards(JwtAuthGuard)
+  @Post('addresses')
+  createAddress(
+    @Request() req: { user: { id: string } },
+    @Body() dto: CreateAddressDto,
+  ) {
+    return this.buyersService.createAddress(req.user.id, dto);
+  }
+
+  @UseGuards(JwtAuthGuard)
+  @Patch('addresses/:id')
+  updateAddress(
+    @Request() req: { user: { id: string } },
+    @Param('id') id: string,
+    @Body() dto: UpdateAddressDto,
+  ) {
+    return this.buyersService.updateAddress(req.user.id, id, dto);
+  }
+
+  @UseGuards(JwtAuthGuard)
+  @Delete('addresses/:id')
+  deleteAddress(
+    @Request() req: { user: { id: string } },
+    @Param('id') id: string,
+  ) {
+    return this.buyersService.deleteAddress(req.user.id, id);
   }
 }

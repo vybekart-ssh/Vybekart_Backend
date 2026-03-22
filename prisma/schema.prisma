@@ -79,6 +79,12 @@ model Address {
   zip     String
   country String  @default("IN")
 
+  /// Optional geo + contact (buyer shipping — E.3)
+  latitude    Float?
+  longitude   Float?
+  contactName String?
+  phone       String?
+
   createdAt DateTime @default(now())
 }
 

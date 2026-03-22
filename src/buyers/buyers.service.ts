@@ -1,6 +1,8 @@
 import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import { UpdateBuyerProfileDto } from './dto/update-buyer-profile.dto';
+import { CreateAddressDto } from './dto/create-address.dto';
+import { UpdateAddressDto } from './dto/update-address.dto';
 
 @Injectable()
 export class BuyersService {
@@ -224,5 +226,80 @@ export class BuyersService {
         orders: orderTopics.length ? orderTopics : faqs.slice(2, 5),
       },
     };
+  }
+
+  async listAddresses(userId: string) {
+    return this.prisma.address.findMany({
+      where: { userId },
+      orderBy: [{ isDefault: 'desc' }, { createdAt: 'desc' }],
+    });
+  }
+
+  async createAddress(userId: string, dto: CreateAddressDto) {
+    if (dto.isDefault) {
+      await this.prisma.address.updateMany({
+        where: { userId },
+        data: { isDefault: false },
+      });
+    }
+    return this.prisma.address.create({
+      data: {
+        userId,
+        type: 'SHIPPING',
+        line1: dto.line1.trim(),
+        line2: dto.line2?.trim() || null,
+        city: dto.city.trim(),
+        state: dto.state.trim(),
+        zip: dto.zip.trim(),
+        country: (dto.country ?? 'IN').trim(),
+        isDefault: dto.isDefault ?? false,
+        latitude: dto.latitude ?? null,
+        longitude: dto.longitude ?? null,
+        contactName: dto.contactName?.trim() || null,
+        phone: dto.phone?.trim() || null,
+      },
+    });
+  }
+
+  async updateAddress(userId: string, addressId: string, dto: UpdateAddressDto) {
+    const existing = await this.prisma.address.findFirst({
+      where: { id: addressId, userId },
+    });
+    if (!existing) throw new NotFoundException('Address not found');
+
+    if (dto.isDefault === true) {
+      await this.prisma.address.updateMany({
+        where: { userId, id: { not: addressId } },
+        data: { isDefault: false },
+      });
+    }
+
+    return this.prisma.address.update({
+      where: { id: addressId },
+      data: {
+        ...(dto.line1 !== undefined ? { line1: dto.line1.trim() } : {}),
+        ...(dto.line2 !== undefined ? { line2: dto.line2?.trim() || null } : {}),
+        ...(dto.city !== undefined ? { city: dto.city.trim() } : {}),
+        ...(dto.state !== undefined ? { state: dto.state.trim() } : {}),
+        ...(dto.zip !== undefined ? { zip: dto.zip.trim() } : {}),
+        ...(dto.country !== undefined ? { country: dto.country.trim() } : {}),
+        ...(dto.isDefault !== undefined ? { isDefault: dto.isDefault } : {}),
+        ...(dto.latitude !== undefined ? { latitude: dto.latitude ?? null } : {}),
+        ...(dto.longitude !== undefined ? { longitude: dto.longitude ?? null } : {}),
+        ...(dto.contactName !== undefined
+          ? { contactName: dto.contactName?.trim() || null }
+          : {}),
+        ...(dto.phone !== undefined ? { phone: dto.phone?.trim() || null } : {}),
+      },
+    });
+  }
+
+  async deleteAddress(userId: string, addressId: string) {
+    const existing = await this.prisma.address.findFirst({
+      where: { id: addressId, userId },
+    });
+    if (!existing) throw new NotFoundException('Address not found');
+    await this.prisma.address.delete({ where: { id: addressId } });
+    return { success: true };
   }
 }
