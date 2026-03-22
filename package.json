@@ -19,7 +19,7 @@
     "test:debug": "node --inspect-brk -r tsconfig-paths/register -r ts-node/register node_modules/.bin/jest --runInBand",
     "test:e2e": "jest --config ./test/jest-e2e.json",
     "seed:dummy": "ts-node prisma/seed-dummy.ts",
-    "postinstall": "node scripts/ensure-nest-use-interceptors-dts.js"
+    "postinstall": "node -e \"const fs=require('fs'),cp=require('child_process');const p='scripts/ensure-nest-use-interceptors-dts.js';if(fs.existsSync(p))cp.execSync('node '+p,{stdio:'inherit'});\""
   },
   "prisma": {
     "seed": "ts-node prisma/seed.ts"

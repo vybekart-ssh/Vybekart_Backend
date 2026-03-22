@@ -8,6 +8,7 @@ WORKDIR /app
 RUN apt-get update -y && apt-get install -y openssl ca-certificates && rm -rf /var/lib/apt/lists/*
 
 COPY package.json package-lock.json* ./
+COPY scripts ./scripts/
 RUN npm ci
 
 COPY prisma ./prisma/
@@ -27,6 +28,7 @@ RUN apt-get update -y && apt-get install -y openssl ca-certificates && rm -rf /v
 ENV NODE_ENV=production
 
 COPY package.json package-lock.json* ./
+COPY scripts ./scripts/
 RUN npm ci --omit=dev
 
 COPY prisma ./prisma/
