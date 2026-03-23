@@ -421,6 +421,13 @@ export class AuthService {
     if (!user) {
       throw new BadRequestException('No account found with this mobile number');
     }
+    // Prevent password reuse: ensure the new password is not the same as the current password.
+    const isSamePassword = await bcrypt.compare(newPassword, user.password);
+    if (isSamePassword) {
+      throw new BadRequestException(
+        'New password must be different from your previous password',
+      );
+    }
     const hashedPassword = await bcrypt.hash(newPassword, 10);
     await this.prisma.user.update({
       where: { id: user.id },
