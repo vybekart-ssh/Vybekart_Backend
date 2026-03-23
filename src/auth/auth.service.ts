@@ -18,6 +18,7 @@ import {
   RefreshTokenDto,
   ForgotPasswordDto,
   ResetPasswordDto,
+  VerifyResetPasswordDto,
 } from './dto/auth.dto';
 import { SendOtpDto, VerifyOtpDto } from './dto/otp.dto';
 import { Role } from '@prisma/client';
@@ -434,5 +435,28 @@ export class AuthService {
       data: { password: hashedPassword },
     });
     return { message: 'Password reset successfully' };
+  }
+
+  /** Verify OTP for password reset (forgot-password flow). */
+  async verifyResetPasswordOtp(dto: VerifyResetPasswordDto) {
+    const { phone, code } = dto;
+    const key = this.redis.otpKey(`reset:${phone}`);
+    const stored = await this.redis.get(key);
+    if (!stored || stored !== code.trim()) {
+      throw new UnauthorizedException('Invalid or expired OTP');
+    }
+
+    const user = await this.prisma.user.findUnique({
+      where: { phone },
+      include: { sellerProfile: true },
+    });
+    if (!user) {
+      throw new BadRequestException(
+        'No account found with this mobile number',
+      );
+    }
+
+    // Do NOT delete OTP here; resetPassword will delete it once the password is updated.
+    return { isSeller: user.sellerProfile != null };
   }
 }

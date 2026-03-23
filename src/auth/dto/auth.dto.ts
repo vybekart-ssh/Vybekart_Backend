@@ -60,6 +60,21 @@ export class ResetPasswordDto {
   newPassword: string;
 }
 
+/** Verify OTP for password reset (forgot-password flow) without changing password. */
+export class VerifyResetPasswordDto {
+  @IsString()
+  @IsNotEmpty()
+  @Matches(/^\+?[1-9]\d{1,14}$/, {
+    message: 'Phone must be in E.164 format (e.g. +919876543210)',
+  })
+  phone: string;
+
+  @IsString()
+  @IsNotEmpty()
+  @Matches(/^\d{6}$/, { message: 'OTP must be 6 digits' })
+  code: string;
+}
+
 export class RegisterBuyerDto {
   @IsEmail()
   @IsNotEmpty()
