@@ -75,6 +75,16 @@ export class VerifyResetPasswordDto {
   code: string;
 }
 
+/** Used to check whether a phone already exists before sending OTP. */
+export class CheckPhoneExistsDto {
+  @IsString()
+  @IsNotEmpty()
+  @Matches(/^\+?[1-9]\d{1,14}$/, {
+    message: 'Phone must be in E.164 format (e.g. +919876543210)',
+  })
+  phone: string;
+}
+
 export class RegisterBuyerDto {
   @IsEmail()
   @IsNotEmpty()

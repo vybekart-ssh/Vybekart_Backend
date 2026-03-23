@@ -8,6 +8,7 @@ import {
   ForgotPasswordDto,
   ResetPasswordDto,
   VerifyResetPasswordDto,
+  CheckPhoneExistsDto,
 } from './dto/auth.dto';
 import { SendOtpDto, VerifyOtpDto } from './dto/otp.dto';
 
@@ -58,5 +59,10 @@ export class AuthController {
   @Post('reset-password/verify')
   async verifyResetPasswordOtp(@Body() dto: VerifyResetPasswordDto) {
     return this.authService.verifyResetPasswordOtp(dto);
+  }
+
+  @Post('check-phone')
+  async checkPhone(@Body() dto: CheckPhoneExistsDto) {
+    return this.authService.checkPhoneExists(dto);
   }
 }

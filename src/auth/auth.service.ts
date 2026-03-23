@@ -19,6 +19,7 @@ import {
   ForgotPasswordDto,
   ResetPasswordDto,
   VerifyResetPasswordDto,
+  CheckPhoneExistsDto,
 } from './dto/auth.dto';
 import { SendOtpDto, VerifyOtpDto } from './dto/otp.dto';
 import { Role } from '@prisma/client';
@@ -459,5 +460,12 @@ export class AuthService {
 
     // Do NOT delete OTP here; resetPassword will delete it once the password is updated.
     return { isSeller: user.sellerProfile != null };
+  }
+
+  /** Check if a phone already exists in DB (to avoid wasting OTP SMS). */
+  async checkPhoneExists(dto: CheckPhoneExistsDto): Promise<{ exists: boolean }> {
+    const phone = dto.phone.trim();
+    const user = await this.prisma.user.findUnique({ where: { phone } });
+    return { exists: !!user };
   }
 }
