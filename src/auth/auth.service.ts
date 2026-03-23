@@ -248,17 +248,24 @@ export class AuthService {
     if (!phone) {
       throw new BadRequestException('Phone number is required for registration');
     }
-    const existingUser = await this.prisma.user.findUnique({
-      where: { email: dto.email },
-    });
-    if (existingUser) {
-      throw new ConflictException('User with this email already exists');
-    }
-    const existingPhone = await this.prisma.user.findUnique({
+    const email = dto.email.trim();
+
+    const existingByPhone = await this.prisma.user.findUnique({
       where: { phone },
     });
-    if (existingPhone) {
-      throw new ConflictException('An account with this phone number already exists');
+    const existingByEmail = await this.prisma.user.findUnique({
+      where: { email },
+    });
+
+    // If phone exists, email must match. If email exists but phone doesn't, reject.
+    if (existingByPhone) {
+      if (existingByPhone.email !== email) {
+        throw new ConflictException(
+          'An account with this phone number already exists with a different email',
+        );
+      }
+    } else if (existingByEmail) {
+      throw new ConflictException('User with this email already exists');
     }
 
     if (dto.categoryIds?.length) {
@@ -274,28 +281,62 @@ export class AuthService {
 
     try {
       await this.prisma.$transaction(async (tx) => {
-        const user = await tx.user.create({
-          data: {
-            email: dto.email,
-            password: hashedPassword,
-            name: dto.name,
-            phone,
-            roles: [Role.SELLER],
-          },
-        });
+        const user = existingByPhone
+          ? await tx.user.update({
+              where: { id: existingByPhone.id },
+              data: {
+                password: hashedPassword,
+                name: dto.name,
+                roles: {
+                  // Union roles so the same phone can be both buyer + seller.
+                  set: Array.from(
+                    new Set([...(existingByPhone.roles ?? []), Role.SELLER]),
+                  ),
+                },
+              },
+            })
+          : await tx.user.create({
+              data: {
+                email,
+                password: hashedPassword,
+                name: dto.name,
+                phone,
+                roles: [Role.SELLER],
+              },
+            });
 
-        const seller = await tx.seller.create({
-          data: {
-            userId: user.id,
-            businessName: dto.businessName,
-            description: dto.description ?? null,
-            gstNumber: dto.gstNumber ?? null,
-            bankAccount: dto.bankAccount ?? null,
-            ifscCode: dto.ifscCode ?? null,
-          },
+        // Create seller profile if missing; otherwise update.
+        const existingSeller = await tx.seller.findUnique({
+          where: { userId: user.id },
         });
+        const seller = existingSeller
+          ? await tx.seller.update({
+              where: { id: existingSeller.id },
+              data: {
+                businessName: dto.businessName,
+                description: dto.description ?? null,
+                gstNumber: dto.gstNumber ?? null,
+                bankAccount: dto.bankAccount ?? null,
+                ifscCode: dto.ifscCode ?? null,
+              },
+            })
+          : await tx.seller.create({
+              data: {
+                userId: user.id,
+                businessName: dto.businessName,
+                description: dto.description ?? null,
+                gstNumber: dto.gstNumber ?? null,
+                bankAccount: dto.bankAccount ?? null,
+                ifscCode: dto.ifscCode ?? null,
+              },
+            });
 
         if (dto.pickupAddress) {
+          // Ensure only one default PICKUP address.
+          await tx.address.updateMany({
+            where: { userId: user.id, type: 'PICKUP' },
+            data: { isDefault: false },
+          });
           await tx.address.create({
             data: {
               userId: user.id,
@@ -312,6 +353,9 @@ export class AuthService {
         }
 
         if (dto.categoryIds?.length) {
+          await tx.sellerCategory.deleteMany({
+            where: { sellerId: seller.id },
+          });
           await tx.sellerCategory.createMany({
             data: dto.categoryIds.map((categoryId) => ({
               sellerId: seller.id,
@@ -333,21 +377,29 @@ export class AuthService {
   }
 
   async registerBuyer(dto: RegisterBuyerDto) {
-    const existingByEmail = await this.prisma.user.findUnique({
-      where: { email: dto.email },
-    });
-    if (existingByEmail) {
-      throw new ConflictException('User with this email already exists');
+    if (!dto.phone) {
+      throw new BadRequestException('Phone number is required for registration');
     }
-    if (dto.phone) {
-      const existingByPhone = await this.prisma.user.findUnique({
-        where: { phone: dto.phone.trim() },
-      });
-      if (existingByPhone) {
+
+    const phone = dto.phone.trim();
+    const email = dto.email.trim();
+
+    const existingByPhone = await this.prisma.user.findUnique({
+      where: { phone },
+    });
+    const existingByEmail = await this.prisma.user.findUnique({
+      where: { email },
+    });
+
+    // If phone exists, email must match. If email exists but phone doesn't, reject.
+    if (existingByPhone) {
+      if (existingByPhone.email !== email) {
         throw new ConflictException(
-          'An account with this mobile number already exists',
+          'An account with this phone number already exists with a different email',
         );
       }
+    } else if (existingByEmail) {
+      throw new ConflictException('User with this email already exists');
     }
 
     const hashedPassword = await bcrypt.hash(dto.password, 10);
@@ -356,30 +408,48 @@ export class AuthService {
     try {
       await this.prisma.$transaction(async (prisma) => {
         // 1. Create User
-        const user = await prisma.user.create({
-          data: {
-            email: dto.email,
-            password: hashedPassword,
-            name: dto.name,
-            phone: dto.phone,
-            roles: [Role.BUYER], // Assign BUYER role
-          },
-        });
+        const user = existingByPhone
+          ? await prisma.user.update({
+              where: { id: existingByPhone.id },
+              data: {
+                password: hashedPassword,
+                name: dto.name,
+                roles: {
+                  // Union roles so the same phone can be both buyer + seller.
+                  set: Array.from(
+                    new Set([...(existingByPhone.roles ?? []), Role.BUYER]),
+                  ),
+                },
+              },
+            })
+          : await prisma.user.create({
+              data: {
+                email,
+                password: hashedPassword,
+                name: dto.name,
+                phone,
+                roles: [Role.BUYER], // Assign BUYER role
+              },
+            });
 
-        // 2. Create Buyer Profile
-        const buyer = await prisma.buyer.create({
-          data: {
-            userId: user.id,
-            // Default empty fields
-          },
+        // Create buyer profile if missing; otherwise keep.
+        const existingBuyer = await prisma.buyer.findUnique({
+          where: { userId: user.id },
         });
+        const buyer = existingBuyer
+          ? existingBuyer
+          : await prisma.buyer.create({
+              data: {
+                userId: user.id,
+              },
+            });
 
         return { user, buyer };
       });
 
       // Login immediately
       return this.login({
-        email: dto.email,
+        email,
         password: dto.password,
       });
     } catch {
@@ -463,9 +533,15 @@ export class AuthService {
   }
 
   /** Check if a phone already exists in DB (to avoid wasting OTP SMS). */
-  async checkPhoneExists(dto: CheckPhoneExistsDto): Promise<{ exists: boolean }> {
+  async checkPhoneExists(
+    dto: CheckPhoneExistsDto,
+  ): Promise<{ hasBuyer: boolean; hasSeller: boolean }> {
     const phone = dto.phone.trim();
-    const user = await this.prisma.user.findUnique({ where: { phone } });
-    return { exists: !!user };
+    const user = await this.prisma.user.findUnique({
+      where: { phone },
+      include: { sellerProfile: true, buyerProfile: true },
+    });
+
+    return { hasBuyer: !!user?.buyerProfile, hasSeller: !!user?.sellerProfile };
   }
 }
