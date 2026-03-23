@@ -417,7 +417,6 @@ export class AuthService {
     if (!stored || stored !== code.trim()) {
       throw new UnauthorizedException('Invalid or expired OTP');
     }
-    await this.redis.del(key);
     const user = await this.prisma.user.findUnique({ where: { phone } });
     if (!user) {
       throw new BadRequestException('No account found with this mobile number');
@@ -434,6 +433,8 @@ export class AuthService {
       where: { id: user.id },
       data: { password: hashedPassword },
     });
+    // Delete OTP only after password update succeeds so user can retry if password validation fails.
+    await this.redis.del(key);
     return { message: 'Password reset successfully' };
   }
 
