@@ -19,7 +19,7 @@ services:
       - key: NODE_ENV
         value: production
       - key: DATABASE_URL
-        sync: false
+        value: "postgresql://postgres.axcsnealmdadjryogrnl:Vishal%4022337963@aws-1-ap-northeast-1.pooler.supabase.com:6543/postgres?pgbouncer=true"
       - key: REDIS_URL
         fromService:
           type: keyvalue
