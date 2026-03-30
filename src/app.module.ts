@@ -27,6 +27,7 @@ import { MaterialTypesModule } from './material-types/material-types.module';
   imports: [
     ConfigModule.forRoot({
       isGlobal: true,
+      envFilePath: ['.env.local', '.env'],
       validationSchema: envValidationSchema,
       validationOptions: { allowUnknown: true },
     }),

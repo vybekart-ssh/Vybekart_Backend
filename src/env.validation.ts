@@ -8,6 +8,8 @@ export const envValidationSchema = Joi.object({
   DATABASE_URL: Joi.string().required().messages({
     'string.empty': 'DATABASE_URL is required',
   }),
+  /** Supabase session pooler / migrations URL (see prisma/schema.prisma directUrl) */
+  DIRECT_URL: Joi.string().optional(),
   JWT_SECRET: Joi.string().required().min(16).messages({
     'string.empty': 'JWT_SECRET is required',
     'string.min': 'JWT_SECRET must be at least 16 characters',

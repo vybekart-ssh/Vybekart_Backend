@@ -20,7 +20,7 @@ services:
         value: production
       - key: DATABASE_URL
         value: "postgresql://postgres.axcsnealmdadjryogrnl:Vishal%4022337963@aws-1-ap-northeast-1.pooler.supabase.com:6543/postgres?pgbouncer=true"
-      - key: DATABASE_DIRECT_URL
+      - key: DIRECT_URL
         value: "postgresql://postgres.axcsnealmdadjryogrnl:Vishal%4022337963@aws-1-ap-northeast-1.pooler.supabase.com:5432/postgres?sslmode=require&connect_timeout=30"
       - key: REDIS_URL
         fromService:
