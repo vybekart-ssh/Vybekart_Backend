@@ -2,11 +2,6 @@
 # Render free tier blocks outbound SMTP (ports 25/465/587). For "Highlight your concerns" email,
 # set RESEND_API_KEY in Dashboard (get one at https://resend.com). App uses Resend when set, else SMTP.
 
-databases:
-  - name: vybekart-db
-    databaseName: vybekart
-    plan: free
-
 services:
   - type: keyvalue
     name: vybekart-redis
@@ -24,9 +19,7 @@ services:
       - key: NODE_ENV
         value: production
       - key: DATABASE_URL
-        fromDatabase:
-          name: vybekart-db
-          property: connectionString
+        sync: false
       - key: REDIS_URL
         fromService:
           type: keyvalue
