@@ -63,9 +63,15 @@ export class OrdersController {
   updateCartItem(
     @Request() req: { user: { id: string } },
     @Param('productId') productId: string,
+    @Query('variantId') variantId: string | undefined,
     @Body() dto: UpdateCartQuantityDto,
   ) {
-    return this.ordersService.updateCartItem(req.user.id, productId, dto.quantity);
+    return this.ordersService.updateCartItem(
+      req.user.id,
+      productId,
+      dto.quantity,
+      variantId,
+    );
   }
 
   @Patch('checkout')
@@ -84,8 +90,9 @@ export class OrdersController {
   removeCartItem(
     @Request() req: { user: { id: string } },
     @Param('productId') productId: string,
+    @Query('variantId') variantId: string | undefined,
   ) {
-    return this.ordersService.removeCartItem(req.user.id, productId);
+    return this.ordersService.removeCartItem(req.user.id, productId, variantId);
   }
 
   @Get()

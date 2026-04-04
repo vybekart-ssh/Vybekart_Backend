@@ -21,6 +21,11 @@ import { BuyerOrdersQueryDto } from './dto/buyer-orders-query.dto';
 import { MockDeliveryService } from './mock-delivery.service';
 import * as fs from 'fs/promises';
 import * as path from 'path';
+import {
+  applyVariantStockDelta,
+  findVariantItem,
+  productHasVariantItems,
+} from '../products/product-variants.util';
 
 type CartState = { items: CartItemDto[]; streamId?: string };
 
@@ -83,10 +88,10 @@ export class OrdersService {
       return { items: [], subtotal: 0, shipping: 0, total: 0, streamId: null };
     }
 
-    const productIds = items.map((i) => i.productId);
+    const productIds = [...new Set(items.map((i) => i.productId))];
     const products = await this.prisma.product.findMany({
       where: { id: { in: productIds } },
-      select: { id: true, name: true, price: true, images: true },
+      select: { id: true, name: true, price: true, images: true, variants: true },
     });
     const map = new Map(products.map((p) => [p.id, p]));
 
@@ -94,20 +99,33 @@ export class OrdersService {
       .map((item) => {
         const product = map.get(item.productId);
         if (!product) return null;
+        const hasVariants = productHasVariantItems(product.variants);
+        let unitPrice = product.price;
+        if (hasVariants) {
+          if (!item.variantId) return null;
+          const v = findVariantItem(product.variants, item.variantId);
+          if (!v) return null;
+          unitPrice = v.sellingPrice;
+        }
         return {
           ...item,
-          product,
-          amount: product.price * item.quantity,
+          product: {
+            id: product.id,
+            name: product.name,
+            price: unitPrice,
+            images: product.images,
+          },
+          unitPrice,
+          amount: unitPrice * item.quantity,
         };
       })
-      .filter(Boolean) as Array<{
-      productId: string;
-      quantity: number;
-      size?: string;
-      color?: string;
-      product: { id: string; name: string; price: number; images: string[] };
-      amount: number;
-    }>;
+      .filter(Boolean) as Array<
+      CartItemDto & {
+        product: { id: string; name: string; price: number; images: string[] };
+        unitPrice: number;
+        amount: number;
+      }
+    >;
 
     const subtotal = normalized.reduce((sum, i) => sum + i.amount, 0);
     const shipping = subtotal > 0 ? 90 : 0;
@@ -119,10 +137,20 @@ export class OrdersService {
   async addCartItem(userId: string, dto: CartItemDto) {
     const product = await this.prisma.product.findUnique({
       where: { id: dto.productId },
-      select: { id: true, stock: true },
+      select: { id: true, stock: true, variants: true },
     });
     if (!product) throw new NotFoundException('Product not found');
-    if (dto.quantity > product.stock) {
+    const hasVariants = productHasVariantItems(product.variants);
+    if (hasVariants) {
+      if (!dto.variantId?.trim()) {
+        throw new BadRequestException('variantId is required for this product');
+      }
+      const v = findVariantItem(product.variants, dto.variantId);
+      if (!v) throw new BadRequestException('Invalid variant');
+      if (dto.quantity > v.stock) {
+        throw new BadRequestException('Requested quantity exceeds available stock');
+      }
+    } else if (dto.quantity > product.stock) {
       throw new BadRequestException('Requested quantity exceeds available stock');
     }
 
@@ -144,36 +172,58 @@ export class OrdersService {
 
     const items = [...state.items];
     const streamId = state.streamId ?? dto.streamId;
-    const idx = items.findIndex((i) => i.productId === dto.productId);
+    const vKey = dto.variantId?.trim() ?? '';
+    const idx = items.findIndex(
+      (i) => i.productId === dto.productId && (i.variantId?.trim() ?? '') === vKey,
+    );
     if (idx >= 0) {
       items[idx].quantity = dto.quantity;
       items[idx].size = dto.size;
       items[idx].color = dto.color;
+      items[idx].variantId = dto.variantId?.trim();
+      items[idx].variantLabel = dto.variantLabel?.trim();
     } else {
       items.push({
         productId: dto.productId,
         quantity: dto.quantity,
         size: dto.size,
         color: dto.color,
+        variantId: dto.variantId?.trim(),
+        variantLabel: dto.variantLabel?.trim(),
       });
     }
     await this.saveCartState(userId, { items, streamId });
     return this.getCart(userId);
   }
 
-  async updateCartItem(userId: string, productId: string, quantity: number) {
+  async updateCartItem(
+    userId: string,
+    productId: string,
+    quantity: number,
+    variantId?: string,
+  ) {
     const state = await this.loadCartState(userId);
     const items = [...state.items];
-    const idx = items.findIndex((i) => i.productId === productId);
+    const vKey = variantId?.trim() ?? '';
+    const idx = items.findIndex(
+      (i) =>
+        i.productId === productId && (i.variantId?.trim() ?? '') === vKey,
+    );
     if (idx < 0) throw new NotFoundException('Item not found in cart');
     items[idx].quantity = quantity;
     await this.saveCartState(userId, { items, streamId: state.streamId });
     return this.getCart(userId);
   }
 
-  async removeCartItem(userId: string, productId: string) {
+  async removeCartItem(userId: string, productId: string, variantId?: string) {
     const state = await this.loadCartState(userId);
-    const next = state.items.filter((i) => i.productId !== productId);
+    const vKey = variantId?.trim() ?? '';
+    const next = state.items.filter(
+      (i) =>
+        !(
+          i.productId === productId && (i.variantId?.trim() ?? '') === vKey
+        ),
+    );
     await this.saveCartState(
       userId,
       next.length ? { items: next, streamId: state.streamId } : { items: [] },
@@ -196,6 +246,8 @@ export class OrdersService {
       items: cart.items.map((i) => ({
         productId: i.productId,
         quantity: i.quantity,
+        variantId: i.variantId,
+        variantLabel: i.variantLabel,
       })),
       shippingAddress: dto.shippingAddress,
       streamId,
@@ -249,23 +301,47 @@ export class OrdersService {
       productId: string;
       quantity: number;
       price: number;
+      variantId: string | null;
+      variantLabel: string | null;
     }[] = [];
 
     for (const item of dto.items) {
       const product = productMap.get(item.productId);
       if (!product)
         throw new BadRequestException(`Product ${item.productId} not found`);
-      if (product.stock < item.quantity) {
+      const hasVariants = productHasVariantItems(product.variants);
+      let linePrice = product.price;
+      let variantId: string | null = item.variantId?.trim() ?? null;
+      let variantLabel: string | null = item.variantLabel?.trim() ?? null;
+      if (hasVariants) {
+        if (!item.variantId?.trim()) {
+          throw new BadRequestException(
+            `variantId is required for product ${product.name}`,
+          );
+        }
+        const v = findVariantItem(product.variants, item.variantId);
+        if (!v) {
+          throw new BadRequestException('Invalid variant on order line');
+        }
+        linePrice = v.sellingPrice;
+        variantLabel = v.label;
+        if (v.stock < item.quantity) {
+          throw new BadRequestException(
+            `Insufficient stock for ${product.name} (${v.label}). Available: ${v.stock}`,
+          );
+        }
+      } else if (product.stock < item.quantity) {
         throw new BadRequestException(
           `Insufficient stock for product ${product.name}. Available: ${product.stock}`,
         );
       }
-      const lineTotal = product.price * item.quantity;
-      totalAmount += lineTotal;
+      totalAmount += linePrice * item.quantity;
       orderItemsData.push({
         productId: product.id,
         quantity: item.quantity,
-        price: product.price,
+        price: linePrice,
+        variantId,
+        variantLabel,
       });
     }
 
@@ -278,15 +354,35 @@ export class OrdersService {
           status: OrderStatus.PENDING,
           totalAmount,
           items: {
-            create: orderItemsData,
+            create: orderItemsData.map((r) => ({
+              productId: r.productId,
+              quantity: r.quantity,
+              price: r.price,
+              variantId: r.variantId,
+              variantLabel: r.variantLabel,
+            })),
           },
         },
       });
-      for (const item of orderItemsData) {
-        await tx.product.update({
-          where: { id: item.productId },
-          data: { stock: { decrement: item.quantity } },
-        });
+      for (const row of orderItemsData) {
+        const p = await tx.product.findUnique({ where: { id: row.productId } });
+        if (!p) continue;
+        if (row.variantId && productHasVariantItems(p.variants)) {
+          const { variants, totalStock } = applyVariantStockDelta(
+            p.variants,
+            row.variantId,
+            -row.quantity,
+          );
+          await tx.product.update({
+            where: { id: row.productId },
+            data: { variants, stock: totalStock },
+          });
+        } else {
+          await tx.product.update({
+            where: { id: row.productId },
+            data: { stock: { decrement: row.quantity } },
+          });
+        }
       }
       return newOrder;
     });
@@ -697,10 +793,24 @@ export class OrdersService {
 
     await this.prisma.$transaction(async (tx) => {
       for (const item of order.items) {
-        await tx.product.update({
-          where: { id: item.productId },
-          data: { stock: { increment: item.quantity } },
-        });
+        const p = await tx.product.findUnique({ where: { id: item.productId } });
+        if (!p) continue;
+        if (item.variantId && productHasVariantItems(p.variants)) {
+          const { variants, totalStock } = applyVariantStockDelta(
+            p.variants,
+            item.variantId,
+            item.quantity,
+          );
+          await tx.product.update({
+            where: { id: item.productId },
+            data: { variants, stock: totalStock },
+          });
+        } else {
+          await tx.product.update({
+            where: { id: item.productId },
+            data: { stock: { increment: item.quantity } },
+          });
+        }
       }
       await tx.order.update({
         where: { id: orderId },
