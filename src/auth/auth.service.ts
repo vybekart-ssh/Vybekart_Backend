@@ -20,6 +20,7 @@ import {
   ResetPasswordDto,
   VerifyResetPasswordDto,
   CheckPhoneExistsDto,
+  PickupAddressDto,
 } from './dto/auth.dto';
 import { SendOtpDto, VerifyOtpDto } from './dto/otp.dto';
 import { Role } from '@prisma/client';
@@ -27,6 +28,16 @@ import { Role } from '@prisma/client';
 const REFRESH_TTL_SECONDS = 30 * 24 * 60 * 60; // 30 days
 const OTP_TTL_SECONDS = 10 * 60; // 10 minutes
 const OTP_LENGTH = 6;
+
+function formatPickupAsBusinessAddress(p: PickupAddressDto): string {
+  const parts = [
+    p.line1.trim(),
+    p.line2?.trim(),
+    `${p.city.trim()}, ${p.state.trim()} ${p.zip.trim()}`,
+    'IN',
+  ].filter((x): x is string => !!x && x.length > 0);
+  return parts.join(', ');
+}
 
 @Injectable()
 export class AuthService {
@@ -309,6 +320,12 @@ export class AuthService {
         const existingSeller = await tx.seller.findUnique({
           where: { userId: user.id },
         });
+        const primaryCategoryId = dto.categoryIds?.length
+          ? dto.categoryIds[0]
+          : undefined;
+        const businessAddressFromPickup = dto.pickupAddress
+          ? formatPickupAsBusinessAddress(dto.pickupAddress)
+          : undefined;
         const seller = existingSeller
           ? await tx.seller.update({
               where: { id: existingSeller.id },
@@ -318,6 +335,10 @@ export class AuthService {
                 gstNumber: dto.gstNumber ?? null,
                 bankAccount: dto.bankAccount ?? null,
                 ifscCode: dto.ifscCode ?? null,
+                ...(primaryCategoryId !== undefined && { primaryCategoryId }),
+                ...(businessAddressFromPickup !== undefined && {
+                  businessAddress: businessAddressFromPickup,
+                }),
               },
             })
           : await tx.seller.create({
@@ -328,6 +349,10 @@ export class AuthService {
                 gstNumber: dto.gstNumber ?? null,
                 bankAccount: dto.bankAccount ?? null,
                 ifscCode: dto.ifscCode ?? null,
+                ...(primaryCategoryId !== undefined && { primaryCategoryId }),
+                ...(businessAddressFromPickup !== undefined && {
+                  businessAddress: businessAddressFromPickup,
+                }),
               },
             });
 

@@ -3,16 +3,30 @@ import {
   NotFoundException,
   BadRequestException,
 } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
 import { PrismaService } from '../prisma/prisma.service';
+import * as fs from 'fs/promises';
+import * as path from 'path';
 import { UpdateSellerProfileDto } from './dto/update-seller-profile.dto';
 import { UpdateBankDetailsDto } from './dto/bank-details.dto';
 import { UpdateStoreDetailsDto } from './dto/store-details.dto';
 import { UpdateSignatureDto } from './dto/signature.dto';
 import { OrderStatus, VerificationStatus } from '@prisma/client';
 
+const STORE_IMAGE_MIME_EXT: Record<string, string> = {
+  'image/jpeg': '.jpg',
+  'image/jpg': '.jpg',
+  'image/png': '.png',
+  'image/webp': '.webp',
+  'image/gif': '.gif',
+};
+
 @Injectable()
 export class SellersService {
-  constructor(private prisma: PrismaService) {}
+  constructor(
+    private prisma: PrismaService,
+    private config: ConfigService,
+  ) {}
 
   async findOne(userId: string) {
     const seller = await this.prisma.seller.findUnique({
@@ -400,6 +414,23 @@ export class SellersService {
     });
   }
 
+  private formatPickupAddressRecord(a: {
+    line1: string;
+    line2: string | null;
+    city: string;
+    state: string;
+    zip: string;
+    country: string;
+  }): string {
+    const parts = [
+      a.line1.trim(),
+      a.line2?.trim(),
+      `${a.city.trim()}, ${a.state.trim()} ${a.zip.trim()}`,
+      a.country.trim(),
+    ].filter((x) => x && x.length > 0);
+    return parts.join(', ');
+  }
+
   /** GET store details */
   async getStoreDetails(userId: string) {
     const seller = await this.prisma.seller.findUnique({
@@ -409,25 +440,42 @@ export class SellersService {
       },
     });
     if (!seller) throw new NotFoundException('Seller profile not found');
+
+    let businessAddress =
+      seller.businessAddress?.trim() ? seller.businessAddress : null;
+    if (!businessAddress) {
+      const pickup =
+        (await this.prisma.address.findFirst({
+          where: { userId, type: 'PICKUP', isDefault: true },
+        })) ??
+        (await this.prisma.address.findFirst({
+          where: { userId, type: 'PICKUP' },
+        }));
+      if (pickup) {
+        businessAddress = this.formatPickupAddressRecord(pickup);
+      }
+    }
+
     return {
       businessName: seller.businessName,
-      businessAddress: seller.businessAddress,
+      businessAddress,
       gstNumber: seller.gstNumber,
       primaryCategoryId: seller.primaryCategoryId,
       primaryCategory: seller.primaryCategory,
       description: seller.description,
       logoUrl: seller.logoUrl,
       bannerUrl: seller.bannerUrl,
+      websiteUrl: seller.websiteUrl,
     };
   }
 
-  /** PUT store details */
+  /** PATCH store details */
   async updateStoreDetails(userId: string, dto: UpdateStoreDetailsDto) {
     const seller = await this.prisma.seller.findUnique({
       where: { userId },
     });
     if (!seller) throw new NotFoundException('Seller profile not found');
-    return this.prisma.seller.update({
+    await this.prisma.seller.update({
       where: { userId },
       data: {
         ...(dto.businessName !== undefined && { businessName: dto.businessName }),
@@ -441,11 +489,51 @@ export class SellersService {
         ...(dto.description !== undefined && { description: dto.description }),
         ...(dto.logoUrl !== undefined && { logoUrl: dto.logoUrl }),
         ...(dto.bannerUrl !== undefined && { bannerUrl: dto.bannerUrl }),
-      },
-      include: {
-        primaryCategory: { select: { id: true, name: true, slug: true } },
+        ...(dto.websiteUrl !== undefined && {
+          websiteUrl: dto.websiteUrl?.trim() || null,
+        }),
       },
     });
+    return this.getStoreDetails(userId);
+  }
+
+  async uploadStoreLogo(userId: string, file: Express.Multer.File) {
+    return this.saveStoreImage(userId, file, 'logo');
+  }
+
+  async uploadStoreBanner(userId: string, file: Express.Multer.File) {
+    return this.saveStoreImage(userId, file, 'banner');
+  }
+
+  private async saveStoreImage(
+    userId: string,
+    file: Express.Multer.File,
+    kind: 'logo' | 'banner',
+  ) {
+    if (!file?.buffer?.length) {
+      throw new BadRequestException('Image file is required');
+    }
+    const seller = await this.prisma.seller.findUnique({
+      where: { userId },
+    });
+    if (!seller) throw new NotFoundException('Seller profile not found');
+    const mime = (file.mimetype ?? '').toLowerCase();
+    const ext = STORE_IMAGE_MIME_EXT[mime];
+    if (!ext) {
+      throw new BadRequestException(
+        'Image must be JPEG, PNG, WebP, or GIF',
+      );
+    }
+    const dir = path.join(process.cwd(), 'uploads', 'store', seller.id);
+    await fs.mkdir(dir, { recursive: true });
+    const fname = `${kind}-${Date.now()}${ext}`;
+    const dest = path.join(dir, fname);
+    await fs.writeFile(dest, file.buffer);
+    const publicBase =
+      this.config.get<string>('API_PUBLIC_URL') ?? 'http://localhost:3000';
+    const base = publicBase.replace(/\/$/, '');
+    const url = `${base}/uploads/store/${seller.id}/${fname}`;
+    return kind === 'logo' ? { logoUrl: url } : { bannerUrl: url };
   }
 
   /** GET signature URL */

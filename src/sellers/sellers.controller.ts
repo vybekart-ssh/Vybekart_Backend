@@ -2,11 +2,15 @@ import {
   Controller,
   Get,
   Patch,
+  Post,
   Body,
   Param,
   UseGuards,
   Request,
+  UseInterceptors,
+  UploadedFile,
 } from '@nestjs/common';
+import { FileInterceptor } from '@nestjs/platform-express';
 import { SellersService } from './sellers.service';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
 import { RolesGuard } from '../auth/roles.guard';
@@ -74,6 +78,32 @@ export class SellersController {
     @Body() dto: UpdateStoreDetailsDto,
   ) {
     return this.sellersService.updateStoreDetails(req.user.id, dto);
+  }
+
+  @Post('store-media/logo')
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles(Role.SELLER)
+  @UseInterceptors(
+    FileInterceptor('image', { limits: { fileSize: 5 * 1024 * 1024 } }),
+  )
+  uploadStoreLogo(
+    @Request() req: { user: { id: string } },
+    @UploadedFile() file: Express.Multer.File,
+  ) {
+    return this.sellersService.uploadStoreLogo(req.user.id, file);
+  }
+
+  @Post('store-media/banner')
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles(Role.SELLER)
+  @UseInterceptors(
+    FileInterceptor('image', { limits: { fileSize: 8 * 1024 * 1024 } }),
+  )
+  uploadStoreBanner(
+    @Request() req: { user: { id: string } },
+    @UploadedFile() file: Express.Multer.File,
+  ) {
+    return this.sellersService.uploadStoreBanner(req.user.id, file);
   }
 
   @UseGuards(JwtAuthGuard, RolesGuard)

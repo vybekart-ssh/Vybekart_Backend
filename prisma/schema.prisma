@@ -118,6 +118,8 @@ model Seller {
   description       String?   @db.Text
   logoUrl           String?
   bannerUrl         String?
+  /// Public store / social / site link (optional)
+  websiteUrl        String?
   gstNumber         String?
   businessAddress   String?   @db.Text
   primaryCategoryId String?

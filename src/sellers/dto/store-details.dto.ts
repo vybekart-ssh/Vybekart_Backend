@@ -36,4 +36,13 @@ export class UpdateStoreDetailsDto {
   @IsOptional()
   @IsUrl()
   bannerUrl?: string;
+
+  @IsOptional()
+  @ValidateIf((o) => o.websiteUrl != null && o.websiteUrl !== '')
+  @IsUrl(
+    { require_protocol: false, require_tld: false },
+    { message: 'Website must be a valid URL' },
+  )
+  @MaxLength(500)
+  websiteUrl?: string;
 }
