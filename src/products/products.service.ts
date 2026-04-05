@@ -154,18 +154,22 @@ export class ProductsService {
     const page = Math.max(1, parseInt(String(query?.page ?? 1), 10) || 1);
     const limit = Math.min(100, Math.max(1, parseInt(String(query?.limit ?? 20), 10) || 20));
     const skip = (page - 1) * limit;
-    const baseWhere: {
-      seller: { userId: string };
-      name?: { contains: string; mode: 'insensitive' };
-      stock?: number | { gt: number };
-      status?: ProductStatus;
-    } = { seller: { userId } };
+    const baseWhere: Prisma.ProductWhereInput = { seller: { userId } };
     if (filter?.search?.trim()) {
       baseWhere.name = { contains: filter.search.trim(), mode: 'insensitive' };
     }
-    if (filter?.status === 'active') baseWhere.stock = { gt: 0 };
-    if (filter?.status === 'out_of_stock') baseWhere.stock = 0;
-    if (filter?.status === 'draft') baseWhere.status = ProductStatus.DRAFT;
+    // Tab filters must match ProductStatus — "active" was wrongly any row with stock>0 (drafts included).
+    if (filter?.status === 'active') {
+      baseWhere.status = ProductStatus.ACTIVE;
+      baseWhere.stock = { gt: 0 };
+    } else if (filter?.status === 'out_of_stock') {
+      baseWhere.OR = [
+        { status: ProductStatus.OUT_OF_STOCK },
+        { status: ProductStatus.ACTIVE, stock: 0 },
+      ];
+    } else if (filter?.status === 'draft') {
+      baseWhere.status = ProductStatus.DRAFT;
+    }
     const where = baseWhere;
     const [data, total] = await Promise.all([
       this.prisma.product.findMany({
