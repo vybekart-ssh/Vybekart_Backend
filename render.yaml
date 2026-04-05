@@ -18,6 +18,9 @@ services:
     envVars:
       - key: NODE_ENV
         value: production
+      # Must match the public HTTPS origin (same host the Android app uses in BASE_URL).
+      - key: API_PUBLIC_URL
+        value: "https://vybekart-backend.onrender.com"
       - key: DATABASE_URL
         value: "postgresql://postgres.axcsnealmdadjryogrnl:Vishal%4022337963@aws-1-ap-northeast-1.pooler.supabase.com:6543/postgres?pgbouncer=true"
       - key: DIRECT_URL

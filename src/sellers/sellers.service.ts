@@ -12,6 +12,7 @@ import { UpdateBankDetailsDto } from './dto/bank-details.dto';
 import { UpdateStoreDetailsDto } from './dto/store-details.dto';
 import { UpdateSignatureDto } from './dto/signature.dto';
 import { OrderStatus, VerificationStatus } from '@prisma/client';
+import { resolvePublicBaseUrl } from '../common/utils/public-base-url';
 
 const STORE_IMAGE_MIME_EXT: Record<string, string> = {
   'image/jpeg': '.jpg',
@@ -548,9 +549,7 @@ export class SellersService {
     const fname = `${kind}-${Date.now()}${ext}`;
     const dest = path.join(dir, fname);
     await fs.writeFile(dest, file.buffer);
-    const publicBase =
-      this.config.get<string>('API_PUBLIC_URL') ?? 'http://localhost:3000';
-    const base = publicBase.replace(/\/$/, '');
+    const base = resolvePublicBaseUrl(this.config);
     const url = `${base}/uploads/store/${seller.id}/${fname}`;
     await this.prisma.seller.update({
       where: { id: seller.id },

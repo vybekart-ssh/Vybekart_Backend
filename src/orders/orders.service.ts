@@ -19,6 +19,7 @@ import {
 import { SellerOrdersQueryDto } from './dto/seller-orders-query.dto';
 import { BuyerOrdersQueryDto } from './dto/buyer-orders-query.dto';
 import { MockDeliveryService } from './mock-delivery.service';
+import { resolvePublicBaseUrl } from '../common/utils/public-base-url';
 import * as fs from 'fs/promises';
 import * as path from 'path';
 import {
@@ -909,9 +910,8 @@ export class OrdersService {
     const fname = `${orderId}${ext}`;
     const dest = path.join(dir, fname);
     await fs.writeFile(dest, file.buffer);
-    const publicBase =
-      this.config.get<string>('API_PUBLIC_URL') ?? 'http://localhost:3000';
-    const packingVideoUrl = `${publicBase.replace(/\/$/, '')}/uploads/packing/${fname}`;
+    const base = resolvePublicBaseUrl(this.config);
+    const packingVideoUrl = `${base}/uploads/packing/${fname}`;
     return this.prisma.order.update({
       where: { id: orderId },
       data: {
