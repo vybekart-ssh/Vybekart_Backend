@@ -1,6 +1,7 @@
 import { Module, NestModule, MiddlewareConsumer } from '@nestjs/common';
 import { APP_GUARD } from '@nestjs/core';
 import { ConfigModule } from '@nestjs/config';
+import { ScheduleModule } from '@nestjs/schedule';
 import { ThrottlerGuard } from '@nestjs/throttler';
 import { RequestIdMiddleware } from './common/middleware/request-id.middleware';
 import { PrismaModule } from './prisma/prisma.module';
@@ -22,6 +23,7 @@ import { CountriesModule } from './countries/countries.module';
 import { LiveKitModule } from './livekit/livekit.module';
 import { SupportModule } from './support/support.module';
 import { MaterialTypesModule } from './material-types/material-types.module';
+import { NotificationsModule } from './notifications/notifications.module';
 
 @Module({
   imports: [
@@ -36,6 +38,8 @@ import { MaterialTypesModule } from './material-types/material-types.module';
       { ttl: 10000, limit: 100 },
       { ttl: 60000, limit: 300 },
     ]),
+    ScheduleModule.forRoot(),
+    NotificationsModule,
     HealthModule,
     RedisModule,
     LiveKitModule,

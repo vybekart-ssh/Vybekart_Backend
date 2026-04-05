@@ -46,6 +46,16 @@ export class StreamsController {
     return this.streamsService.scheduleStream(dto, req.user.id);
   }
 
+  @Post(':id/start-scheduled')
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles(Role.SELLER)
+  startScheduled(
+    @Request() req: { user: { id: string } },
+    @Param('id') id: string,
+  ) {
+    return this.streamsService.startScheduledStream(id, req.user.id);
+  }
+
   @Get('active')
   findAllActive(
     @Query() query: PaginationQueryDto,

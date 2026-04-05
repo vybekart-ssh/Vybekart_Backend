@@ -1,4 +1,11 @@
-import { Controller, Post, Body } from '@nestjs/common';
+import {
+  Controller,
+  Post,
+  Body,
+  Patch,
+  Request,
+  UseGuards,
+} from '@nestjs/common';
 import { AuthService } from './auth.service';
 import {
   LoginDto,
@@ -9,8 +16,10 @@ import {
   ResetPasswordDto,
   VerifyResetPasswordDto,
   CheckPhoneExistsDto,
+  RegisterFcmTokenDto,
 } from './dto/auth.dto';
 import { SendOtpDto, VerifyOtpDto } from './dto/otp.dto';
+import { JwtAuthGuard } from './jwt-auth.guard';
 
 @Controller('auth')
 export class AuthController {
@@ -64,5 +73,18 @@ export class AuthController {
   @Post('check-phone')
   async checkPhone(@Body() dto: CheckPhoneExistsDto) {
     return this.authService.checkPhoneExists(dto);
+  }
+
+  @Patch('me/fcm-token')
+  @UseGuards(JwtAuthGuard)
+  registerFcmToken(
+    @Request() req: { user: { id: string } },
+    @Body() dto: RegisterFcmTokenDto,
+  ) {
+    return this.authService.registerPushDevice(
+      req.user.id,
+      dto.token,
+      dto.platform,
+    );
   }
 }

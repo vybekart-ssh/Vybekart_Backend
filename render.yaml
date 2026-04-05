@@ -67,6 +67,11 @@ services:
       - key: RESEND_API_KEY
         sync: false
 
+      # FCM (Firebase Admin): full service-account JSON as a single-line string. Set in Dashboard (do not commit).
+      # Firebase Console → Project settings → Service accounts → Generate new private key.
+      - key: FIREBASE_SERVICE_ACCOUNT_JSON
+        sync: false
+
       - key: USE_REAL_IVS
         value: "false"
       - key: RUN_DUMMY_SEED_ON_DEPLOY

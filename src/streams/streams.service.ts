@@ -220,6 +220,111 @@ export class StreamsService {
     });
   }
 
+  /** Activate a scheduled stream: create LiveKit room, mark live, return publisher token (same shape as create). */
+  async startScheduledStream(streamId: string, userId: string) {
+    if (!this.livekit.isConfigured()) {
+      throw new BadRequestException(
+        'LiveKit is not configured. Set LIVEKIT_URL, LIVEKIT_API_KEY, and LIVEKIT_API_SECRET.',
+      );
+    }
+
+    const stream = await this.prisma.stream.findUnique({
+      where: { id: streamId },
+      include: {
+        seller: true,
+        streamProducts: { orderBy: { sortOrder: 'asc' } },
+      },
+    });
+    if (!stream) {
+      throw new NotFoundException(`Stream with ID ${streamId} not found`);
+    }
+    if (stream.seller.userId !== userId) {
+      throw new ForbiddenException('You can only start your own streams');
+    }
+    if (stream.isLive) {
+      throw new BadRequestException('Stream is already live');
+    }
+    if (stream.endedAt) {
+      throw new BadRequestException('This stream has already ended');
+    }
+    const planned = stream.startedAt;
+    if (!planned) {
+      throw new BadRequestException('This stream has no scheduled start time');
+    }
+
+    const EARLY_MS = 15 * 60 * 1000;
+    const LATE_MS = 4 * 60 * 60 * 1000;
+    const nowMs = Date.now();
+    const plannedMs = planned.getTime();
+    if (nowMs < plannedMs - EARLY_MS) {
+      throw new BadRequestException(
+        'You can start this live up to 15 minutes before the scheduled time',
+      );
+    }
+    if (nowMs > plannedMs + LATE_MS) {
+      throw new BadRequestException(
+        'This scheduled live is outside the allowed start window',
+      );
+    }
+
+    if (stream.livekitRoomName) {
+      throw new BadRequestException(
+        'This stream is already set up; refresh or contact support',
+      );
+    }
+
+    const productIds = stream.streamProducts.map((sp) => sp.productId);
+    const roomName = stream.id;
+
+    try {
+      await this.livekit.createRoom(
+        roomName,
+        JSON.stringify({
+          title: stream.title,
+          sellerId: stream.sellerId,
+          productIds,
+        }),
+      );
+
+      const livekitUrl = this.livekit.getLiveKitUrl();
+      const publisherToken = await this.livekit.createPublisherToken(
+        roomName,
+        `seller-${userId}`,
+      );
+
+      const updated = await this.prisma.stream.update({
+        where: { id: streamId },
+        data: {
+          isLive: true,
+          startedAt: new Date(),
+          livekitRoomName: roomName,
+          livekitUrl,
+        },
+        include: streamWithSellerInclude,
+      });
+
+      this.logger.log(`Started scheduled stream as live: ${stream.title}`);
+
+      return {
+        ...updated,
+        token: publisherToken,
+      };
+    } catch (err: unknown) {
+      const cause = err instanceof Error ? err.cause ?? err : err;
+      const msg = cause instanceof Error ? cause.message : String(cause);
+      const isUnreachable =
+        msg.includes('ECONNREFUSED') ||
+        msg.includes('fetch failed') ||
+        msg.includes('ENOTFOUND');
+      if (isUnreachable) {
+        throw new BadGatewayException(
+          'LiveKit server is unreachable. Start the LiveKit server and set LIVEKIT_URL in .env.',
+        );
+      }
+      throw err;
+    }
+  }
+
   async findAllActive(
     query?: PaginationQueryDto,
     categoryId?: string,

@@ -544,4 +544,24 @@ export class AuthService {
 
     return { hasBuyer: !!user?.buyerProfile, hasSeller: !!user?.sellerProfile };
   }
+
+  async registerPushDevice(
+    userId: string,
+    token: string,
+    platform?: string,
+  ): Promise<{ ok: boolean }> {
+    const t = token.trim();
+    const plat = (platform?.trim() || 'android').slice(0, 32);
+    await this.prisma.$transaction(async (tx) => {
+      await tx.userPushDevice.deleteMany({
+        where: { fcmToken: t, userId: { not: userId } },
+      });
+      await tx.userPushDevice.upsert({
+        where: { fcmToken: t },
+        create: { userId, fcmToken: t, platform: plat },
+        update: { userId, platform: plat },
+      });
+    });
+    return { ok: true };
+  }
 }

@@ -4,10 +4,10 @@ import {
   IsNotEmpty,
   IsOptional,
   MinLength,
+  MaxLength,
   IsArray,
   IsUUID,
   Matches,
-  MaxLength,
   ValidateNested,
   ValidateIf,
 } from 'class-validator';
@@ -205,4 +205,18 @@ export class RegisterSellerDto {
   @IsOptional()
   @Matches(IFSC_REGEX, { message: 'IFSC must be 11 chars (e.g. HDFC0001234)' })
   ifscCode?: string;
+}
+
+/** Register or refresh FCM device token for the authenticated user */
+export class RegisterFcmTokenDto {
+  @IsString()
+  @IsNotEmpty()
+  @MinLength(10)
+  @MaxLength(4096)
+  token: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(32)
+  platform?: string;
 }

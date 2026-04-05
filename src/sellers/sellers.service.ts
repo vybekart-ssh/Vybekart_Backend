@@ -213,7 +213,7 @@ export class SellersService {
     };
   }
 
-  /** All upcoming scheduled streams (future start, not live, not ended) */
+  /** Scheduled streams not yet live: future slots, or overdue within a 4h grace window */
   private async getUpcomingScheduledStreams(sellerId: string) {
     const select = {
       id: true,
@@ -224,12 +224,13 @@ export class SellersService {
       endedAt: true,
       thumbnailUrl: true,
     } as const;
+    const cutoff = new Date(Date.now() - 4 * 60 * 60 * 1000);
     return this.prisma.stream.findMany({
       where: {
         sellerId,
         endedAt: null,
         isLive: false,
-        startedAt: { gte: new Date() },
+        startedAt: { gte: cutoff },
       },
       orderBy: { startedAt: 'asc' },
       select,
