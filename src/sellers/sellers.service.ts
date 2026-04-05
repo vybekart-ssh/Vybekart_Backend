@@ -422,13 +422,13 @@ export class SellersService {
     zip: string;
     country: string;
   }): string {
-    const parts = [
+    const lines = [
       a.line1.trim(),
       a.line2?.trim(),
       `${a.city.trim()}, ${a.state.trim()} ${a.zip.trim()}`,
       a.country.trim(),
     ].filter((x) => x && x.length > 0);
-    return parts.join(', ');
+    return lines.join('\n');
   }
 
   /** GET store details */
@@ -437,9 +437,28 @@ export class SellersService {
       where: { userId },
       include: {
         primaryCategory: { select: { id: true, name: true, slug: true } },
+        categories: {
+          include: {
+            category: { select: { id: true, name: true, slug: true } },
+          },
+        },
       },
     });
     if (!seller) throw new NotFoundException('Seller profile not found');
+
+    if (!seller.primaryCategoryId && seller.categories.length > 0) {
+      const row = seller.categories[0];
+      const fillId = row.categoryId;
+      await this.prisma.seller.update({
+        where: { userId },
+        data: { primaryCategoryId: fillId },
+      });
+      seller.primaryCategoryId = fillId;
+      seller.primaryCategory = row.category;
+    }
+
+    const primaryCategoryId = seller.primaryCategoryId;
+    const primaryCategory = seller.primaryCategory;
 
     let businessAddress =
       seller.businessAddress?.trim() ? seller.businessAddress : null;
@@ -460,8 +479,8 @@ export class SellersService {
       businessName: seller.businessName,
       businessAddress,
       gstNumber: seller.gstNumber,
-      primaryCategoryId: seller.primaryCategoryId,
-      primaryCategory: seller.primaryCategory,
+      primaryCategoryId,
+      primaryCategory,
       description: seller.description,
       logoUrl: seller.logoUrl,
       bannerUrl: seller.bannerUrl,
@@ -484,7 +503,7 @@ export class SellersService {
         }),
         ...(dto.gstNumber !== undefined && { gstNumber: dto.gstNumber }),
         ...(dto.primaryCategoryId !== undefined && {
-          primaryCategoryId: dto.primaryCategoryId,
+          primaryCategoryId: dto.primaryCategoryId?.trim() || null,
         }),
         ...(dto.description !== undefined && { description: dto.description }),
         ...(dto.logoUrl !== undefined && { logoUrl: dto.logoUrl }),
@@ -533,6 +552,13 @@ export class SellersService {
       this.config.get<string>('API_PUBLIC_URL') ?? 'http://localhost:3000';
     const base = publicBase.replace(/\/$/, '');
     const url = `${base}/uploads/store/${seller.id}/${fname}`;
+    await this.prisma.seller.update({
+      where: { id: seller.id },
+      data:
+        kind === 'logo'
+          ? { logoUrl: url }
+          : { bannerUrl: url },
+    });
     return kind === 'logo' ? { logoUrl: url } : { bannerUrl: url };
   }
 

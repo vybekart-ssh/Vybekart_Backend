@@ -29,14 +29,15 @@ const REFRESH_TTL_SECONDS = 30 * 24 * 60 * 60; // 30 days
 const OTP_TTL_SECONDS = 10 * 60; // 10 minutes
 const OTP_LENGTH = 6;
 
+/** Multi-line address aligned with registration pickup fields. */
 function formatPickupAsBusinessAddress(p: PickupAddressDto): string {
-  const parts = [
+  const lines = [
     p.line1.trim(),
     p.line2?.trim(),
     `${p.city.trim()}, ${p.state.trim()} ${p.zip.trim()}`,
     'IN',
   ].filter((x): x is string => !!x && x.length > 0);
-  return parts.join(', ');
+  return lines.join('\n');
 }
 
 @Injectable()

@@ -1,4 +1,13 @@
-import { IsString, IsOptional, IsUrl, MaxLength, Matches, ValidateIf } from 'class-validator';
+import { Transform } from 'class-transformer';
+import {
+  IsString,
+  IsOptional,
+  IsUrl,
+  MaxLength,
+  Matches,
+  ValidateIf,
+  IsUUID,
+} from 'class-validator';
 
 const GSTIN_REGEX = /^[0-9]{2}[A-Z]{5}[0-9]{4}[A-Z][0-9A-Z]Z[0-9A-Z]$/;
 
@@ -21,7 +30,9 @@ export class UpdateStoreDetailsDto {
   gstNumber?: string;
 
   @IsOptional()
-  @IsString()
+  @Transform(({ value }) => (value === '' ? undefined : value))
+  @ValidateIf((o) => o.primaryCategoryId != null && o.primaryCategoryId !== '')
+  @IsUUID('4')
   primaryCategoryId?: string;
 
   @IsOptional()
@@ -29,12 +40,15 @@ export class UpdateStoreDetailsDto {
   @MaxLength(2000)
   description?: string;
 
+  /** App-served URLs; avoid @IsUrl() — validator.js rejects some valid deployment URLs. */
   @IsOptional()
-  @IsUrl()
+  @IsString()
+  @MaxLength(2048)
   logoUrl?: string;
 
   @IsOptional()
-  @IsUrl()
+  @IsString()
+  @MaxLength(2048)
   bannerUrl?: string;
 
   @IsOptional()
