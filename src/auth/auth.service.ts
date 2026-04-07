@@ -82,7 +82,11 @@ export class AuthService {
     }
 
     const user = await this.prisma.user.findFirst({
-      where: email ? { email } : { phone: phone! },
+      where: email
+        ? {
+            email: { equals: email.trim(), mode: 'insensitive' },
+          }
+        : { phone: phone! },
       include: { sellerProfile: true, buyerProfile: true },
     });
 
@@ -219,7 +223,11 @@ export class AuthService {
     }
 
     const user = await this.prisma.user.findFirst({
-      where: email ? { email } : { phone: phone! },
+      where: email
+        ? {
+            email: { equals: email.trim(), mode: 'insensitive' },
+          }
+        : { phone: phone! },
       include: { sellerProfile: true, buyerProfile: true },
     });
 
