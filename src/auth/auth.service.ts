@@ -291,14 +291,22 @@ export class AuthService {
       throw new ConflictException('User with this email already exists');
     }
 
-    if (dto.categoryIds?.length) {
-      const categories = await this.prisma.category.findMany({
-        where: { id: { in: dto.categoryIds } },
-      });
-      if (categories.length !== dto.categoryIds.length) {
-        throw new BadRequestException('One or more category IDs are invalid');
-      }
+    const categories = await this.prisma.category.findMany({
+      where: { id: { in: dto.categoryIds } },
+    });
+    if (categories.length !== dto.categoryIds.length) {
+      throw new BadRequestException('One or more category IDs are invalid');
     }
+
+    const primaryCategoryId = dto.categoryIds[0];
+    const businessAddressFromPickup = formatPickupAsBusinessAddress(
+      dto.pickupAddress,
+    );
+    const bankAccount = dto.bankAccount.trim();
+    const ifscCode = dto.ifscCode.trim().toUpperCase();
+    const bankName = dto.bankName.trim();
+    const accountHolderName = dto.accountHolderName.trim();
+    const accountType = dto.accountType.trim();
 
     const hashedPassword = await bcrypt.hash(dto.password, 10);
 
@@ -332,12 +340,6 @@ export class AuthService {
         const existingSeller = await tx.seller.findUnique({
           where: { userId: user.id },
         });
-        const primaryCategoryId = dto.categoryIds?.length
-          ? dto.categoryIds[0]
-          : undefined;
-        const businessAddressFromPickup = dto.pickupAddress
-          ? formatPickupAsBusinessAddress(dto.pickupAddress)
-          : undefined;
         const seller = existingSeller
           ? await tx.seller.update({
               where: { id: existingSeller.id },
@@ -345,17 +347,15 @@ export class AuthService {
                 businessName: dto.businessName,
                 description: dto.description ?? null,
                 gstNumber: dto.gstNumber ?? null,
-                bankName: dto.bankName ?? null,
-                accountHolderName: dto.accountHolderName ?? null,
-                accountType: dto.accountType ?? null,
-                bankAccount: dto.bankAccount ?? null,
-                ifscCode: dto.ifscCode ?? null,
+                bankName,
+                accountHolderName,
+                accountType,
+                bankAccount,
+                ifscCode,
                 status: VerificationStatus.PENDING,
                 rejectionReason: null,
-                ...(primaryCategoryId !== undefined && { primaryCategoryId }),
-                ...(businessAddressFromPickup !== undefined && {
-                  businessAddress: businessAddressFromPickup,
-                }),
+                primaryCategoryId,
+                businessAddress: businessAddressFromPickup,
               },
             })
           : await tx.seller.create({
@@ -364,62 +364,48 @@ export class AuthService {
                 businessName: dto.businessName,
                 description: dto.description ?? null,
                 gstNumber: dto.gstNumber ?? null,
-                bankName: dto.bankName ?? null,
-                accountHolderName: dto.accountHolderName ?? null,
-                accountType: dto.accountType ?? null,
-                bankAccount: dto.bankAccount ?? null,
-                ifscCode: dto.ifscCode ?? null,
+                bankName,
+                accountHolderName,
+                accountType,
+                bankAccount,
+                ifscCode,
                 status: VerificationStatus.PENDING,
-                ...(primaryCategoryId !== undefined && { primaryCategoryId }),
-                ...(businessAddressFromPickup !== undefined && {
-                  businessAddress: businessAddressFromPickup,
-                }),
+                primaryCategoryId,
+                businessAddress: businessAddressFromPickup,
               },
             });
 
-        if (dto.pickupAddress) {
-          // Ensure only one default PICKUP address.
-          await tx.address.updateMany({
-            where: { userId: user.id, type: 'PICKUP' },
-            data: { isDefault: false },
-          });
-          await tx.address.create({
-            data: {
-              userId: user.id,
-              type: 'PICKUP',
-              isDefault: true,
-              line1: dto.pickupAddress.line1,
-              line2: dto.pickupAddress.line2 ?? null,
-              city: dto.pickupAddress.city,
-              state: dto.pickupAddress.state,
-              zip: dto.pickupAddress.zip,
-              country: 'IN',
-            },
-          });
-        }
+        // Ensure only one default PICKUP address.
+        await tx.address.updateMany({
+          where: { userId: user.id, type: 'PICKUP' },
+          data: { isDefault: false },
+        });
+        await tx.address.create({
+          data: {
+            userId: user.id,
+            type: 'PICKUP',
+            isDefault: true,
+            line1: dto.pickupAddress.line1.trim(),
+            line2: dto.pickupAddress.line2?.trim() ?? null,
+            city: dto.pickupAddress.city.trim(),
+            state: dto.pickupAddress.state.trim(),
+            zip: dto.pickupAddress.zip.trim(),
+            country: 'IN',
+          },
+        });
 
-        if (dto.categoryIds?.length) {
-          await tx.sellerCategory.deleteMany({
-            where: { sellerId: seller.id },
-          });
-          await tx.sellerCategory.createMany({
-            data: dto.categoryIds.map((categoryId) => ({
-              sellerId: seller.id,
-              categoryId,
-            })),
-          });
-        }
+        await tx.sellerCategory.deleteMany({
+          where: { sellerId: seller.id },
+        });
+        await tx.sellerCategory.createMany({
+          data: dto.categoryIds.map((categoryId) => ({
+            sellerId: seller.id,
+            categoryId,
+          })),
+        });
       });
 
-      const categoryNames =
-        dto.categoryIds?.length ?
-          (
-            await this.prisma.category.findMany({
-              where: { id: { in: dto.categoryIds } },
-              select: { name: true },
-            })
-          ).map((c) => c.name)
-        : [];
+      const categoryNames = categories.map((c) => c.name);
       void this.sellerRegistrationNotifier
         .notifyNewSellerApplication(dto, categoryNames)
         .catch((err) =>
