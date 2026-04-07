@@ -1,6 +1,7 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import * as nodemailer from 'nodemailer';
+import { resolve4 } from 'dns/promises';
 import { RegisterSellerDto } from './dto/auth.dto';
 
 @Injectable()
@@ -47,8 +48,9 @@ export class SellerRegistrationNotifierService {
 
     try {
       const mailPort = this.config.get<number>('MAIL_PORT') ?? 587;
+      const resolvedHost = await this.resolveSmtpHostIPv4(mailHost);
       const transporter = nodemailer.createTransport({
-        host: mailHost,
+        host: resolvedHost,
         port: mailPort,
         secure: this.config.get<string>('MAIL_SECURE') === 'true',
         family: 4,
@@ -69,6 +71,21 @@ export class SellerRegistrationNotifierService {
       });
     } catch (err) {
       this.logger.error('SMTP failed for seller registration email', err);
+    }
+  }
+
+  /**
+   * Some hosts (Render/Heroku-like) cannot reach IPv6 SMTP endpoints.
+   * Force an IPv4 address when MAIL_HOST resolves to AAAA first.
+   */
+  private async resolveSmtpHostIPv4(host: string): Promise<string> {
+    // If it's already an IP literal, keep.
+    if (/^\d{1,3}(\.\d{1,3}){3}$/.test(host)) return host;
+    try {
+      const v4 = await resolve4(host);
+      return v4?.[0] || host;
+    } catch {
+      return host;
     }
   }
 
@@ -144,6 +161,9 @@ function buildSellerRegistrationEmail(
     ['Pickup address', pickupBlock],
     ['', ''],
     ['Section', 'Step 4 — Banking'],
+    ['Bank name', dto.bankName?.trim() || '—'],
+    ['Account holder name', dto.accountHolderName?.trim() || '—'],
+    ['Account type', dto.accountType?.trim() || '—'],
     ['Bank account', dto.bankAccount?.trim() || '—'],
     ['IFSC', dto.ifscCode?.trim() || '—'],
   ];

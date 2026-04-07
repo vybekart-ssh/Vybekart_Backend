@@ -205,6 +205,21 @@ export class RegisterSellerDto {
   @IsOptional()
   @Matches(IFSC_REGEX, { message: 'IFSC must be 11 chars (e.g. HDFC0001234)' })
   ifscCode?: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(200)
+  bankName?: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(200)
+  accountHolderName?: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(50)
+  accountType?: string;
 }
 
 /** Register or refresh FCM device token for the authenticated user */
