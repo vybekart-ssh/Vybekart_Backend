@@ -24,6 +24,8 @@ import { LiveKitModule } from './livekit/livekit.module';
 import { SupportModule } from './support/support.module';
 import { MaterialTypesModule } from './material-types/material-types.module';
 import { NotificationsModule } from './notifications/notifications.module';
+import { AppConfigModule } from './app-config/app-config.module';
+import { AdminModule } from './admin/admin.module';
 
 @Module({
   imports: [
@@ -43,6 +45,8 @@ import { NotificationsModule } from './notifications/notifications.module';
     HealthModule,
     RedisModule,
     LiveKitModule,
+    AppConfigModule,
+    AdminModule,
     PrismaModule,
     UsersModule,
     AuthModule,

@@ -19,6 +19,7 @@ import { JoinTokenDto } from './dto/join-token.dto';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
 import { RolesGuard } from '../auth/roles.guard';
 import { Roles } from '../auth/roles.decorator';
+import { SellerVerifiedGuard } from '../auth/seller-verified.guard';
 import { Role } from '@prisma/client';
 import { PaginationQueryDto } from '../common/dto/pagination-query.dto';
 
@@ -27,7 +28,7 @@ export class StreamsController {
   constructor(private readonly streamsService: StreamsService) {}
 
   @Post()
-  @UseGuards(JwtAuthGuard, RolesGuard)
+  @UseGuards(JwtAuthGuard, RolesGuard, SellerVerifiedGuard)
   @Roles(Role.SELLER)
   create(
     @Request() req: { user: { id: string } },
@@ -37,7 +38,7 @@ export class StreamsController {
   }
 
   @Post('schedule')
-  @UseGuards(JwtAuthGuard, RolesGuard)
+  @UseGuards(JwtAuthGuard, RolesGuard, SellerVerifiedGuard)
   @Roles(Role.SELLER)
   schedule(
     @Request() req: { user: { id: string } },
@@ -155,7 +156,7 @@ export class StreamsController {
   }
 
   @Patch(':id')
-  @UseGuards(JwtAuthGuard, RolesGuard)
+  @UseGuards(JwtAuthGuard, RolesGuard, SellerVerifiedGuard)
   @Roles(Role.SELLER)
   update(
     @Request() req: { user: { id: string } },
@@ -176,7 +177,7 @@ export class StreamsController {
   }
 
   @Delete(':id')
-  @UseGuards(JwtAuthGuard, RolesGuard)
+  @UseGuards(JwtAuthGuard, RolesGuard, SellerVerifiedGuard)
   @Roles(Role.SELLER)
   remove(@Request() req: { user: { id: string } }, @Param('id') id: string) {
     return this.streamsService.remove(id, req.user.id);

@@ -76,10 +76,10 @@ export class SellersService {
     });
   }
 
-  /** Admin: list sellers pending verification */
-  async findPending() {
+  /** Admin: list sellers (optional status filter) */
+  async findAllForAdmin(status?: VerificationStatus) {
     return this.prisma.seller.findMany({
-      where: { status: VerificationStatus.PENDING },
+      where: status ? { status } : undefined,
       include: {
         user: {
           select: {
@@ -96,8 +96,37 @@ export class SellersService {
           },
         },
       },
-      orderBy: { createdAt: 'asc' },
+      orderBy: { updatedAt: 'desc' },
     });
+  }
+
+  /** Admin: full seller detail for review */
+  async findOneSellerForAdmin(sellerId: string) {
+    const seller = await this.prisma.seller.findUnique({
+      where: { id: sellerId },
+      include: {
+        user: {
+          select: {
+            id: true,
+            name: true,
+            email: true,
+            phone: true,
+            createdAt: true,
+          },
+        },
+        categories: {
+          include: {
+            category: { select: { id: true, name: true, slug: true } },
+          },
+        },
+        primaryCategory: { select: { id: true, name: true, slug: true } },
+      },
+    });
+    if (!seller) throw new NotFoundException('Seller not found');
+    const pickupAddresses = await this.prisma.address.findMany({
+      where: { userId: seller.userId, type: 'PICKUP' },
+    });
+    return { ...seller, pickupAddresses };
   }
 
   /** Admin: approve seller */
@@ -106,8 +135,13 @@ export class SellersService {
       where: { id: sellerId },
     });
     if (!seller) throw new NotFoundException('Seller not found');
-    if (seller.status !== VerificationStatus.PENDING) {
-      throw new BadRequestException('Seller is not pending approval');
+    if (
+      seller.status !== VerificationStatus.PENDING &&
+      seller.status !== VerificationStatus.REJECTED
+    ) {
+      throw new BadRequestException(
+        'Seller can only be approved when pending or rejected',
+      );
     }
     return this.prisma.seller.update({
       where: { id: sellerId },
@@ -118,14 +152,17 @@ export class SellersService {
     });
   }
 
-  /** Admin: reject seller */
+  /** Admin: reject / deny seller (pending or verified) */
   async reject(sellerId: string, reason: string) {
     const seller = await this.prisma.seller.findUnique({
       where: { id: sellerId },
     });
     if (!seller) throw new NotFoundException('Seller not found');
-    if (seller.status !== VerificationStatus.PENDING) {
-      throw new BadRequestException('Seller is not pending approval');
+    if (
+      seller.status !== VerificationStatus.PENDING &&
+      seller.status !== VerificationStatus.VERIFIED
+    ) {
+      throw new BadRequestException('Seller cannot be rejected in this state');
     }
     return this.prisma.seller.update({
       where: { id: sellerId },
@@ -137,6 +174,45 @@ export class SellersService {
         user: { select: { id: true, name: true, email: true } },
       },
     });
+  }
+
+  /**
+   * Admin: clear onboarding/business data so the partner can complete registration again.
+   * Does not delete products or the user account.
+   */
+  async reregisterSeller(sellerId: string) {
+    const seller = await this.prisma.seller.findUnique({
+      where: { id: sellerId },
+    });
+    if (!seller) throw new NotFoundException('Seller not found');
+    const userId = seller.userId;
+    await this.prisma.$transaction(async (tx) => {
+      await tx.sellerCategory.deleteMany({ where: { sellerId } });
+      await tx.address.deleteMany({ where: { userId, type: 'PICKUP' } });
+      await tx.seller.update({
+        where: { id: sellerId },
+        data: {
+          businessName: 'Pending re-registration',
+          description: null,
+          logoUrl: null,
+          bannerUrl: null,
+          websiteUrl: null,
+          gstNumber: null,
+          businessAddress: null,
+          primaryCategoryId: null,
+          bankAccount: null,
+          bankName: null,
+          accountHolderName: null,
+          accountType: null,
+          ifscCode: null,
+          signatureUrl: null,
+          status: VerificationStatus.PENDING,
+          rejectionReason:
+            'Your registration was reset by VybeKart. Please complete seller onboarding again in the app.',
+        },
+      });
+    });
+    return this.findOneSellerForAdmin(sellerId);
   }
 
   async getDashboardStats(sellerId: string) {

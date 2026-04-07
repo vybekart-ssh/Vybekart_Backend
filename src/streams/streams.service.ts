@@ -10,7 +10,7 @@ import { CreateStreamDto } from './dto/create-stream.dto';
 import { UpdateStreamDto } from './dto/update-stream.dto';
 import { ScheduleStreamDto } from './dto/schedule-stream.dto';
 import { PrismaService } from '../prisma/prisma.service';
-import { Prisma } from '@prisma/client';
+import { Prisma, VerificationStatus } from '@prisma/client';
 import {
   PaginationQueryDto,
   PaginatedResult,
@@ -520,6 +520,17 @@ export class StreamsService {
     }
 
     const isOwner = stream.seller.userId === userId;
+    if (isOwner) {
+      const seller = await this.prisma.seller.findUnique({
+        where: { userId },
+        select: { status: true },
+      });
+      if (!seller || seller.status !== VerificationStatus.VERIFIED) {
+        throw new ForbiddenException(
+          'Your seller account must be verified before you can go live.',
+        );
+      }
+    }
     const token = isOwner
       ? await this.livekit.createPublisherToken(
           stream.livekitRoomName,

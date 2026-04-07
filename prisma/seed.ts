@@ -1,4 +1,5 @@
-import { PrismaClient } from '@prisma/client';
+import { PrismaClient, Role } from '@prisma/client';
+import * as bcrypt from 'bcrypt';
 
 const prisma = new PrismaClient();
 
@@ -102,6 +103,35 @@ async function main() {
     await prisma.faq.createMany({ data: FAQS });
     console.log('FAQs seeded.');
   }
+
+  const adminEmail = 'vybekart88@gmail.com';
+  const adminPasswordHash = await bcrypt.hash('Vybekart@1234', 10);
+  await prisma.user.upsert({
+    where: { email: adminEmail },
+    update: {
+      password: adminPasswordHash,
+      roles: [Role.ADMIN],
+      name: 'VybeKart Master',
+    },
+    create: {
+      email: adminEmail,
+      password: adminPasswordHash,
+      roles: [Role.ADMIN],
+      name: 'VybeKart Master',
+    },
+  });
+  console.log('Master admin user ensured:', adminEmail);
+
+  await prisma.appConfig.upsert({
+    where: { id: 'global' },
+    update: {},
+    create: {
+      id: 'global',
+      minAndroidVersionCode: 1,
+      latestAndroidVersionName: '1.0',
+    },
+  });
+  console.log('AppConfig ensured (global).');
 }
 
 main()

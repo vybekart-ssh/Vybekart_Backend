@@ -23,7 +23,8 @@ import {
   PickupAddressDto,
 } from './dto/auth.dto';
 import { SendOtpDto, VerifyOtpDto } from './dto/otp.dto';
-import { Role } from '@prisma/client';
+import { Role, VerificationStatus } from '@prisma/client';
+import { SellerRegistrationNotifierService } from './seller-registration-notifier.service';
 
 const REFRESH_TTL_SECONDS = 30 * 24 * 60 * 60; // 30 days
 const OTP_TTL_SECONDS = 10 * 60; // 10 minutes
@@ -49,7 +50,30 @@ export class AuthService {
     private jwtService: JwtService,
     private config: ConfigService,
     private redis: RedisService,
+    private sellerRegistrationNotifier: SellerRegistrationNotifierService,
   ) {}
+
+  private authUserResponse(user: {
+    id: string;
+    email: string;
+    name: string;
+    roles: Role[];
+    sellerProfile: { id: string; status: VerificationStatus } | null;
+    buyerProfile: { id: string } | null;
+  }) {
+    return {
+      id: user.id,
+      email: user.email,
+      name: user.name,
+      roles: user.roles,
+      sellerProfileId: user.sellerProfile?.id ?? null,
+      buyerProfileId: user.buyerProfile?.id ?? null,
+      sellerVerificationStatus:
+        user.roles.includes(Role.SELLER) && user.sellerProfile
+          ? user.sellerProfile.status
+          : null,
+    };
+  }
 
   async login(loginDto: LoginDto) {
     const { email, phone, password } = loginDto;
@@ -98,14 +122,7 @@ export class AuthService {
     return {
       access_token: accessToken,
       ...(refreshToken && { refresh_token: refreshToken }),
-      user: {
-        id: user.id,
-        email: user.email,
-        name: user.name,
-        roles: user.roles,
-        sellerProfileId: user.sellerProfile?.id,
-        buyerProfileId: user.buyerProfile?.id,
-      },
+      user: this.authUserResponse(user),
     };
   }
 
@@ -135,14 +152,7 @@ export class AuthService {
       const accessToken = this.jwtService.sign(payload);
       return {
         access_token: accessToken,
-        user: {
-          id: user.id,
-          email: user.email,
-          name: user.name,
-          roles: user.roles,
-          sellerProfileId: user.sellerProfile?.id,
-          buyerProfileId: user.buyerProfile?.id,
-        },
+        user: this.authUserResponse(user),
       };
     } catch {
       throw new UnauthorizedException('Invalid or expired refresh token');
@@ -237,14 +247,7 @@ export class AuthService {
       return {
         access_token: accessToken,
         ...(refreshToken && { refresh_token: refreshToken }),
-        user: {
-          id: user.id,
-          email: user.email,
-          name: user.name,
-          roles: user.roles,
-          sellerProfileId: user.sellerProfile?.id,
-          buyerProfileId: user.buyerProfile?.id,
-        },
+        user: this.authUserResponse(user),
       };
     }
 
@@ -336,6 +339,8 @@ export class AuthService {
                 gstNumber: dto.gstNumber ?? null,
                 bankAccount: dto.bankAccount ?? null,
                 ifscCode: dto.ifscCode ?? null,
+                status: VerificationStatus.PENDING,
+                rejectionReason: null,
                 ...(primaryCategoryId !== undefined && { primaryCategoryId }),
                 ...(businessAddressFromPickup !== undefined && {
                   businessAddress: businessAddressFromPickup,
@@ -350,6 +355,7 @@ export class AuthService {
                 gstNumber: dto.gstNumber ?? null,
                 bankAccount: dto.bankAccount ?? null,
                 ifscCode: dto.ifscCode ?? null,
+                status: VerificationStatus.PENDING,
                 ...(primaryCategoryId !== undefined && { primaryCategoryId }),
                 ...(businessAddressFromPickup !== undefined && {
                   businessAddress: businessAddressFromPickup,
@@ -390,6 +396,21 @@ export class AuthService {
           });
         }
       });
+
+      const categoryNames =
+        dto.categoryIds?.length ?
+          (
+            await this.prisma.category.findMany({
+              where: { id: { in: dto.categoryIds } },
+              select: { name: true },
+            })
+          ).map((c) => c.name)
+        : [];
+      void this.sellerRegistrationNotifier
+        .notifyNewSellerApplication(dto, categoryNames)
+        .catch((err) =>
+          this.logger.warn(`Seller registration notify failed: ${String(err)}`),
+        );
 
       return this.login({ email: dto.email, password: dto.password });
     } catch (error) {

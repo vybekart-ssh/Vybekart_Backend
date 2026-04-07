@@ -30,6 +30,14 @@ enum VerificationStatus {
   REJECTED
 }
 
+/// Singleton row (`id = "global"`): minimum Android [versionCode] the app must have to run; master can raise it to force updates.
+model AppConfig {
+  id                       String   @id
+  minAndroidVersionCode    Int      @default(1)
+  latestAndroidVersionName String?
+  updatedAt                DateTime @updatedAt
+}
+
 // --------------------------------------
 // Core Identity Module
 // --------------------------------------

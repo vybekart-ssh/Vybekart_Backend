@@ -7,6 +7,8 @@ import { AuthController } from './auth.controller';
 import { PrismaModule } from '../prisma/prisma.module';
 import { JwtStrategy } from './jwt.strategy';
 import { RedisModule } from '../redis/redis.module';
+import { SellerVerifiedGuard } from './seller-verified.guard';
+import { SellerRegistrationNotifierService } from './seller-registration-notifier.service';
 
 @Module({
   imports: [
@@ -23,7 +25,12 @@ import { RedisModule } from '../redis/redis.module';
     }),
   ],
   controllers: [AuthController],
-  providers: [AuthService, JwtStrategy],
-  exports: [AuthService],
+  providers: [
+    AuthService,
+    JwtStrategy,
+    SellerVerifiedGuard,
+    SellerRegistrationNotifierService,
+  ],
+  exports: [AuthService, SellerVerifiedGuard],
 })
 export class AuthModule {}
