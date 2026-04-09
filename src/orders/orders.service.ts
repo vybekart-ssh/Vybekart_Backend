@@ -19,11 +19,8 @@ import {
 import { SellerOrdersQueryDto } from './dto/seller-orders-query.dto';
 import { BuyerOrdersQueryDto } from './dto/buyer-orders-query.dto';
 import { MockDeliveryService } from './mock-delivery.service';
-<<<<<<< HEAD
 import { BorzoService } from '../borzo/borzo.service';
-=======
 import { resolvePublicBaseUrl } from '../common/utils/public-base-url';
->>>>>>> d6a25c0f08f1171e7dc99d62e6c10bf7d4e6bc48
 import * as fs from 'fs/promises';
 import * as path from 'path';
 import {

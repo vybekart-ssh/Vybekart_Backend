@@ -23,12 +23,9 @@ import { CountriesModule } from './countries/countries.module';
 import { LiveKitModule } from './livekit/livekit.module';
 import { SupportModule } from './support/support.module';
 import { MaterialTypesModule } from './material-types/material-types.module';
-<<<<<<< HEAD
 import { BorzoModule } from './borzo/borzo.module';
-=======
 import { NotificationsModule } from './notifications/notifications.module';
 import { AppConfigModule } from './app-config/app-config.module';
->>>>>>> d6a25c0f08f1171e7dc99d62e6c10bf7d4e6bc48
 import { AdminModule } from './admin/admin.module';
 
 @Module({

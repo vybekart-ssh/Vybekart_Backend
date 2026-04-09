@@ -524,27 +524,6 @@ export class SellersService {
       },
     });
     if (!seller) throw new NotFoundException('Seller profile not found');
-<<<<<<< HEAD
-    const pickup = await this.prisma.address.findFirst({
-      where: { userId, type: AddressType.PICKUP },
-      orderBy: { createdAt: 'desc' },
-    });
-    return {
-      businessName: seller.businessName,
-      businessAddress: seller.businessAddress,
-      pickupAddress: pickup
-        ? {
-            id: pickup.id,
-            line1: pickup.line1,
-            line2: pickup.line2,
-            city: pickup.city,
-            state: pickup.state,
-            zip: pickup.zip,
-            country: pickup.country,
-          }
-        : null,
-=======
-
     if (!seller.primaryCategoryId && seller.categories.length > 0) {
       const row = seller.categories[0];
       const fillId = row.categoryId;
@@ -574,10 +553,14 @@ export class SellersService {
       }
     }
 
+    const pickup = await this.prisma.address.findFirst({
+      where: { userId, type: AddressType.PICKUP },
+      orderBy: { createdAt: 'desc' },
+    });
+
     return {
       businessName: seller.businessName,
       businessAddress,
->>>>>>> d6a25c0f08f1171e7dc99d62e6c10bf7d4e6bc48
       gstNumber: seller.gstNumber,
       primaryCategoryId,
       primaryCategory,
@@ -585,6 +568,17 @@ export class SellersService {
       logoUrl: seller.logoUrl,
       bannerUrl: seller.bannerUrl,
       websiteUrl: seller.websiteUrl,
+      pickupAddress: pickup
+        ? {
+            id: pickup.id,
+            line1: pickup.line1,
+            line2: pickup.line2,
+            city: pickup.city,
+            state: pickup.state,
+            zip: pickup.zip,
+            country: pickup.country,
+          }
+        : null,
     };
   }
 

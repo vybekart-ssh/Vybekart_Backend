@@ -43,14 +43,11 @@ export const envValidationSchema = Joi.object({
   MAIL_USER: Joi.string().optional(),
   MAIL_PASS: Joi.string().optional(),
   MAIL_FROM: Joi.string().optional(),
-<<<<<<< HEAD
+  /** JSON string of Firebase service account (FCM server). Optional — push disabled if unset. */
+  FIREBASE_SERVICE_ACCOUNT_JSON: Joi.string().optional(),
 
   // Borzo Business API (India)
   BORZO_ENV: Joi.string().valid('test', 'prod').default('test'),
   BORZO_AUTH_TOKEN_TEST: Joi.string().optional(),
   BORZO_AUTH_TOKEN_PROD: Joi.string().optional(),
-=======
-  /** JSON string of Firebase service account (FCM server). Optional — push disabled if unset. */
-  FIREBASE_SERVICE_ACCOUNT_JSON: Joi.string().optional(),
->>>>>>> d6a25c0f08f1171e7dc99d62e6c10bf7d4e6bc48
 });
