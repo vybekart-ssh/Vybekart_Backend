@@ -71,3 +71,11 @@ services:
         value: "false"
       - key: RUN_DUMMY_SEED_ON_DEPLOY
         value: "true"
+
+      # Borzo Business API (set tokens in Render Dashboard)
+      - key: BORZO_ENV
+        value: "test"
+      - key: BORZO_AUTH_TOKEN_TEST
+        sync: false
+      - key: BORZO_AUTH_TOKEN_PROD
+        sync: false

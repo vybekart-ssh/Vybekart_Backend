@@ -25,6 +25,7 @@ import { SellerOrdersQueryDto } from './dto/seller-orders-query.dto';
 import { CartItemDto, UpdateCartQuantityDto } from './dto/cart-item.dto';
 import { CheckoutOrderDto } from './dto/checkout-order.dto';
 import { BuyerOrdersQueryDto } from './dto/buyer-orders-query.dto';
+import { DeliveryQuoteDto } from './dto/delivery-quote.dto';
 
 @Controller('orders')
 export class OrdersController {
@@ -76,6 +77,16 @@ export class OrdersController {
     @Body() dto: CheckoutOrderDto,
   ) {
     return this.ordersService.checkoutFromCart(req.user.id, dto);
+  }
+
+  @Post('delivery-quote')
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles(Role.BUYER)
+  deliveryQuote(
+    @Request() req: { user: { id: string } },
+    @Body() dto: DeliveryQuoteDto,
+  ) {
+    return this.ordersService.getDeliveryQuoteFromCart(req.user.id, dto.addressId);
   }
 
   @Delete('cart/items/:productId')

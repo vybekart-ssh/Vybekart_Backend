@@ -7,7 +7,7 @@ import {
 import { PrismaService } from '../prisma/prisma.service';
 import { CreateOrderDto } from './dto/create-order.dto';
 import { ShipOrderDto } from './dto/ship-order.dto';
-import { OrderStatus, Prisma } from '@prisma/client';
+import { Address, AddressType, OrderStatus, Prisma } from '@prisma/client';
 import { RedisService } from '../redis/redis.service';
 import { CartItemDto } from './dto/cart-item.dto';
 import { CheckoutOrderDto } from './dto/checkout-order.dto';
@@ -19,6 +19,7 @@ import {
 import { SellerOrdersQueryDto } from './dto/seller-orders-query.dto';
 import { BuyerOrdersQueryDto } from './dto/buyer-orders-query.dto';
 import { MockDeliveryService } from './mock-delivery.service';
+import { BorzoService } from '../borzo/borzo.service';
 import * as fs from 'fs/promises';
 import * as path from 'path';
 
@@ -31,6 +32,7 @@ export class OrdersService {
     private redis: RedisService,
     private config: ConfigService,
     private mockDelivery: MockDeliveryService,
+    private borzo: BorzoService,
   ) {}
 
   private async assertStreamAndProducts(streamId: string, productIds: string[]) {
@@ -201,17 +203,123 @@ export class OrdersService {
       streamId,
     };
 
+    // Prefer structured address id.
+    if (dto.addressId) {
+      const addr = await this.prisma.address.findFirst({
+        where: { id: dto.addressId, userId, type: AddressType.SHIPPING },
+      });
+      if (!addr) throw new BadRequestException('Shipping address not found');
+      createDto.shippingAddress = formatAddressLine(addr);
+    }
+
+    // Delivery fee (charged to buyer) — calculated from cart context
+    const quote = dto.addressId
+      ? await this.getDeliveryQuoteFromCart(userId, dto.addressId)
+      : null;
+
     const order = await this.create(createDto, userId);
+    if (!order) {
+      throw new BadRequestException('Order creation failed');
+    }
+    if (quote?.fee != null && quote.fee > 0) {
+      await this.prisma.order.update({
+        where: { id: order.id },
+        data: {
+          deliveryFee: quote.fee,
+          deliveryProvider: quote.provider,
+          totalAmount: order.totalAmount + quote.fee,
+        },
+      });
+    }
     await this.redis.del(this.cartKey(userId));
 
     return {
       orderId: order?.id,
       status: order?.status ?? 'PENDING',
-      totalAmount: order?.totalAmount ?? cart.total,
+      totalAmount: (order?.totalAmount ?? cart.total) + (quote?.fee ?? 0),
+      deliveryFee: quote?.fee ?? 0,
       estimatedDelivery: 'October 20, 2024',
-      shippingAddress: dto.shippingAddress,
+      shippingAddress: createDto.shippingAddress ?? dto.shippingAddress ?? '',
       paymentMethod: dto.paymentMethod ?? 'CARD',
     };
+  }
+
+  async getDeliveryQuoteFromCart(userId: string, addressId: string) {
+    const cart = await this.getCart(userId);
+    if (!cart.items.length) throw new BadRequestException('Cart is empty');
+    const streamId = (cart as { streamId?: string | null }).streamId;
+    if (!streamId) {
+      throw new BadRequestException(
+        'Checkout requires a live stream context. Add items from a live.',
+      );
+    }
+
+    const buyerAddr = await this.prisma.address.findFirst({
+      where: { id: addressId, userId, type: AddressType.SHIPPING },
+    });
+    if (!buyerAddr) throw new BadRequestException('Shipping address not found');
+
+    const stream = await this.prisma.stream.findUnique({
+      where: { id: streamId },
+      include: { seller: { include: { user: true } } },
+    });
+    if (!stream) throw new BadRequestException('Stream not found');
+    const sellerUserId = stream.seller?.userId;
+    if (!sellerUserId) throw new BadRequestException('Stream seller not found');
+
+    const pickup = await this.prisma.address.findFirst({
+      where: { userId: sellerUserId, type: AddressType.PICKUP },
+      orderBy: { createdAt: 'desc' },
+    });
+    if (!pickup) {
+      throw new BadRequestException(
+        'Seller pickup address is missing. Please update store pickup address.',
+      );
+    }
+
+    const sellerPhone = stream.seller.user.phone;
+    if (!sellerPhone) {
+      throw new BadRequestException('Seller phone is missing for pickup contact');
+    }
+    const buyer = await this.prisma.user.findUnique({ where: { id: userId } });
+    const buyerPhone = buyer?.phone ?? buyerAddr.phone;
+    if (!buyerPhone) throw new BadRequestException('Buyer phone is missing');
+
+    const matter = buildMatterFromCart(cart.items);
+    const payload = {
+      type: 'standard' as const,
+      matter,
+      is_route_optimizer_enabled: false,
+      is_client_notification_enabled: false,
+      is_contact_person_notification_enabled: true,
+      points: [
+        {
+          address: formatAddressLine(pickup),
+          contact_person: {
+            phone: normalizeInPhone(sellerPhone),
+            name: stream.seller.businessName ?? stream.seller.user.name,
+          },
+          note: 'Pickup from seller',
+        },
+        {
+          address: formatAddressLine(buyerAddr),
+          contact_person: {
+            phone: normalizeInPhone(buyerPhone),
+            name: buyerAddr.contactName ?? buyer?.name ?? 'Buyer',
+          },
+          note: 'Deliver to buyer',
+        },
+      ],
+    };
+
+    const res: any = await this.borzo.calculate(payload as any);
+    const paymentAmount = res?.order?.payment_amount ?? res?.order?.delivery?.payment_amount;
+    const fee =
+      typeof paymentAmount === 'string' ? Number.parseFloat(paymentAmount) : 0;
+    if (!Number.isFinite(fee) || fee < 0) {
+      throw new BadRequestException('Unable to calculate delivery fee');
+    }
+    return { provider: 'BORZO', fee, raw: res };
   }
 
   async create(dto: CreateOrderDto, userId: string) {
@@ -827,7 +935,10 @@ export class OrdersService {
     }
     const order = await this.prisma.order.findUnique({
       where: { id: orderId },
-      include: { items: { include: { product: true } } },
+      include: {
+        items: { include: { product: true } },
+        buyer: { include: { user: true } },
+      },
     });
     if (!order) throw new NotFoundException('Order not found');
     if (!order.streamId) {
@@ -844,16 +955,72 @@ export class OrdersService {
         'Order must be packed first. Current status: ' + order.status,
       );
     }
-    const mock = this.mockDelivery.requestPickup(orderId);
+
+    const pickup = await this.prisma.address.findFirst({
+      where: { userId, type: AddressType.PICKUP },
+      orderBy: { createdAt: 'desc' },
+    });
+    if (!pickup) {
+      throw new BadRequestException(
+        'Pickup address is missing. Please update pickup address in store profile.',
+      );
+    }
+    const sellerUser = await this.prisma.user.findUnique({ where: { id: userId } });
+    if (!sellerUser?.phone) {
+      throw new BadRequestException('Seller phone is missing (required for Borzo)');
+    }
+    const buyerPhone = order.buyer?.user?.phone;
+    if (!buyerPhone) throw new BadRequestException('Buyer phone is missing');
+    const dropAddress = order.shippingAddress?.trim();
+    if (!dropAddress) {
+      throw new BadRequestException('Order shipping address is missing');
+    }
+
+    const matter = `VybeKart order #${orderId.slice(-6)} (${order.items.length} items)`;
+    const payload = {
+      type: 'standard' as const,
+      matter,
+      is_contact_person_notification_enabled: true,
+      points: [
+        {
+          address: formatAddressLine(pickup),
+          contact_person: {
+            phone: normalizeInPhone(sellerUser.phone),
+            name: seller.businessName,
+          },
+          client_order_id: orderId.replace(/-/g, '').slice(0, 32),
+          note: 'Pickup from seller',
+        },
+        {
+          address: dropAddress,
+          contact_person: {
+            phone: normalizeInPhone(buyerPhone),
+            name: order.buyer?.user?.name ?? 'Buyer',
+          },
+          client_order_id: orderId.replace(/-/g, '').slice(0, 32),
+          note: 'Deliver to buyer',
+        },
+      ],
+    };
+
+    const res: any = await this.borzo.createOrder(payload as any);
+    const borzoOrder = res?.order ?? null;
+    const trackingUrl =
+      borzoOrder?.points?.find((p: any) => p?.tracking_url)?.tracking_url ?? null;
+
     return this.prisma.order.update({
       where: { id: orderId },
       data: {
         status: OrderStatus.SHIPPED,
-        trackingId: mock.trackingId,
-        carrierName: mock.carrierName,
         shippedAt: new Date(),
-        deliveryMockShipmentId: mock.externalId,
-        deliveryStatus: 'REQUESTED',
+        carrierName: 'Borzo',
+        trackingId: borzoOrder?.order_name ? String(borzoOrder.order_name) : null,
+        deliveryProvider: 'BORZO',
+        borzoOrderId: borzoOrder?.order_id ?? null,
+        borzoOrderName: borzoOrder?.order_name ?? null,
+        borzoTrackingUrl: trackingUrl,
+        borzoOrderStatus: borzoOrder?.status ?? null,
+        deliveryStatus: borzoOrder?.status ?? 'REQUESTED',
       },
       include: {
         items: { include: { product: true } },
@@ -882,6 +1049,32 @@ export class OrdersService {
     if (!hasSellerProduct) {
       throw new ForbiddenException('This order does not contain your products');
     }
+    // If this is a Borzo order, refresh status from Borzo; else keep mock behavior.
+    if (order.deliveryProvider === 'BORZO' && order.borzoOrderId) {
+      const courier: any = await this.borzo.getCourier(order.borzoOrderId);
+      const orders: any = await this.borzo.getOrders({ order_id: order.borzoOrderId });
+      const latest = orders?.orders?.[0] ?? orders?.order ?? null;
+      const status = latest?.status ?? latest?.delivery?.status ?? order.deliveryStatus ?? null;
+      const updated = await this.prisma.order.update({
+        where: { id: orderId },
+        data: {
+          deliveryStatus: status ?? order.deliveryStatus,
+          borzoOrderStatus: status ?? order.borzoOrderStatus,
+        },
+      });
+      return {
+        deliveryStatus: updated.deliveryStatus,
+        trackingId: updated.trackingId,
+        carrierName: updated.carrierName,
+        orderStatus: updated.status,
+        borzo: {
+          orderId: updated.borzoOrderId,
+          trackingUrl: updated.borzoTrackingUrl,
+          courier,
+        },
+      };
+    }
+
     this.mockDelivery.touchPoll(orderId);
     const live = this.mockDelivery.getDeliveryStatus(orderId);
     const updated = await this.prisma.order.update({
@@ -895,4 +1088,26 @@ export class OrdersService {
       orderStatus: updated.status,
     };
   }
+}
+
+function buildMatterFromCart(items: CartItemDto[]): string {
+  const n = items.reduce((sum, i) => sum + (i.quantity ?? 0), 0);
+  return `VybeKart live order (${n} item${n === 1 ? '' : 's'})`;
+}
+
+function normalizeInPhone(raw: string): string {
+  const digits = raw.replace(/\D/g, '');
+  if (!digits) return raw;
+  if (digits.length === 10) return `91${digits}`;
+  if (digits.startsWith('91') && digits.length === 12) return digits;
+  return digits;
+}
+
+function formatAddressLine(
+  a: Pick<Address, 'line1' | 'line2' | 'city' | 'state' | 'zip' | 'country'>,
+): string {
+  const parts = [a.line1, a.line2, a.city, a.state, a.zip, a.country]
+    .map((s) => (s ?? '').toString().trim())
+    .filter(Boolean);
+  return parts.join(', ');
 }

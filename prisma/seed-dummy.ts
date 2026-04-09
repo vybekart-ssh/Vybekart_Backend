@@ -351,6 +351,142 @@ async function seedProfilesAndRelatedData() {
       },
     });
   }
+
+  // Extra: seed live-originated orders for an existing seller user phone (manual QA)
+  await seedLiveOrdersForSellerPhone('8425990154');
+}
+
+async function seedLiveOrdersForSellerPhone(phone: string) {
+  const u = await prisma.user.findUnique({ where: { phone } });
+  if (!u) {
+    console.log(`No user found with phone ${phone}. Skipped seller QA orders.`);
+    return;
+  }
+  const seller = await prisma.seller.findUnique({ where: { userId: u.id } });
+  if (!seller) {
+    console.log(`User ${phone} has no seller profile. Skipped seller QA orders.`);
+    return;
+  }
+  const buyer = await prisma.buyer.findUnique({ where: { userId: u.id } });
+  if (!buyer) {
+    console.log(`User ${phone} has no buyer profile. Skipped seller QA orders.`);
+    return;
+  }
+
+  const streamId = `qa-stream-${seller.id}`;
+  const anyCategory = await prisma.category.findFirst({ orderBy: { name: 'asc' } });
+  if (!anyCategory) throw new Error('No categories found');
+  await prisma.stream.upsert({
+    where: { id: streamId },
+    update: { isLive: true, startedAt: new Date() },
+    create: {
+      id: streamId,
+      sellerId: seller.id,
+      categoryId: anyCategory.id,
+      title: `QA Live (${phone})`,
+      description: 'QA live stream for seller orders testing.',
+      isLive: true,
+      visibility: StreamVisibility.PUBLIC,
+      startedAt: new Date(),
+      livekitRoomName: `qa-room-${seller.id}`,
+    },
+  });
+
+  const sellerProducts = await prisma.product.findMany({
+    where: { sellerId: seller.id },
+    take: 3,
+    orderBy: { createdAt: 'desc' },
+  });
+  if (!sellerProducts.length) {
+    console.log(`Seller ${phone} has no products. Skipped QA orders.`);
+    return;
+  }
+
+  const shippingByState = [
+    '101 QA Road, Mumbai, Maharashtra, 400001',
+    '22 QA Street, Bengaluru, Karnataka, 560001',
+    '9 QA Lane, New Delhi, Delhi, 110001',
+    '17 QA Avenue, Jaipur, Rajasthan, 302001',
+    '5 QA Nagar, Lucknow, Uttar Pradesh, 226001',
+  ];
+  const statuses: OrderStatus[] = [
+    OrderStatus.PAID,
+    OrderStatus.PACKED,
+    OrderStatus.SHIPPED,
+    OrderStatus.DELIVERED,
+    OrderStatus.CANCELLED,
+  ];
+
+  for (let i = 0; i < statuses.length; i += 1) {
+    const id = `qa-live-order-${seller.id}-${i + 1}`;
+    const st = statuses[i];
+    const p = sellerProducts[i % sellerProducts.length];
+    const itemsTotal = p.price * 1;
+    const deliveryFee = 79 + i * 10;
+    await prisma.order.upsert({
+      where: { id },
+      update: {
+        streamId,
+        status: st,
+        shippingAddress: shippingByState[i % shippingByState.length],
+        deliveryProvider: 'BORZO',
+        deliveryFee,
+        totalAmount: itemsTotal + deliveryFee,
+        packingVideoUrl:
+          st === OrderStatus.PACKED || st === OrderStatus.SHIPPED || st === OrderStatus.DELIVERED
+            ? `http://localhost:3000/uploads/packing/${id}.mp4`
+            : null,
+        packedAt:
+          st === OrderStatus.PACKED || st === OrderStatus.SHIPPED || st === OrderStatus.DELIVERED
+            ? new Date(Date.now() - 1000 * 60 * 60 * 2)
+            : null,
+        shippedAt: st === OrderStatus.SHIPPED || st === OrderStatus.DELIVERED ? new Date() : null,
+        deliveredAt: st === OrderStatus.DELIVERED ? new Date() : null,
+        carrierName: st === OrderStatus.SHIPPED || st === OrderStatus.DELIVERED ? 'Borzo' : null,
+        trackingId: st === OrderStatus.SHIPPED || st === OrderStatus.DELIVERED ? `VKQA-${i + 1}` : null,
+        deliveryStatus:
+          st === OrderStatus.DELIVERED ? 'delivered' : st === OrderStatus.SHIPPED ? 'active' : null,
+      },
+      create: {
+        id,
+        buyerId: buyer.id,
+        streamId,
+        status: st,
+        shippingAddress: shippingByState[i % shippingByState.length],
+        deliveryProvider: 'BORZO',
+        deliveryFee,
+        totalAmount: itemsTotal + deliveryFee,
+        packingVideoUrl:
+          st === OrderStatus.PACKED || st === OrderStatus.SHIPPED || st === OrderStatus.DELIVERED
+            ? `http://localhost:3000/uploads/packing/${id}.mp4`
+            : null,
+        packedAt:
+          st === OrderStatus.PACKED || st === OrderStatus.SHIPPED || st === OrderStatus.DELIVERED
+            ? new Date(Date.now() - 1000 * 60 * 60 * 2)
+            : null,
+        shippedAt: st === OrderStatus.SHIPPED || st === OrderStatus.DELIVERED ? new Date() : null,
+        deliveredAt: st === OrderStatus.DELIVERED ? new Date() : null,
+        carrierName: st === OrderStatus.SHIPPED || st === OrderStatus.DELIVERED ? 'Borzo' : null,
+        trackingId: st === OrderStatus.SHIPPED || st === OrderStatus.DELIVERED ? `VKQA-${i + 1}` : null,
+        deliveryStatus:
+          st === OrderStatus.DELIVERED ? 'delivered' : st === OrderStatus.SHIPPED ? 'active' : null,
+      },
+    });
+
+    await prisma.orderItem.upsert({
+      where: { id: `qa-live-order-item-${seller.id}-${i + 1}` },
+      update: { quantity: 1, price: p.price, productId: p.id, orderId: id },
+      create: {
+        id: `qa-live-order-item-${seller.id}-${i + 1}`,
+        orderId: id,
+        productId: p.id,
+        quantity: 1,
+        price: p.price,
+      },
+    });
+  }
+
+  console.log(`Seeded QA live orders for seller phone ${phone}.`);
 }
 
 async function main() {

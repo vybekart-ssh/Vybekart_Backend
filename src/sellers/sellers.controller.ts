@@ -16,6 +16,7 @@ import { UpdateSellerProfileDto } from './dto/update-seller-profile.dto';
 import { UpdateBankDetailsDto } from './dto/bank-details.dto';
 import { UpdateStoreDetailsDto } from './dto/store-details.dto';
 import { UpdateSignatureDto } from './dto/signature.dto';
+import { UpdatePickupAddressDto } from './dto/pickup-address.dto';
 
 @Controller('sellers')
 export class SellersController {
@@ -74,6 +75,23 @@ export class SellersController {
     @Body() dto: UpdateStoreDetailsDto,
   ) {
     return this.sellersService.updateStoreDetails(req.user.id, dto);
+  }
+
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles(Role.SELLER)
+  @Get('pickup-address')
+  getPickupAddress(@Request() req: { user: { id: string } }) {
+    return this.sellersService.getPickupAddress(req.user.id);
+  }
+
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles(Role.SELLER)
+  @Patch('pickup-address')
+  updatePickupAddress(
+    @Request() req: { user: { id: string } },
+    @Body() dto: UpdatePickupAddressDto,
+  ) {
+    return this.sellersService.updatePickupAddress(req.user.id, dto);
   }
 
   @UseGuards(JwtAuthGuard, RolesGuard)

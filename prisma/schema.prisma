@@ -363,6 +363,18 @@ model Order {
   status      OrderStatus @default(PENDING)
   totalAmount Float
 
+  /// Delivery fee charged to buyer at checkout (₹)
+  deliveryFee Float @default(0)
+
+  /// Delivery provider integration (e.g., BORZO)
+  deliveryProvider String?
+
+  /// Borzo delivery identifiers + tracking
+  borzoOrderId      Int?
+  borzoOrderName    String?
+  borzoTrackingUrl  String?
+  borzoOrderStatus  String?
+
   // Shipping & delivery (seller fills these)
   trackingId  String?
   carrierName String?

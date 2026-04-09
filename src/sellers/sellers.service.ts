@@ -8,6 +8,8 @@ import { UpdateSellerProfileDto } from './dto/update-seller-profile.dto';
 import { UpdateBankDetailsDto } from './dto/bank-details.dto';
 import { UpdateStoreDetailsDto } from './dto/store-details.dto';
 import { UpdateSignatureDto } from './dto/signature.dto';
+import { UpdatePickupAddressDto } from './dto/pickup-address.dto';
+import { AddressType } from '@prisma/client';
 import { OrderStatus, VerificationStatus } from '@prisma/client';
 
 @Injectable()
@@ -408,9 +410,24 @@ export class SellersService {
       },
     });
     if (!seller) throw new NotFoundException('Seller profile not found');
+    const pickup = await this.prisma.address.findFirst({
+      where: { userId, type: AddressType.PICKUP },
+      orderBy: { createdAt: 'desc' },
+    });
     return {
       businessName: seller.businessName,
       businessAddress: seller.businessAddress,
+      pickupAddress: pickup
+        ? {
+            id: pickup.id,
+            line1: pickup.line1,
+            line2: pickup.line2,
+            city: pickup.city,
+            state: pickup.state,
+            zip: pickup.zip,
+            country: pickup.country,
+          }
+        : null,
       gstNumber: seller.gstNumber,
       primaryCategoryId: seller.primaryCategoryId,
       primaryCategory: seller.primaryCategory,
@@ -472,5 +489,80 @@ export class SellersService {
       },
       select: { signatureUrl: true },
     });
+  }
+
+  async getPickupAddress(userId: string) {
+    const seller = await this.prisma.seller.findUnique({ where: { userId } });
+    if (!seller) throw new NotFoundException('Seller profile not found');
+    const pickup = await this.prisma.address.findFirst({
+      where: { userId, type: AddressType.PICKUP },
+      orderBy: { createdAt: 'desc' },
+    });
+    return pickup
+      ? {
+          id: pickup.id,
+          line1: pickup.line1,
+          line2: pickup.line2,
+          city: pickup.city,
+          state: pickup.state,
+          zip: pickup.zip,
+          country: pickup.country,
+        }
+      : null;
+  }
+
+  async updatePickupAddress(userId: string, dto: UpdatePickupAddressDto) {
+    const seller = await this.prisma.seller.findUnique({ where: { userId } });
+    if (!seller) throw new NotFoundException('Seller profile not found');
+
+    const country = dto.country?.trim() || 'IN';
+    const existing = await this.prisma.address.findFirst({
+      where: { userId, type: AddressType.PICKUP },
+      orderBy: { createdAt: 'desc' },
+    });
+
+    const next = existing
+      ? await this.prisma.address.update({
+          where: { id: existing.id },
+          data: {
+            line1: dto.line1.trim(),
+            line2: dto.line2?.trim() || null,
+            city: dto.city.trim(),
+            state: dto.state.trim(),
+            zip: dto.zip.trim(),
+            country,
+            isDefault: true,
+          },
+        })
+      : await this.prisma.address.create({
+          data: {
+            userId,
+            type: AddressType.PICKUP,
+            isDefault: true,
+            line1: dto.line1.trim(),
+            line2: dto.line2?.trim() || null,
+            city: dto.city.trim(),
+            state: dto.state.trim(),
+            zip: dto.zip.trim(),
+            country,
+          },
+        });
+
+    // Backward compatibility: keep Seller.businessAddress in sync for existing clients
+    const legacy = `${next.line1}${next.line2 ? ', ' + next.line2 : ''}, ${next.city}, ${next.state} ${next.zip}`;
+    await this.prisma.seller.update({
+      where: { userId },
+      data: { businessAddress: legacy },
+    });
+
+    return {
+      id: next.id,
+      line1: next.line1,
+      line2: next.line2,
+      city: next.city,
+      state: next.state,
+      zip: next.zip,
+      country: next.country,
+    };
   }
 }

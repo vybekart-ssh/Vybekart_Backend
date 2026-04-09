@@ -1,0 +1,20 @@
+-- Add Borzo delivery integration fields
+
+ALTER TABLE "Order"
+ADD COLUMN IF NOT EXISTS "deliveryFee" DOUBLE PRECISION NOT NULL DEFAULT 0;
+
+ALTER TABLE "Order"
+ADD COLUMN IF NOT EXISTS "deliveryProvider" TEXT;
+
+ALTER TABLE "Order"
+ADD COLUMN IF NOT EXISTS "borzoOrderId" INTEGER;
+
+ALTER TABLE "Order"
+ADD COLUMN IF NOT EXISTS "borzoOrderName" TEXT;
+
+ALTER TABLE "Order"
+ADD COLUMN IF NOT EXISTS "borzoTrackingUrl" TEXT;
+
+ALTER TABLE "Order"
+ADD COLUMN IF NOT EXISTS "borzoOrderStatus" TEXT;
+

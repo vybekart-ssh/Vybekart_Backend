@@ -22,6 +22,8 @@ import { CountriesModule } from './countries/countries.module';
 import { LiveKitModule } from './livekit/livekit.module';
 import { SupportModule } from './support/support.module';
 import { MaterialTypesModule } from './material-types/material-types.module';
+import { BorzoModule } from './borzo/borzo.module';
+import { AdminModule } from './admin/admin.module';
 
 @Module({
   imports: [
@@ -51,6 +53,8 @@ import { MaterialTypesModule } from './material-types/material-types.module';
     CountriesModule,
     SupportModule,
     MaterialTypesModule,
+    BorzoModule,
+    AdminModule,
   ],
   controllers: [AppController],
   providers: [AppService, { provide: APP_GUARD, useClass: ThrottlerGuard }],
