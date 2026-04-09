@@ -16,6 +16,15 @@ export class CartItemDto {
   @IsString()
   color?: string;
 
+  /** Matches Product.variants.items[].id */
+  @IsOptional()
+  @IsString()
+  variantId?: string;
+
+  @IsOptional()
+  @IsString()
+  variantLabel?: string;
+
   /** Live stream the buyer is shopping from (required when cart is empty). */
   @IsOptional()
   @IsUUID()

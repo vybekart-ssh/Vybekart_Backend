@@ -1,4 +1,5 @@
 import {
+<<<<<<< HEAD
   Body,
   Controller,
   Get,
@@ -6,10 +7,22 @@ import {
   Query,
   Request,
   UseGuards,
+=======
+  Controller,
+  Get,
+  Patch,
+  Param,
+  Body,
+  Query,
+  UseGuards,
+  Request,
+  BadRequestException,
+>>>>>>> d6a25c0f08f1171e7dc99d62e6c10bf7d4e6bc48
 } from '@nestjs/common';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
 import { RolesGuard } from '../auth/roles.guard';
 import { Roles } from '../auth/roles.decorator';
+<<<<<<< HEAD
 import { Role } from '@prisma/client';
 import { AdminService } from './admin.service';
 
@@ -90,3 +103,68 @@ export class AdminController {
   }
 }
 
+=======
+import { Role, VerificationStatus } from '@prisma/client';
+import { AdminService } from './admin.service';
+import { UpdateAppConfigDto } from './dto/update-app-config.dto';
+
+@Controller('admin')
+@UseGuards(JwtAuthGuard, RolesGuard)
+@Roles(Role.ADMIN)
+export class AdminController {
+  constructor(private readonly adminService: AdminService) {}
+
+  @Get('me')
+  getMe(@Request() req: { user: { id: string } }) {
+    return this.adminService.getMe(req.user.id);
+  }
+
+  @Get('sellers')
+  listSellers(@Query('status') statusRaw?: string) {
+    let status: VerificationStatus | undefined;
+    if (statusRaw?.trim()) {
+      const v = statusRaw.trim().toUpperCase();
+      if (
+        !Object.values(VerificationStatus).includes(v as VerificationStatus)
+      ) {
+        throw new BadRequestException('Invalid status filter');
+      }
+      status = v as VerificationStatus;
+    }
+    return this.adminService.listSellers(status);
+  }
+
+  @Get('sellers/:id')
+  getSeller(@Param('id') id: string) {
+    return this.adminService.getSellerDetail(id);
+  }
+
+  @Patch('sellers/:id/approve')
+  approve(@Param('id') id: string) {
+    return this.adminService.approveSeller(id);
+  }
+
+  @Patch('sellers/:id/reject')
+  reject(
+    @Param('id') id: string,
+    @Body('reason') reason?: string,
+  ) {
+    return this.adminService.rejectSeller(id, reason);
+  }
+
+  @Patch('sellers/:id/reregister')
+  reregister(@Param('id') id: string) {
+    return this.adminService.reregisterSeller(id);
+  }
+
+  @Get('app-config')
+  getAppConfig() {
+    return this.adminService.getAppConfig();
+  }
+
+  @Patch('app-config')
+  patchAppConfig(@Body() dto: UpdateAppConfigDto) {
+    return this.adminService.patchAppConfig(dto);
+  }
+}
+>>>>>>> d6a25c0f08f1171e7dc99d62e6c10bf7d4e6bc48

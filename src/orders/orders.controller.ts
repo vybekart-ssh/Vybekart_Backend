@@ -19,6 +19,7 @@ import { ShipOrderDto } from './dto/ship-order.dto';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
 import { RolesGuard } from '../auth/roles.guard';
 import { Roles } from '../auth/roles.decorator';
+import { SellerVerifiedGuard } from '../auth/seller-verified.guard';
 import { Role } from '@prisma/client';
 import { PaginationQueryDto } from '../common/dto/pagination-query.dto';
 import { SellerOrdersQueryDto } from './dto/seller-orders-query.dto';
@@ -64,9 +65,15 @@ export class OrdersController {
   updateCartItem(
     @Request() req: { user: { id: string } },
     @Param('productId') productId: string,
+    @Query('variantId') variantId: string | undefined,
     @Body() dto: UpdateCartQuantityDto,
   ) {
-    return this.ordersService.updateCartItem(req.user.id, productId, dto.quantity);
+    return this.ordersService.updateCartItem(
+      req.user.id,
+      productId,
+      dto.quantity,
+      variantId,
+    );
   }
 
   @Patch('checkout')
@@ -95,8 +102,9 @@ export class OrdersController {
   removeCartItem(
     @Request() req: { user: { id: string } },
     @Param('productId') productId: string,
+    @Query('variantId') variantId: string | undefined,
   ) {
-    return this.ordersService.removeCartItem(req.user.id, productId);
+    return this.ordersService.removeCartItem(req.user.id, productId, variantId);
   }
 
   @Get()
@@ -120,7 +128,7 @@ export class OrdersController {
   }
 
   @Get('seller')
-  @UseGuards(JwtAuthGuard, RolesGuard)
+  @UseGuards(JwtAuthGuard, RolesGuard, SellerVerifiedGuard)
   @Roles(Role.SELLER)
   findSellerOrders(
     @Request() req: { user: { id: string } },
@@ -138,7 +146,7 @@ export class OrdersController {
   }
 
   @Patch(':id/accept')
-  @UseGuards(JwtAuthGuard, RolesGuard)
+  @UseGuards(JwtAuthGuard, RolesGuard, SellerVerifiedGuard)
   @Roles(Role.SELLER)
   acceptOrder(
     @Request() req: { user: { id: string } },
@@ -148,7 +156,7 @@ export class OrdersController {
   }
 
   @Post(':id/packing-video')
-  @UseGuards(JwtAuthGuard, RolesGuard)
+  @UseGuards(JwtAuthGuard, RolesGuard, SellerVerifiedGuard)
   @Roles(Role.SELLER)
   @UseInterceptors(FileInterceptor('video', { limits: { fileSize: 80 * 1024 * 1024 } }))
   uploadPackingVideo(
@@ -160,7 +168,7 @@ export class OrdersController {
   }
 
   @Patch(':id/request-delivery')
-  @UseGuards(JwtAuthGuard, RolesGuard)
+  @UseGuards(JwtAuthGuard, RolesGuard, SellerVerifiedGuard)
   @Roles(Role.SELLER)
   requestDelivery(
     @Request() req: { user: { id: string } },
@@ -170,7 +178,7 @@ export class OrdersController {
   }
 
   @Get(':id/delivery-status')
-  @UseGuards(JwtAuthGuard, RolesGuard)
+  @UseGuards(JwtAuthGuard, RolesGuard, SellerVerifiedGuard)
   @Roles(Role.SELLER)
   getDeliveryStatus(
     @Request() req: { user: { id: string } },
@@ -186,7 +194,7 @@ export class OrdersController {
   }
 
   @Patch(':id/ship')
-  @UseGuards(JwtAuthGuard, RolesGuard)
+  @UseGuards(JwtAuthGuard, RolesGuard, SellerVerifiedGuard)
   @Roles(Role.SELLER)
   shipOrder(
     @Request() req: { user: { id: string } },
@@ -197,7 +205,7 @@ export class OrdersController {
   }
 
   @Patch(':id/deliver')
-  @UseGuards(JwtAuthGuard, RolesGuard)
+  @UseGuards(JwtAuthGuard, RolesGuard, SellerVerifiedGuard)
   @Roles(Role.SELLER)
   deliverOrder(
     @Request() req: { user: { id: string } },

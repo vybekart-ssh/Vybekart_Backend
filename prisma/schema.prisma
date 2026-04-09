@@ -30,6 +30,14 @@ enum VerificationStatus {
   REJECTED
 }
 
+/// Singleton row (`id = "global"`): minimum Android [versionCode] the app must have to run; master can raise it to force updates.
+model AppConfig {
+  id                       String   @id
+  minAndroidVersionCode    Int      @default(1)
+  latestAndroidVersionName String?
+  updatedAt                DateTime @updatedAt
+}
+
 // --------------------------------------
 // Core Identity Module
 // --------------------------------------
@@ -56,9 +64,24 @@ model User {
 
   supportTickets SupportTicket[]
 
+  /// FCM device tokens for push (seller go-live reminders, etc.)
+  pushDevices UserPushDevice[]
+
   // Legacy/Direct Relations (can be refactored to profiles later if needed, keeping simple for now)
   // Note: Orders usually link to a Buyer profile in strict systems, 
   // but linking to User is easier for auth. We'll link to User for now.
+}
+
+model UserPushDevice {
+  id        String   @id @default(uuid())
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  fcmToken  String   @unique
+  platform  String   @default("android")
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([userId])
 }
 
 // --------------------------------------
@@ -103,6 +126,8 @@ model Seller {
   description       String?   @db.Text
   logoUrl           String?
   bannerUrl         String?
+  /// Public store / social / site link (optional)
+  websiteUrl        String?
   gstNumber         String?
   businessAddress   String?   @db.Text
   primaryCategoryId String?
@@ -324,6 +349,9 @@ model Stream {
   /// Preview image URL for dashboard / listings (scheduled or live)
   thumbnailUrl String?
 
+  /// Set when we send the "time to go live" FCM for this scheduled stream (dedupe)
+  goLiveReminderSentAt DateTime?
+
   sellerId       String
   seller         Seller          @relation(fields: [sellerId], references: [id])
   streamProducts StreamProduct[]
@@ -434,4 +462,7 @@ model OrderItem {
   product   Product @relation(fields: [productId], references: [id])
   quantity  Int
   price     Float
+  /// Matches `variants.items[].id` on Product when the line is a specific SKU
+  variantId    String?
+  variantLabel String?
 }

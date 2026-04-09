@@ -7,6 +7,7 @@ import { ProductStatus, Prisma } from '@prisma/client';
 import { CreateProductDto } from './dto/create-product.dto';
 import { UpdateProductDto } from './dto/update-product.dto';
 import { PrismaService } from '../prisma/prisma.service';
+import { validateAndNormalizeSellerVariants } from './product-variants.util';
 import {
   PaginationQueryDto,
   PaginatedResult,
@@ -27,16 +28,26 @@ export class ProductsService {
     }
 
     const { variants, categoryAttributes, ...rest } = createProductDto;
-    return this.prisma.product.create({
-      data: {
-        ...rest,
-        sellerId: seller.id,
-        ...(variants != null && { variants: variants as Prisma.InputJsonValue }),
-        ...(categoryAttributes != null && {
-          categoryAttributes: categoryAttributes as Prisma.InputJsonValue,
-        }),
-      },
-    });
+    const base = {
+      ...rest,
+      sellerId: seller.id,
+      ...(categoryAttributes != null && {
+        categoryAttributes: categoryAttributes as Prisma.InputJsonValue,
+      }),
+    } as Prisma.ProductUncheckedCreateInput;
+    if (variants != null) {
+      const norm = validateAndNormalizeSellerVariants(variants);
+      return this.prisma.product.create({
+        data: {
+          ...base,
+          price: norm.minPrice,
+          stock: norm.totalStock,
+          priceType: 'VARIABLE',
+          variants: norm.json,
+        },
+      });
+    }
+    return this.prisma.product.create({ data: base });
   }
 
   async findAll(query: PaginationQueryDto): Promise<PaginatedResult<unknown>> {
@@ -93,11 +104,26 @@ export class ProductsService {
       categoryAttributes?: Record<string, unknown>;
     };
     const { variants, categoryAttributes, ...rest } = dto;
+    if (variants !== undefined) {
+      const norm = validateAndNormalizeSellerVariants(variants);
+      return this.prisma.product.update({
+        where: { id },
+        data: {
+          ...(rest as Prisma.ProductUncheckedUpdateInput),
+          price: norm.minPrice,
+          stock: norm.totalStock,
+          priceType: 'VARIABLE',
+          variants: norm.json,
+          ...(categoryAttributes !== undefined && {
+            categoryAttributes: categoryAttributes as Prisma.InputJsonValue,
+          }),
+        },
+      });
+    }
     return this.prisma.product.update({
       where: { id },
       data: {
         ...rest,
-        ...(variants !== undefined && { variants: variants as Prisma.InputJsonValue }),
         ...(categoryAttributes !== undefined && {
           categoryAttributes: categoryAttributes as Prisma.InputJsonValue,
         }),
@@ -128,18 +154,22 @@ export class ProductsService {
     const page = Math.max(1, parseInt(String(query?.page ?? 1), 10) || 1);
     const limit = Math.min(100, Math.max(1, parseInt(String(query?.limit ?? 20), 10) || 20));
     const skip = (page - 1) * limit;
-    const baseWhere: {
-      seller: { userId: string };
-      name?: { contains: string; mode: 'insensitive' };
-      stock?: number | { gt: number };
-      status?: ProductStatus;
-    } = { seller: { userId } };
+    const baseWhere: Prisma.ProductWhereInput = { seller: { userId } };
     if (filter?.search?.trim()) {
       baseWhere.name = { contains: filter.search.trim(), mode: 'insensitive' };
     }
-    if (filter?.status === 'active') baseWhere.stock = { gt: 0 };
-    if (filter?.status === 'out_of_stock') baseWhere.stock = 0;
-    if (filter?.status === 'draft') baseWhere.status = ProductStatus.DRAFT;
+    // Tab filters must match ProductStatus — "active" was wrongly any row with stock>0 (drafts included).
+    if (filter?.status === 'active') {
+      baseWhere.status = ProductStatus.ACTIVE;
+      baseWhere.stock = { gt: 0 };
+    } else if (filter?.status === 'out_of_stock') {
+      baseWhere.OR = [
+        { status: ProductStatus.OUT_OF_STOCK },
+        { status: ProductStatus.ACTIVE, stock: 0 },
+      ];
+    } else if (filter?.status === 'draft') {
+      baseWhere.status = ProductStatus.DRAFT;
+    }
     const where = baseWhere;
     const [data, total] = await Promise.all([
       this.prisma.product.findMany({

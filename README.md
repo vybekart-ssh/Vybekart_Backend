@@ -56,6 +56,12 @@ MAIL_PORT=587
 MAIL_USER=vybekart88@gmail.com
 MAIL_PASS=uikcptploswockgb
 MAIL_FROM=vybekart88@vybekart.com
+
+# Uploads fallback (optional)
+# If a file under `/uploads/**` is missing on the server filesystem, the backend will redirect
+# to this Supabase public bucket.
+SUPABASE_URL="https://<your-project-ref>.supabase.co"
+SUPABASE_PUBLIC_BUCKET="Vybekart"
 ```
 
 ### 3. Start Infrastructure (DB & Redis)

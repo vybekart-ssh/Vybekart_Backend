@@ -1,6 +1,7 @@
 import { Module, NestModule, MiddlewareConsumer } from '@nestjs/common';
 import { APP_GUARD } from '@nestjs/core';
 import { ConfigModule } from '@nestjs/config';
+import { ScheduleModule } from '@nestjs/schedule';
 import { ThrottlerGuard } from '@nestjs/throttler';
 import { RequestIdMiddleware } from './common/middleware/request-id.middleware';
 import { PrismaModule } from './prisma/prisma.module';
@@ -22,7 +23,12 @@ import { CountriesModule } from './countries/countries.module';
 import { LiveKitModule } from './livekit/livekit.module';
 import { SupportModule } from './support/support.module';
 import { MaterialTypesModule } from './material-types/material-types.module';
+<<<<<<< HEAD
 import { BorzoModule } from './borzo/borzo.module';
+=======
+import { NotificationsModule } from './notifications/notifications.module';
+import { AppConfigModule } from './app-config/app-config.module';
+>>>>>>> d6a25c0f08f1171e7dc99d62e6c10bf7d4e6bc48
 import { AdminModule } from './admin/admin.module';
 
 @Module({
@@ -38,9 +44,13 @@ import { AdminModule } from './admin/admin.module';
       { ttl: 10000, limit: 100 },
       { ttl: 60000, limit: 300 },
     ]),
+    ScheduleModule.forRoot(),
+    NotificationsModule,
     HealthModule,
     RedisModule,
     LiveKitModule,
+    AppConfigModule,
+    AdminModule,
     PrismaModule,
     UsersModule,
     AuthModule,

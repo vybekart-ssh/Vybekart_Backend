@@ -39,5 +39,6 @@ COPY --from=builder /app/public ./public
 
 EXPOSE 3000
 
-# Nest outputs to dist/src/main.js when sourceRoot is src
-CMD ["/bin/sh", "-c", "npx prisma migrate deploy && if [ \"${RUN_DUMMY_SEED_ON_DEPLOY:-true}\" = \"true\" ]; then node /app/prisma/seed-dummy.js; fi && exec node /app/dist/src/main.js"]
+# Nest outputs to dist/src/main.js when sourceRoot is src.
+# scripts/render-migrate.sh clears a known failed duplicate migration (P3009) then runs migrate deploy.
+CMD ["/bin/sh", "/app/scripts/render-migrate.sh"]

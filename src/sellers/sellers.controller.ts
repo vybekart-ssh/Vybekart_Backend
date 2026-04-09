@@ -2,16 +2,21 @@ import {
   Controller,
   Get,
   Patch,
+  Post,
   Body,
-  Param,
   UseGuards,
   Request,
+  UseInterceptors,
+  UploadedFile,
 } from '@nestjs/common';
+import { FileInterceptor } from '@nestjs/platform-express';
 import { SellersService } from './sellers.service';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
 import { RolesGuard } from '../auth/roles.guard';
 import { Roles } from '../auth/roles.decorator';
 import { Role } from '@prisma/client';
+import { SellerVerifiedGuard } from '../auth/seller-verified.guard';
+import { SkipSellerVerified } from '../auth/skip-seller-verified.decorator';
 import { UpdateSellerProfileDto } from './dto/update-seller-profile.dto';
 import { UpdateBankDetailsDto } from './dto/bank-details.dto';
 import { UpdateStoreDetailsDto } from './dto/store-details.dto';
@@ -22,35 +27,36 @@ import { UpdatePickupAddressDto } from './dto/pickup-address.dto';
 export class SellersController {
   constructor(private readonly sellersService: SellersService) {}
 
-  @UseGuards(JwtAuthGuard, RolesGuard)
+  @SkipSellerVerified()
+  @UseGuards(JwtAuthGuard, RolesGuard, SellerVerifiedGuard)
   @Roles(Role.SELLER)
   @Get('profile')
   getProfile(@Request() req: { user: { id: string } }) {
     return this.sellersService.findOne(req.user.id);
   }
 
-  @UseGuards(JwtAuthGuard, RolesGuard)
+  @UseGuards(JwtAuthGuard, RolesGuard, SellerVerifiedGuard)
   @Roles(Role.SELLER)
   @Get('dashboard')
   getDashboard(@Request() req: { user: { id: string } }) {
     return this.sellersService.getMyDashboardStats(req.user.id);
   }
 
-  @UseGuards(JwtAuthGuard, RolesGuard)
+  @UseGuards(JwtAuthGuard, RolesGuard, SellerVerifiedGuard)
   @Roles(Role.SELLER)
   @Get('revenue/today')
   getRevenueToday(@Request() req: { user: { id: string } }) {
     return this.sellersService.getRevenueToday(req.user.id);
   }
 
-  @UseGuards(JwtAuthGuard, RolesGuard)
+  @UseGuards(JwtAuthGuard, RolesGuard, SellerVerifiedGuard)
   @Roles(Role.SELLER)
   @Get('bank-details')
   getBankDetails(@Request() req: { user: { id: string } }) {
     return this.sellersService.getBankDetails(req.user.id);
   }
 
-  @UseGuards(JwtAuthGuard, RolesGuard)
+  @UseGuards(JwtAuthGuard, RolesGuard, SellerVerifiedGuard)
   @Roles(Role.SELLER)
   @Patch('bank-details')
   updateBankDetails(
@@ -60,14 +66,14 @@ export class SellersController {
     return this.sellersService.updateBankDetails(req.user.id, dto);
   }
 
-  @UseGuards(JwtAuthGuard, RolesGuard)
+  @UseGuards(JwtAuthGuard, RolesGuard, SellerVerifiedGuard)
   @Roles(Role.SELLER)
   @Get('store-details')
   getStoreDetails(@Request() req: { user: { id: string } }) {
     return this.sellersService.getStoreDetails(req.user.id);
   }
 
-  @UseGuards(JwtAuthGuard, RolesGuard)
+  @UseGuards(JwtAuthGuard, RolesGuard, SellerVerifiedGuard)
   @Roles(Role.SELLER)
   @Patch('store-details')
   updateStoreDetails(
@@ -77,7 +83,35 @@ export class SellersController {
     return this.sellersService.updateStoreDetails(req.user.id, dto);
   }
 
-  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Post('store-media/logo')
+  @SkipSellerVerified()
+  @UseGuards(JwtAuthGuard, RolesGuard, SellerVerifiedGuard)
+  @Roles(Role.SELLER)
+  @UseInterceptors(
+    FileInterceptor('image', { limits: { fileSize: 5 * 1024 * 1024 } }),
+  )
+  uploadStoreLogo(
+    @Request() req: { user: { id: string } },
+    @UploadedFile() file: Express.Multer.File,
+  ) {
+    return this.sellersService.uploadStoreLogo(req.user.id, file);
+  }
+
+  @Post('store-media/banner')
+  @SkipSellerVerified()
+  @UseGuards(JwtAuthGuard, RolesGuard, SellerVerifiedGuard)
+  @Roles(Role.SELLER)
+  @UseInterceptors(
+    FileInterceptor('image', { limits: { fileSize: 8 * 1024 * 1024 } }),
+  )
+  uploadStoreBanner(
+    @Request() req: { user: { id: string } },
+    @UploadedFile() file: Express.Multer.File,
+  ) {
+    return this.sellersService.uploadStoreBanner(req.user.id, file);
+  }
+
+  @UseGuards(JwtAuthGuard, RolesGuard, SellerVerifiedGuard)
   @Roles(Role.SELLER)
   @Get('pickup-address')
   getPickupAddress(@Request() req: { user: { id: string } }) {
@@ -101,7 +135,7 @@ export class SellersController {
     return this.sellersService.getSignature(req.user.id);
   }
 
-  @UseGuards(JwtAuthGuard, RolesGuard)
+  @UseGuards(JwtAuthGuard, RolesGuard, SellerVerifiedGuard)
   @Roles(Role.SELLER)
   @Patch('signature')
   updateSignature(
@@ -111,7 +145,7 @@ export class SellersController {
     return this.sellersService.updateSignature(req.user.id, dto);
   }
 
-  @UseGuards(JwtAuthGuard, RolesGuard)
+  @UseGuards(JwtAuthGuard, RolesGuard, SellerVerifiedGuard)
   @Roles(Role.SELLER)
   @Patch('profile')
   updateProfile(
@@ -119,26 +153,5 @@ export class SellersController {
     @Body() dto: UpdateSellerProfileDto,
   ) {
     return this.sellersService.updateProfile(req.user.id, dto);
-  }
-
-  @UseGuards(JwtAuthGuard, RolesGuard)
-  @Roles(Role.ADMIN)
-  @Get('pending')
-  findPending() {
-    return this.sellersService.findPending();
-  }
-
-  @UseGuards(JwtAuthGuard, RolesGuard)
-  @Roles(Role.ADMIN)
-  @Patch(':id/approve')
-  approve(@Param('id') id: string) {
-    return this.sellersService.approve(id);
-  }
-
-  @UseGuards(JwtAuthGuard, RolesGuard)
-  @Roles(Role.ADMIN)
-  @Patch(':id/reject')
-  reject(@Param('id') id: string, @Body('reason') reason?: string) {
-    return this.sellersService.reject(id, reason ?? '');
   }
 }

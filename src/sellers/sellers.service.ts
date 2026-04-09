@@ -3,7 +3,10 @@ import {
   NotFoundException,
   BadRequestException,
 } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
 import { PrismaService } from '../prisma/prisma.service';
+import * as fs from 'fs/promises';
+import * as path from 'path';
 import { UpdateSellerProfileDto } from './dto/update-seller-profile.dto';
 import { UpdateBankDetailsDto } from './dto/bank-details.dto';
 import { UpdateStoreDetailsDto } from './dto/store-details.dto';
@@ -11,10 +14,22 @@ import { UpdateSignatureDto } from './dto/signature.dto';
 import { UpdatePickupAddressDto } from './dto/pickup-address.dto';
 import { AddressType } from '@prisma/client';
 import { OrderStatus, VerificationStatus } from '@prisma/client';
+import { resolvePublicBaseUrl } from '../common/utils/public-base-url';
+
+const STORE_IMAGE_MIME_EXT: Record<string, string> = {
+  'image/jpeg': '.jpg',
+  'image/jpg': '.jpg',
+  'image/png': '.png',
+  'image/webp': '.webp',
+  'image/gif': '.gif',
+};
 
 @Injectable()
 export class SellersService {
-  constructor(private prisma: PrismaService) {}
+  constructor(
+    private prisma: PrismaService,
+    private config: ConfigService,
+  ) {}
 
   async findOne(userId: string) {
     const seller = await this.prisma.seller.findUnique({
@@ -63,10 +78,10 @@ export class SellersService {
     });
   }
 
-  /** Admin: list sellers pending verification */
-  async findPending() {
+  /** Admin: list sellers (optional status filter) */
+  async findAllForAdmin(status?: VerificationStatus) {
     return this.prisma.seller.findMany({
-      where: { status: VerificationStatus.PENDING },
+      where: status ? { status } : undefined,
       include: {
         user: {
           select: {
@@ -83,8 +98,37 @@ export class SellersService {
           },
         },
       },
-      orderBy: { createdAt: 'asc' },
+      orderBy: { updatedAt: 'desc' },
     });
+  }
+
+  /** Admin: full seller detail for review */
+  async findOneSellerForAdmin(sellerId: string) {
+    const seller = await this.prisma.seller.findUnique({
+      where: { id: sellerId },
+      include: {
+        user: {
+          select: {
+            id: true,
+            name: true,
+            email: true,
+            phone: true,
+            createdAt: true,
+          },
+        },
+        categories: {
+          include: {
+            category: { select: { id: true, name: true, slug: true } },
+          },
+        },
+        primaryCategory: { select: { id: true, name: true, slug: true } },
+      },
+    });
+    if (!seller) throw new NotFoundException('Seller not found');
+    const pickupAddresses = await this.prisma.address.findMany({
+      where: { userId: seller.userId, type: 'PICKUP' },
+    });
+    return { ...seller, pickupAddresses };
   }
 
   /** Admin: approve seller */
@@ -93,8 +137,13 @@ export class SellersService {
       where: { id: sellerId },
     });
     if (!seller) throw new NotFoundException('Seller not found');
-    if (seller.status !== VerificationStatus.PENDING) {
-      throw new BadRequestException('Seller is not pending approval');
+    if (
+      seller.status !== VerificationStatus.PENDING &&
+      seller.status !== VerificationStatus.REJECTED
+    ) {
+      throw new BadRequestException(
+        'Seller can only be approved when pending or rejected',
+      );
     }
     return this.prisma.seller.update({
       where: { id: sellerId },
@@ -105,14 +154,17 @@ export class SellersService {
     });
   }
 
-  /** Admin: reject seller */
+  /** Admin: reject / deny seller (pending or verified) */
   async reject(sellerId: string, reason: string) {
     const seller = await this.prisma.seller.findUnique({
       where: { id: sellerId },
     });
     if (!seller) throw new NotFoundException('Seller not found');
-    if (seller.status !== VerificationStatus.PENDING) {
-      throw new BadRequestException('Seller is not pending approval');
+    if (
+      seller.status !== VerificationStatus.PENDING &&
+      seller.status !== VerificationStatus.VERIFIED
+    ) {
+      throw new BadRequestException('Seller cannot be rejected in this state');
     }
     return this.prisma.seller.update({
       where: { id: sellerId },
@@ -124,6 +176,45 @@ export class SellersService {
         user: { select: { id: true, name: true, email: true } },
       },
     });
+  }
+
+  /**
+   * Admin: clear onboarding/business data so the partner can complete registration again.
+   * Does not delete products or the user account.
+   */
+  async reregisterSeller(sellerId: string) {
+    const seller = await this.prisma.seller.findUnique({
+      where: { id: sellerId },
+    });
+    if (!seller) throw new NotFoundException('Seller not found');
+    const userId = seller.userId;
+    await this.prisma.$transaction(async (tx) => {
+      await tx.sellerCategory.deleteMany({ where: { sellerId } });
+      await tx.address.deleteMany({ where: { userId, type: 'PICKUP' } });
+      await tx.seller.update({
+        where: { id: sellerId },
+        data: {
+          businessName: 'Pending re-registration',
+          description: null,
+          logoUrl: null,
+          bannerUrl: null,
+          websiteUrl: null,
+          gstNumber: null,
+          businessAddress: null,
+          primaryCategoryId: null,
+          bankAccount: null,
+          bankName: null,
+          accountHolderName: null,
+          accountType: null,
+          ifscCode: null,
+          signatureUrl: null,
+          status: VerificationStatus.PENDING,
+          rejectionReason:
+            'Your registration was reset by VybeKart. Please complete seller onboarding again in the app.',
+        },
+      });
+    });
+    return this.findOneSellerForAdmin(sellerId);
   }
 
   async getDashboardStats(sellerId: string) {
@@ -215,7 +306,7 @@ export class SellersService {
     };
   }
 
-  /** All upcoming scheduled streams (future start, not live, not ended) */
+  /** Scheduled streams not yet live: future slots, or overdue within a 4h grace window */
   private async getUpcomingScheduledStreams(sellerId: string) {
     const select = {
       id: true,
@@ -226,12 +317,13 @@ export class SellersService {
       endedAt: true,
       thumbnailUrl: true,
     } as const;
+    const cutoff = new Date(Date.now() - 4 * 60 * 60 * 1000);
     return this.prisma.stream.findMany({
       where: {
         sellerId,
         endedAt: null,
         isLive: false,
-        startedAt: { gte: new Date() },
+        startedAt: { gte: cutoff },
       },
       orderBy: { startedAt: 'asc' },
       select,
@@ -401,15 +493,38 @@ export class SellersService {
     });
   }
 
+  private formatPickupAddressRecord(a: {
+    line1: string;
+    line2: string | null;
+    city: string;
+    state: string;
+    zip: string;
+    country: string;
+  }): string {
+    const lines = [
+      a.line1.trim(),
+      a.line2?.trim(),
+      `${a.city.trim()}, ${a.state.trim()} ${a.zip.trim()}`,
+      a.country.trim(),
+    ].filter((x) => x && x.length > 0);
+    return lines.join('\n');
+  }
+
   /** GET store details */
   async getStoreDetails(userId: string) {
     const seller = await this.prisma.seller.findUnique({
       where: { userId },
       include: {
         primaryCategory: { select: { id: true, name: true, slug: true } },
+        categories: {
+          include: {
+            category: { select: { id: true, name: true, slug: true } },
+          },
+        },
       },
     });
     if (!seller) throw new NotFoundException('Seller profile not found');
+<<<<<<< HEAD
     const pickup = await this.prisma.address.findFirst({
       where: { userId, type: AddressType.PICKUP },
       orderBy: { createdAt: 'desc' },
@@ -428,22 +543,58 @@ export class SellersService {
             country: pickup.country,
           }
         : null,
+=======
+
+    if (!seller.primaryCategoryId && seller.categories.length > 0) {
+      const row = seller.categories[0];
+      const fillId = row.categoryId;
+      await this.prisma.seller.update({
+        where: { userId },
+        data: { primaryCategoryId: fillId },
+      });
+      seller.primaryCategoryId = fillId;
+      seller.primaryCategory = row.category;
+    }
+
+    const primaryCategoryId = seller.primaryCategoryId;
+    const primaryCategory = seller.primaryCategory;
+
+    let businessAddress =
+      seller.businessAddress?.trim() ? seller.businessAddress : null;
+    if (!businessAddress) {
+      const pickup =
+        (await this.prisma.address.findFirst({
+          where: { userId, type: 'PICKUP', isDefault: true },
+        })) ??
+        (await this.prisma.address.findFirst({
+          where: { userId, type: 'PICKUP' },
+        }));
+      if (pickup) {
+        businessAddress = this.formatPickupAddressRecord(pickup);
+      }
+    }
+
+    return {
+      businessName: seller.businessName,
+      businessAddress,
+>>>>>>> d6a25c0f08f1171e7dc99d62e6c10bf7d4e6bc48
       gstNumber: seller.gstNumber,
-      primaryCategoryId: seller.primaryCategoryId,
-      primaryCategory: seller.primaryCategory,
+      primaryCategoryId,
+      primaryCategory,
       description: seller.description,
       logoUrl: seller.logoUrl,
       bannerUrl: seller.bannerUrl,
+      websiteUrl: seller.websiteUrl,
     };
   }
 
-  /** PUT store details */
+  /** PATCH store details */
   async updateStoreDetails(userId: string, dto: UpdateStoreDetailsDto) {
     const seller = await this.prisma.seller.findUnique({
       where: { userId },
     });
     if (!seller) throw new NotFoundException('Seller profile not found');
-    return this.prisma.seller.update({
+    await this.prisma.seller.update({
       where: { userId },
       data: {
         ...(dto.businessName !== undefined && { businessName: dto.businessName }),
@@ -452,16 +603,61 @@ export class SellersService {
         }),
         ...(dto.gstNumber !== undefined && { gstNumber: dto.gstNumber }),
         ...(dto.primaryCategoryId !== undefined && {
-          primaryCategoryId: dto.primaryCategoryId,
+          primaryCategoryId: dto.primaryCategoryId?.trim() || null,
         }),
         ...(dto.description !== undefined && { description: dto.description }),
         ...(dto.logoUrl !== undefined && { logoUrl: dto.logoUrl }),
         ...(dto.bannerUrl !== undefined && { bannerUrl: dto.bannerUrl }),
-      },
-      include: {
-        primaryCategory: { select: { id: true, name: true, slug: true } },
+        ...(dto.websiteUrl !== undefined && {
+          websiteUrl: dto.websiteUrl?.trim() || null,
+        }),
       },
     });
+    return this.getStoreDetails(userId);
+  }
+
+  async uploadStoreLogo(userId: string, file: Express.Multer.File) {
+    return this.saveStoreImage(userId, file, 'logo');
+  }
+
+  async uploadStoreBanner(userId: string, file: Express.Multer.File) {
+    return this.saveStoreImage(userId, file, 'banner');
+  }
+
+  private async saveStoreImage(
+    userId: string,
+    file: Express.Multer.File,
+    kind: 'logo' | 'banner',
+  ) {
+    if (!file?.buffer?.length) {
+      throw new BadRequestException('Image file is required');
+    }
+    const seller = await this.prisma.seller.findUnique({
+      where: { userId },
+    });
+    if (!seller) throw new NotFoundException('Seller profile not found');
+    const mime = (file.mimetype ?? '').toLowerCase();
+    const ext = STORE_IMAGE_MIME_EXT[mime];
+    if (!ext) {
+      throw new BadRequestException(
+        'Image must be JPEG, PNG, WebP, or GIF',
+      );
+    }
+    const dir = path.join(process.cwd(), 'uploads', 'store', seller.id);
+    await fs.mkdir(dir, { recursive: true });
+    const fname = `${kind}-${Date.now()}${ext}`;
+    const dest = path.join(dir, fname);
+    await fs.writeFile(dest, file.buffer);
+    const base = resolvePublicBaseUrl(this.config);
+    const url = `${base}/uploads/store/${seller.id}/${fname}`;
+    await this.prisma.seller.update({
+      where: { id: seller.id },
+      data:
+        kind === 'logo'
+          ? { logoUrl: url }
+          : { bannerUrl: url },
+    });
+    return kind === 'logo' ? { logoUrl: url } : { bannerUrl: url };
   }
 
   /** GET signature URL */

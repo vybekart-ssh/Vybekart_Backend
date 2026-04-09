@@ -20,13 +20,26 @@ import {
   ResetPasswordDto,
   VerifyResetPasswordDto,
   CheckPhoneExistsDto,
+  PickupAddressDto,
 } from './dto/auth.dto';
 import { SendOtpDto, VerifyOtpDto } from './dto/otp.dto';
-import { Role } from '@prisma/client';
+import { Role, VerificationStatus } from '@prisma/client';
+import { SellerRegistrationNotifierService } from './seller-registration-notifier.service';
 
 const REFRESH_TTL_SECONDS = 30 * 24 * 60 * 60; // 30 days
 const OTP_TTL_SECONDS = 10 * 60; // 10 minutes
 const OTP_LENGTH = 6;
+
+/** Multi-line address aligned with registration pickup fields. */
+function formatPickupAsBusinessAddress(p: PickupAddressDto): string {
+  const lines = [
+    p.line1.trim(),
+    p.line2?.trim(),
+    `${p.city.trim()}, ${p.state.trim()} ${p.zip.trim()}`,
+    'IN',
+  ].filter((x): x is string => !!x && x.length > 0);
+  return lines.join('\n');
+}
 
 @Injectable()
 export class AuthService {
@@ -37,7 +50,30 @@ export class AuthService {
     private jwtService: JwtService,
     private config: ConfigService,
     private redis: RedisService,
+    private sellerRegistrationNotifier: SellerRegistrationNotifierService,
   ) {}
+
+  private authUserResponse(user: {
+    id: string;
+    email: string;
+    name: string;
+    roles: Role[];
+    sellerProfile: { id: string; status: VerificationStatus } | null;
+    buyerProfile: { id: string } | null;
+  }) {
+    return {
+      id: user.id,
+      email: user.email,
+      name: user.name,
+      roles: user.roles,
+      sellerProfileId: user.sellerProfile?.id ?? null,
+      buyerProfileId: user.buyerProfile?.id ?? null,
+      sellerVerificationStatus:
+        user.roles.includes(Role.SELLER) && user.sellerProfile
+          ? user.sellerProfile.status
+          : null,
+    };
+  }
 
   async login(loginDto: LoginDto) {
     const { email, phone, password } = loginDto;
@@ -46,7 +82,11 @@ export class AuthService {
     }
 
     const user = await this.prisma.user.findFirst({
-      where: email ? { email } : { phone: phone! },
+      where: email
+        ? {
+            email: { equals: email.trim(), mode: 'insensitive' },
+          }
+        : { phone: phone! },
       include: { sellerProfile: true, buyerProfile: true },
     });
 
@@ -86,14 +126,7 @@ export class AuthService {
     return {
       access_token: accessToken,
       ...(refreshToken && { refresh_token: refreshToken }),
-      user: {
-        id: user.id,
-        email: user.email,
-        name: user.name,
-        roles: user.roles,
-        sellerProfileId: user.sellerProfile?.id,
-        buyerProfileId: user.buyerProfile?.id,
-      },
+      user: this.authUserResponse(user),
     };
   }
 
@@ -123,14 +156,7 @@ export class AuthService {
       const accessToken = this.jwtService.sign(payload);
       return {
         access_token: accessToken,
-        user: {
-          id: user.id,
-          email: user.email,
-          name: user.name,
-          roles: user.roles,
-          sellerProfileId: user.sellerProfile?.id,
-          buyerProfileId: user.buyerProfile?.id,
-        },
+        user: this.authUserResponse(user),
       };
     } catch {
       throw new UnauthorizedException('Invalid or expired refresh token');
@@ -197,7 +223,11 @@ export class AuthService {
     }
 
     const user = await this.prisma.user.findFirst({
-      where: email ? { email } : { phone: phone! },
+      where: email
+        ? {
+            email: { equals: email.trim(), mode: 'insensitive' },
+          }
+        : { phone: phone! },
       include: { sellerProfile: true, buyerProfile: true },
     });
 
@@ -225,14 +255,7 @@ export class AuthService {
       return {
         access_token: accessToken,
         ...(refreshToken && { refresh_token: refreshToken }),
-        user: {
-          id: user.id,
-          email: user.email,
-          name: user.name,
-          roles: user.roles,
-          sellerProfileId: user.sellerProfile?.id,
-          buyerProfileId: user.buyerProfile?.id,
-        },
+        user: this.authUserResponse(user),
       };
     }
 
@@ -268,14 +291,22 @@ export class AuthService {
       throw new ConflictException('User with this email already exists');
     }
 
-    if (dto.categoryIds?.length) {
-      const categories = await this.prisma.category.findMany({
-        where: { id: { in: dto.categoryIds } },
-      });
-      if (categories.length !== dto.categoryIds.length) {
-        throw new BadRequestException('One or more category IDs are invalid');
-      }
+    const categories = await this.prisma.category.findMany({
+      where: { id: { in: dto.categoryIds } },
+    });
+    if (categories.length !== dto.categoryIds.length) {
+      throw new BadRequestException('One or more category IDs are invalid');
     }
+
+    const primaryCategoryId = dto.categoryIds[0];
+    const businessAddressFromPickup = formatPickupAsBusinessAddress(
+      dto.pickupAddress,
+    );
+    const bankAccount = dto.bankAccount.trim();
+    const ifscCode = dto.ifscCode.trim().toUpperCase();
+    const bankName = dto.bankName.trim();
+    const accountHolderName = dto.accountHolderName.trim();
+    const accountType = dto.accountType.trim();
 
     const hashedPassword = await bcrypt.hash(dto.password, 10);
 
@@ -316,8 +347,15 @@ export class AuthService {
                 businessName: dto.businessName,
                 description: dto.description ?? null,
                 gstNumber: dto.gstNumber ?? null,
-                bankAccount: dto.bankAccount ?? null,
-                ifscCode: dto.ifscCode ?? null,
+                bankName,
+                accountHolderName,
+                accountType,
+                bankAccount,
+                ifscCode,
+                status: VerificationStatus.PENDING,
+                rejectionReason: null,
+                primaryCategoryId,
+                businessAddress: businessAddressFromPickup,
               },
             })
           : await tx.seller.create({
@@ -326,44 +364,53 @@ export class AuthService {
                 businessName: dto.businessName,
                 description: dto.description ?? null,
                 gstNumber: dto.gstNumber ?? null,
-                bankAccount: dto.bankAccount ?? null,
-                ifscCode: dto.ifscCode ?? null,
+                bankName,
+                accountHolderName,
+                accountType,
+                bankAccount,
+                ifscCode,
+                status: VerificationStatus.PENDING,
+                primaryCategoryId,
+                businessAddress: businessAddressFromPickup,
               },
             });
 
-        if (dto.pickupAddress) {
-          // Ensure only one default PICKUP address.
-          await tx.address.updateMany({
-            where: { userId: user.id, type: 'PICKUP' },
-            data: { isDefault: false },
-          });
-          await tx.address.create({
-            data: {
-              userId: user.id,
-              type: 'PICKUP',
-              isDefault: true,
-              line1: dto.pickupAddress.line1,
-              line2: dto.pickupAddress.line2 ?? null,
-              city: dto.pickupAddress.city,
-              state: dto.pickupAddress.state,
-              zip: dto.pickupAddress.zip,
-              country: 'IN',
-            },
-          });
-        }
+        // Ensure only one default PICKUP address.
+        await tx.address.updateMany({
+          where: { userId: user.id, type: 'PICKUP' },
+          data: { isDefault: false },
+        });
+        await tx.address.create({
+          data: {
+            userId: user.id,
+            type: 'PICKUP',
+            isDefault: true,
+            line1: dto.pickupAddress.line1.trim(),
+            line2: dto.pickupAddress.line2?.trim() ?? null,
+            city: dto.pickupAddress.city.trim(),
+            state: dto.pickupAddress.state.trim(),
+            zip: dto.pickupAddress.zip.trim(),
+            country: 'IN',
+          },
+        });
 
-        if (dto.categoryIds?.length) {
-          await tx.sellerCategory.deleteMany({
-            where: { sellerId: seller.id },
-          });
-          await tx.sellerCategory.createMany({
-            data: dto.categoryIds.map((categoryId) => ({
-              sellerId: seller.id,
-              categoryId,
-            })),
-          });
-        }
+        await tx.sellerCategory.deleteMany({
+          where: { sellerId: seller.id },
+        });
+        await tx.sellerCategory.createMany({
+          data: dto.categoryIds.map((categoryId) => ({
+            sellerId: seller.id,
+            categoryId,
+          })),
+        });
       });
+
+      const categoryNames = categories.map((c) => c.name);
+      void this.sellerRegistrationNotifier
+        .notifyNewSellerApplication(dto, categoryNames)
+        .catch((err) =>
+          this.logger.warn(`Seller registration notify failed: ${String(err)}`),
+        );
 
       return this.login({ email: dto.email, password: dto.password });
     } catch (error) {
@@ -543,5 +590,25 @@ export class AuthService {
     });
 
     return { hasBuyer: !!user?.buyerProfile, hasSeller: !!user?.sellerProfile };
+  }
+
+  async registerPushDevice(
+    userId: string,
+    token: string,
+    platform?: string,
+  ): Promise<{ ok: boolean }> {
+    const t = token.trim();
+    const plat = (platform?.trim() || 'android').slice(0, 32);
+    await this.prisma.$transaction(async (tx) => {
+      await tx.userPushDevice.deleteMany({
+        where: { fcmToken: t, userId: { not: userId } },
+      });
+      await tx.userPushDevice.upsert({
+        where: { fcmToken: t },
+        create: { userId, fcmToken: t, platform: plat },
+        update: { userId, platform: plat },
+      });
+    });
+    return { ok: true };
   }
 }

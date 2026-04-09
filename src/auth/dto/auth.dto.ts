@@ -4,12 +4,13 @@ import {
   IsNotEmpty,
   IsOptional,
   MinLength,
+  MaxLength,
   IsArray,
   IsUUID,
   Matches,
-  MaxLength,
   ValidateNested,
   ValidateIf,
+  ArrayMinSize,
 } from 'class-validator';
 import { Type } from 'class-transformer';
 
@@ -185,24 +186,52 @@ export class RegisterSellerDto {
 
   /** Product categories the seller operates in (Fashion, Beauty, etc.) */
   @IsArray()
+  @ArrayMinSize(1, { message: 'At least one category is required' })
   @IsUUID('4', { each: true })
-  @IsOptional()
-  categoryIds?: string[];
+  categoryIds: string[];
 
   /** Pickup address for order fulfillment */
   @ValidateNested()
   @Type(() => PickupAddressDto)
-  @IsOptional()
-  pickupAddress?: PickupAddressDto;
+  pickupAddress: PickupAddressDto;
 
   /** Banking details for payouts */
   @IsString()
-  @IsOptional()
+  @IsNotEmpty()
   @Matches(/^\d{9,18}$/, { message: 'Bank account must be 9-18 digits' })
-  bankAccount?: string;
+  bankAccount: string;
 
   @IsString()
-  @IsOptional()
+  @IsNotEmpty()
   @Matches(IFSC_REGEX, { message: 'IFSC must be 11 chars (e.g. HDFC0001234)' })
-  ifscCode?: string;
+  ifscCode: string;
+
+  @IsString()
+  @IsNotEmpty()
+  @MaxLength(200)
+  bankName: string;
+
+  @IsString()
+  @IsNotEmpty()
+  @MaxLength(200)
+  accountHolderName: string;
+
+  @IsString()
+  @IsNotEmpty()
+  @MaxLength(50)
+  accountType: string;
+}
+
+/** Register or refresh FCM device token for the authenticated user */
+export class RegisterFcmTokenDto {
+  @IsString()
+  @IsNotEmpty()
+  @MinLength(10)
+  @MaxLength(4096)
+  token: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(32)
+  platform?: string;
 }
