@@ -645,8 +645,8 @@ export class OrdersService {
 
     const { page = 1, limit = 20 } = query;
     const skip = (page - 1) * limit;
+    // Any order that includes this seller's products (live stream or SQL-seeded / other flows).
     const baseWhere: Prisma.OrderWhereInput = {
-      streamId: { not: null },
       items: { some: { product: { sellerId: seller.id } } },
     };
     let statusClause: Prisma.OrderWhereInput = {};
@@ -716,7 +716,6 @@ export class OrdersService {
       throw new ForbiddenException('User is not a registered seller');
 
     const baseWhere: Prisma.OrderWhereInput = {
-      streamId: { not: null },
       items: { some: { product: { sellerId: seller.id } } },
     };
     const [all, pending, processing, packed, shipped] = await Promise.all([

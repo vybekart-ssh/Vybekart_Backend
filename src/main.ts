@@ -37,16 +37,27 @@ async function bootstrap() {
       await fs.stat(localPath);
       return next();
     } catch {
-      // Missing locally → optional fallback to Supabase public bucket.
+      // Missing locally → optional fallback to Supabase public bucket (only if object exists).
       const supabaseUrl = (process.env.SUPABASE_URL ?? '').trim().replace(/\/$/, '');
       const bucket = (process.env.SUPABASE_PUBLIC_BUCKET ?? 'Vybekart').trim();
       if (!supabaseUrl || !bucket) {
-        return res.status(404).send('Not found');
+        return res.status(404).end();
       }
       const p = (req.path || '/').toString().replace(/^\/?/, '/');
       const redirectUrl = `${supabaseUrl}/storage/v1/object/public/${encodeURIComponent(bucket)}${p}`;
-      res.setHeader('Cache-Control', 'public, max-age=60');
-      return res.redirect(302, redirectUrl);
+      try {
+        const head = await fetch(redirectUrl, {
+          method: 'HEAD',
+          signal: AbortSignal.timeout(5000),
+        });
+        if (head.ok) {
+          res.setHeader('Cache-Control', 'public, max-age=60');
+          return res.redirect(302, redirectUrl);
+        }
+      } catch {
+        // Network / timeout — do not send clients to a broken Storage URL
+      }
+      return res.status(404).end();
     }
   });
 
