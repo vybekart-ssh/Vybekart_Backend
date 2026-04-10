@@ -6,6 +6,7 @@ import {
   BadRequestException,
   BadGatewayException,
 } from '@nestjs/common';
+import { Cron, CronExpression } from '@nestjs/schedule';
 import { CreateStreamDto } from './dto/create-stream.dto';
 import { UpdateStreamDto } from './dto/update-stream.dto';
 import { ScheduleStreamDto } from './dto/schedule-stream.dto';
@@ -17,6 +18,7 @@ import {
 } from '../common/dto/pagination-query.dto';
 import { LiveKitService } from '../livekit/livekit.service';
 import { RedisService } from '../redis/redis.service';
+import { BuyerLiveBroadcastService } from '../notifications/buyer-live-broadcast.service';
 
 const streamWithSellerInclude = {
   seller: {
@@ -39,7 +41,46 @@ export class StreamsService {
     private prisma: PrismaService,
     private livekit: LiveKitService,
     private redis: RedisService,
+    private buyerLiveBroadcast: BuyerLiveBroadcastService,
   ) {}
+
+  private queueNotifyBuyersLiveStarted(stream: {
+    id: string;
+    title: string;
+    seller: { userId: string; user?: { name?: string | null } | null };
+  }) {
+    const sellerDisplayName =
+      stream.seller?.user?.name?.trim() || 'A seller';
+    void this.buyerLiveBroadcast
+      .notifyBuyersSellerWentLive({
+        streamId: stream.id,
+        title: stream.title,
+        sellerUserId: stream.seller.userId,
+        sellerDisplayName,
+      })
+      .catch((e) =>
+        this.logger.warn(`Buyer live-started notification: ${String(e)}`),
+      );
+  }
+
+  private queueNotifyBuyersLiveEnded(stream: {
+    id: string;
+    title: string;
+    seller: { userId: string; user?: { name?: string | null } | null };
+  }) {
+    const sellerDisplayName =
+      stream.seller?.user?.name?.trim() || 'A seller';
+    void this.buyerLiveBroadcast
+      .notifyBuyersLiveEnded({
+        streamId: stream.id,
+        title: stream.title,
+        sellerUserId: stream.seller.userId,
+        sellerDisplayName,
+      })
+      .catch((e) =>
+        this.logger.warn(`Buyer live-ended notification: ${String(e)}`),
+      );
+  }
 
   private likesKey(streamId: string) {
     return `stream:${streamId}:likes`;
@@ -149,6 +190,10 @@ export class StreamsService {
         where: { id: stream.id },
         include: streamWithSellerInclude,
       });
+
+      if (updated) {
+        this.queueNotifyBuyersLiveStarted(updated);
+      }
 
       return {
         ...updated,
@@ -305,6 +350,8 @@ export class StreamsService {
 
       this.logger.log(`Started scheduled stream as live: ${stream.title}`);
 
+      this.queueNotifyBuyersLiveStarted(updated);
+
       return {
         ...updated,
         token: publisherToken,
@@ -331,7 +378,10 @@ export class StreamsService {
   ): Promise<PaginatedResult<unknown>> {
     const { page = 1, limit = 20 } = query ?? {};
     const skip = (page - 1) * limit;
-    const where: any = { isLive: true };
+    const where: Prisma.StreamWhereInput = {
+      isLive: true,
+      endedAt: null,
+    };
     if (categoryId) {
       where.categoryId = categoryId;
     }
@@ -382,7 +432,11 @@ export class StreamsService {
   private async assertStreamOwnership(streamId: string, userId: string) {
     const stream = await this.prisma.stream.findUnique({
       where: { id: streamId },
-      include: { seller: true },
+      include: {
+        seller: {
+          include: { user: { select: { id: true, name: true } } },
+        },
+      },
     });
     if (!stream)
       throw new NotFoundException(`Stream with ID ${streamId} not found`);
@@ -395,6 +449,7 @@ export class StreamsService {
   async update(id: string, dto: UpdateStreamDto, userId: string) {
     const stream = await this.assertStreamOwnership(id, userId);
     const sellerId = stream.sellerId;
+    const wasLiveBefore = stream.isLive;
 
     if (dto.productIds !== undefined) {
       const productIds = dto.productIds;
@@ -417,7 +472,7 @@ export class StreamsService {
       const first = byId.get(productIds[0]);
       const thumbFromProduct = first?.images?.[0] ?? null;
 
-      return this.prisma.stream.update({
+      const updatedWithProducts = await this.prisma.stream.update({
         where: { id },
         data: {
           ...(dto.title !== undefined ? { title: dto.title } : {}),
@@ -454,6 +509,10 @@ export class StreamsService {
         },
         include: streamWithSellerInclude,
       });
+      if (wasLiveBefore && dto.isLive === false) {
+        this.queueNotifyBuyersLiveEnded(updatedWithProducts);
+      }
+      return updatedWithProducts;
     }
 
     const data: Prisma.StreamUpdateInput = {};
@@ -473,33 +532,48 @@ export class StreamsService {
       data.startedAt = new Date(dto.scheduledAt);
     }
     if (dto.isLive !== undefined) data.isLive = dto.isLive;
-    return this.prisma.stream.update({
+    const updated = await this.prisma.stream.update({
       where: { id },
       data,
       include: streamWithSellerInclude,
     });
+    if (wasLiveBefore && dto.isLive === false) {
+      this.queueNotifyBuyersLiveEnded(updated);
+    }
+    return updated;
   }
 
   async remove(id: string, userId: string) {
     const stream = await this.assertStreamOwnership(id, userId);
+    const wasLive = stream.isLive;
     if (stream.livekitRoomName) {
       await this.livekit.deleteRoom(stream.livekitRoomName);
     }
-    return this.prisma.stream.delete({ where: { id } });
+    const deleted = await this.prisma.stream.delete({ where: { id } });
+    if (wasLive) {
+      this.queueNotifyBuyersLiveEnded(stream);
+    }
+    return deleted;
   }
 
   async stopStream(id: string, userId: string) {
     const stream = await this.assertStreamOwnership(id, userId);
+    const wasLive = stream.isLive;
     if (stream.livekitRoomName) {
       await this.livekit.deleteRoom(stream.livekitRoomName);
     }
-    return this.prisma.stream.update({
+    const updated = await this.prisma.stream.update({
       where: { id },
       data: {
         isLive: false,
         endedAt: new Date(),
       },
+      include: streamWithSellerInclude,
     });
+    if (wasLive) {
+      this.queueNotifyBuyersLiveEnded(updated);
+    }
+    return updated;
   }
 
   /**
@@ -721,5 +795,53 @@ export class StreamsService {
       streamId,
       products,
     };
+  }
+
+  /**
+   * Ends streams stuck as `isLive` (e.g. app crash, lost disconnect). Keeps `/streams/active` honest.
+   * Does not delete streams — same as seller stop: `isLive: false`, `endedAt` set, optional LiveKit room delete.
+   * Set `DISABLE_ZOMBIE_STREAM_SWEEP=1` to turn off.
+   */
+  @Cron(CronExpression.EVERY_10_MINUTES)
+  async sweepZombieLiveStreams() {
+    if (process.env.DISABLE_ZOMBIE_STREAM_SWEEP === '1') return;
+    const now = Date.now();
+    const maxLiveMs = 8 * 60 * 60 * 1000;
+    const staleStart = new Date(now - maxLiveMs);
+    const legacyCutoff = new Date(now - 24 * 60 * 60 * 1000);
+    const zombies = await this.prisma.stream.findMany({
+      where: {
+        isLive: true,
+        endedAt: null,
+        OR: [
+          { startedAt: { lt: staleStart } },
+          { startedAt: null, createdAt: { lt: legacyCutoff } },
+        ],
+      },
+      include: streamWithSellerInclude,
+    });
+    if (zombies.length === 0) return;
+    this.logger.log(
+      `Zombie stream sweep: ending ${zombies.length} stale live stream(s)`,
+    );
+    for (const s of zombies) {
+      try {
+        if (s.livekitRoomName) {
+          await this.livekit
+            .deleteRoom(s.livekitRoomName)
+            .catch(() => undefined);
+        }
+        const updated = await this.prisma.stream.update({
+          where: { id: s.id },
+          data: { isLive: false, endedAt: new Date() },
+          include: streamWithSellerInclude,
+        });
+        this.queueNotifyBuyersLiveEnded(updated);
+      } catch (e) {
+        this.logger.warn(
+          `Zombie sweep failed for stream ${s.id}: ${String(e)}`,
+        );
+      }
+    }
   }
 }

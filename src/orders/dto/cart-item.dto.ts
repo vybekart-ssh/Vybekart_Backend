@@ -1,4 +1,4 @@
-import { IsUUID, IsInt, Min, IsOptional, IsString } from 'class-validator';
+import { IsUUID, IsInt, Min, IsOptional, IsString, MaxLength } from 'class-validator';
 
 export class CartItemDto {
   @IsUUID()
@@ -29,6 +29,12 @@ export class CartItemDto {
   @IsOptional()
   @IsUUID()
   streamId?: string;
+
+  /** Human-readable stream title for cart/checkout UI (optional). */
+  @IsOptional()
+  @IsString()
+  @MaxLength(300)
+  streamTitle?: string;
 }
 
 export class UpdateCartQuantityDto {

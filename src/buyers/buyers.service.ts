@@ -1,4 +1,5 @@
 import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
+import { StreamVisibility } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { UpdateBuyerProfileDto } from './dto/update-buyer-profile.dto';
 import { CreateAddressDto } from './dto/create-address.dto';
@@ -58,12 +59,18 @@ export class BuyersService {
     });
     if (!buyer) throw new NotFoundException('Buyer profile not found');
 
+    const now = new Date();
     const [upcomingLive, recentlyViewed, recommendedProducts] =
       await this.prisma.$transaction([
         this.prisma.stream.findMany({
-          where: { startedAt: null },
-          orderBy: { createdAt: 'desc' },
-          take: 10,
+          where: {
+            isLive: false,
+            endedAt: null,
+            startedAt: { gt: now },
+            visibility: StreamVisibility.PUBLIC,
+          },
+          orderBy: { startedAt: 'asc' },
+          take: 20,
           include: { seller: { select: { businessName: true, id: true } } },
         }),
         this.prisma.recentlyViewedProduct.findMany({

@@ -3,6 +3,7 @@ import { SupportService } from './support.service';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
 import { ReportIssueDto } from './dto/report-issue.dto';
 import { SubmitConcernDto } from './dto/submit-concern.dto';
+import { AppFeedbackDto } from './dto/app-feedback.dto';
 
 @Controller('support')
 export class SupportController {
@@ -30,6 +31,15 @@ export class SupportController {
     @Body() dto: ReportIssueDto,
   ) {
     return this.supportService.reportIssue(req.user.id, dto);
+  }
+
+  @Post('app-feedback')
+  @UseGuards(JwtAuthGuard)
+  submitAppFeedback(
+    @Request() req: { user: { id: string } },
+    @Body() dto: AppFeedbackDto,
+  ) {
+    return this.supportService.submitAppFeedback(req.user.id, dto);
   }
 
   @Post('submit-concern')

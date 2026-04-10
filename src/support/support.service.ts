@@ -4,6 +4,7 @@ import * as nodemailer from 'nodemailer';
 import { PrismaService } from '../prisma/prisma.service';
 import { ReportIssueDto } from './dto/report-issue.dto';
 import { SubmitConcernDto } from './dto/submit-concern.dto';
+import { AppFeedbackDto } from './dto/app-feedback.dto';
 
 export interface AccountManagerContact {
   name: string;
@@ -64,6 +65,124 @@ export class SupportService {
       },
       select: { id: true, subject: true, createdAt: true },
     });
+  }
+
+  /**
+   * Buyer app feedback: creates a ticket and emails VybeKart team (same channel as account manager contact).
+   */
+  async submitAppFeedback(userId: string, dto: AppFeedbackDto) {
+    const subject = dto.subject?.trim() || 'VybeKart buyer app feedback';
+    const ticket = await this.prisma.supportTicket.create({
+      data: {
+        userId,
+        subject,
+        message: `[APP_FEEDBACK]\n${dto.message.trim()}`,
+      },
+      select: { id: true, subject: true, createdAt: true },
+    });
+
+    const contact = this.getAccountManagerContact();
+    const toEmail = contact.email?.trim();
+    if (!toEmail) {
+      console.warn('Support: No SUPPORT_ACCOUNT_MANAGER_EMAIL. Feedback ticket saved but not emailed.');
+      return { ...ticket, emailed: false };
+    }
+
+    const user = await this.prisma.user.findUnique({
+      where: { id: userId },
+      select: {
+        id: true,
+        name: true,
+        email: true,
+        phone: true,
+        createdAt: true,
+        buyerProfile: { select: { id: true } },
+      },
+    });
+
+    const userBlock = user
+      ? [
+          `User ID: ${user.id}`,
+          `Name: ${user.name ?? '—'}`,
+          `Email: ${user.email}`,
+          `Phone: ${user.phone ?? '—'}`,
+          `Buyer profile: ${user.buyerProfile ? 'yes' : 'no'}`,
+          `Registered: ${user.createdAt?.toISOString() ?? '—'}`,
+        ].join('\n')
+      : `User ID: ${userId} (user record not found)`;
+
+    const text = [
+      'VybeKart — Buyer app feedback',
+      '',
+      `Ticket: ${ticket.id}`,
+      `Subject: ${subject}`,
+      '',
+      '--- User ---',
+      userBlock,
+      '',
+      '--- Feedback ---',
+      dto.message.trim(),
+    ].join('\n');
+
+    const html = `<p><strong>VybeKart — Buyer app feedback</strong></p>
+<p>Ticket: <code>${escapeHtml(ticket.id)}</code><br>Subject: ${escapeHtml(subject)}</p>
+<h3>User</h3><pre style="white-space:pre-wrap;font-size:13px;">${escapeHtml(userBlock)}</pre>
+<h3>Feedback</h3><p style="white-space:pre-wrap;">${escapeHtml(dto.message.trim())}</p>`;
+
+    const resendKey = this.config.get<string>('RESEND_API_KEY')?.trim();
+    const replyTo = user?.email?.trim() || 'noreply@vybekart.com';
+
+    if (resendKey) {
+      try {
+        await this.sendViaResend(resendKey, {
+          from:
+            this.config.get<string>('MAIL_FROM') ??
+            'VybeKart Support <onboarding@resend.dev>',
+          to: toEmail,
+          subject: `[Buyer feedback] ${subject}`,
+          html,
+          replyTo,
+        });
+      } catch (err) {
+        console.error('Support: failed to send app feedback (Resend)', err);
+        return { ...ticket, emailed: false };
+      }
+      return { ...ticket, emailed: true };
+    }
+
+    const mailHost = this.config.get<string>('MAIL_HOST')?.trim();
+    if (!mailHost || mailHost.includes('@')) {
+      return { ...ticket, emailed: false };
+    }
+
+    try {
+      const mailPort = this.config.get<number>('MAIL_PORT') ?? 587;
+      const transporter = nodemailer.createTransport({
+        host: mailHost,
+        port: mailPort,
+        secure: this.config.get<string>('MAIL_SECURE') === 'true',
+        family: 4,
+        auth: this.config.get<string>('MAIL_USER')
+          ? {
+              user: this.config.get<string>('MAIL_USER'),
+              pass: this.config.get<string>('MAIL_PASS'),
+            }
+          : undefined,
+      } as any);
+      await transporter.sendMail({
+        from: replyTo,
+        to: toEmail,
+        subject: `[Buyer feedback] ${subject}`,
+        text,
+        html,
+        replyTo,
+      });
+    } catch (err) {
+      console.error('Support: failed to send app feedback (SMTP)', err);
+      return { ...ticket, emailed: false };
+    }
+
+    return { ...ticket, emailed: true };
   }
 
   async submitConcern(userId: string, dto: SubmitConcernDto) {

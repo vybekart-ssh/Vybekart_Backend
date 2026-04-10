@@ -57,4 +57,20 @@ export class FirebasePushService implements OnModuleInit {
       );
     }
   }
+
+  /** FCM allows up to 500 tokens per multicast; splits larger audiences automatically. */
+  async sendToTokensBatched(
+    tokens: string[],
+    title: string,
+    body: string,
+    data: Record<string, string>,
+    batchSize = 500,
+  ): Promise<void> {
+    if (!this.isEnabled() || tokens.length === 0) return;
+    const unique = [...new Set(tokens.filter((t) => t?.trim()))];
+    for (let i = 0; i < unique.length; i += batchSize) {
+      const batch = unique.slice(i, i + batchSize);
+      await this.sendToTokens(batch, title, body, data);
+    }
+  }
 }

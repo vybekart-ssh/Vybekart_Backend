@@ -29,7 +29,11 @@ import {
   productHasVariantItems,
 } from '../products/product-variants.util';
 
-type CartState = { items: CartItemDto[]; streamId?: string };
+type CartState = {
+  items: CartItemDto[];
+  streamId?: string;
+  streamTitle?: string;
+};
 
 @Injectable()
 export class OrdersService {
@@ -74,8 +78,16 @@ export class OrdersService {
       if (Array.isArray(parsed)) {
         return { items: parsed as CartItemDto[] };
       }
-      const o = parsed as { items?: CartItemDto[]; streamId?: string };
-      return { items: o.items ?? [], streamId: o.streamId };
+      const o = parsed as {
+        items?: CartItemDto[];
+        streamId?: string;
+        streamTitle?: string;
+      };
+      return {
+        items: o.items ?? [],
+        streamId: o.streamId,
+        streamTitle: o.streamTitle,
+      };
     } catch {
       return { items: [] };
     }
@@ -86,9 +98,16 @@ export class OrdersService {
   }
 
   async getCart(userId: string) {
-    const { items, streamId } = await this.loadCartState(userId);
+    const { items, streamId, streamTitle } = await this.loadCartState(userId);
     if (!items.length) {
-      return { items: [], subtotal: 0, shipping: 0, total: 0, streamId: null };
+      return {
+        items: [],
+        subtotal: 0,
+        shipping: 0,
+        total: 0,
+        streamId: null,
+        streamTitle: null,
+      };
     }
 
     const productIds = [...new Set(items.map((i) => i.productId))];
@@ -134,7 +153,14 @@ export class OrdersService {
     const shipping = subtotal > 0 ? 90 : 0;
     const total = subtotal + shipping;
 
-    return { items: normalized, subtotal, shipping, total, streamId: streamId ?? null };
+    return {
+      items: normalized,
+      subtotal,
+      shipping,
+      total,
+      streamId: streamId ?? null,
+      streamTitle: streamTitle?.trim() || null,
+    };
   }
 
   async addCartItem(userId: string, dto: CartItemDto) {
@@ -175,6 +201,10 @@ export class OrdersService {
 
     const items = [...state.items];
     const streamId = state.streamId ?? dto.streamId;
+    const streamTitle =
+      state.streamTitle?.trim() ||
+      dto.streamTitle?.trim() ||
+      undefined;
     const vKey = dto.variantId?.trim() ?? '';
     const idx = items.findIndex(
       (i) => i.productId === dto.productId && (i.variantId?.trim() ?? '') === vKey,
@@ -195,7 +225,7 @@ export class OrdersService {
         variantLabel: dto.variantLabel?.trim(),
       });
     }
-    await this.saveCartState(userId, { items, streamId });
+    await this.saveCartState(userId, { items, streamId, streamTitle });
     return this.getCart(userId);
   }
 
@@ -214,7 +244,11 @@ export class OrdersService {
     );
     if (idx < 0) throw new NotFoundException('Item not found in cart');
     items[idx].quantity = quantity;
-    await this.saveCartState(userId, { items, streamId: state.streamId });
+    await this.saveCartState(userId, {
+      items,
+      streamId: state.streamId,
+      streamTitle: state.streamTitle,
+    });
     return this.getCart(userId);
   }
 
@@ -229,7 +263,13 @@ export class OrdersService {
     );
     await this.saveCartState(
       userId,
-      next.length ? { items: next, streamId: state.streamId } : { items: [] },
+      next.length
+        ? {
+            items: next,
+            streamId: state.streamId,
+            streamTitle: state.streamTitle,
+          }
+        : { items: [] },
     );
     return this.getCart(userId);
   }
