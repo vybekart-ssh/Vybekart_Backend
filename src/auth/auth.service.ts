@@ -20,6 +20,7 @@ import {
   ResetPasswordDto,
   VerifyResetPasswordDto,
   CheckPhoneExistsDto,
+  CheckPhonePurpose,
   PickupAddressDto,
 } from './dto/auth.dto';
 import { SendOtpDto, VerifyOtpDto } from './dto/otp.dto';
@@ -284,11 +285,13 @@ export class AuthService {
     if (existingByPhone) {
       if (existingByPhone.email !== email) {
         throw new ConflictException(
-          'An account with this phone number already exists with a different email',
+          'This phone number is already registered with a different email. Sign in with the email linked to this number, or use the correct email.',
         );
       }
     } else if (existingByEmail) {
-      throw new ConflictException('User with this email already exists');
+      throw new ConflictException(
+        'This email is already registered. Sign in or use a different email.',
+      );
     }
 
     const categories = await this.prisma.category.findMany({
@@ -442,11 +445,13 @@ export class AuthService {
     if (existingByPhone) {
       if (existingByPhone.email !== email) {
         throw new ConflictException(
-          'An account with this phone number already exists with a different email',
+          'This phone number is already registered with a different email. Sign in with the email linked to this number, or use the correct email.',
         );
       }
     } else if (existingByEmail) {
-      throw new ConflictException('User with this email already exists');
+      throw new ConflictException(
+        'This email is already registered. Sign in or use a different email.',
+      );
     }
 
     const hashedPassword = await bcrypt.hash(dto.password, 10);
@@ -582,13 +587,21 @@ export class AuthService {
   /** Check if a phone already exists in DB (to avoid wasting OTP SMS). */
   async checkPhoneExists(
     dto: CheckPhoneExistsDto,
-  ): Promise<{ hasBuyer: boolean; hasSeller: boolean }> {
+  ): Promise<
+    { exists: boolean } | { hasBuyer: boolean; hasSeller: boolean }
+  > {
     const phone = dto.phone.trim();
     const user = await this.prisma.user.findUnique({
       where: { phone },
       include: { sellerProfile: true, buyerProfile: true },
     });
 
+    if (dto.purpose === CheckPhonePurpose.BUYER_REGISTER) {
+      return { exists: !!user?.buyerProfile };
+    }
+    if (dto.purpose === CheckPhonePurpose.SELLER_REGISTER) {
+      return { exists: !!user?.sellerProfile };
+    }
     return { hasBuyer: !!user?.buyerProfile, hasSeller: !!user?.sellerProfile };
   }
 

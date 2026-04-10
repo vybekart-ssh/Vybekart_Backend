@@ -11,6 +11,7 @@ import {
   ValidateNested,
   ValidateIf,
   ArrayMinSize,
+  IsEnum,
 } from 'class-validator';
 import { Type } from 'class-transformer';
 
@@ -76,6 +77,12 @@ export class VerifyResetPasswordDto {
   code: string;
 }
 
+/** Optional scope for check-phone: which registration flow is asking. */
+export enum CheckPhonePurpose {
+  BUYER_REGISTER = 'BUYER_REGISTER',
+  SELLER_REGISTER = 'SELLER_REGISTER',
+}
+
 /** Used to check whether a phone already exists before sending OTP. */
 export class CheckPhoneExistsDto {
   @IsString()
@@ -84,6 +91,10 @@ export class CheckPhoneExistsDto {
     message: 'Phone must be in E.164 format (e.g. +919876543210)',
   })
   phone: string;
+
+  @IsOptional()
+  @IsEnum(CheckPhonePurpose)
+  purpose?: CheckPhonePurpose;
 }
 
 export class RegisterBuyerDto {
