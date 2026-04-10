@@ -1,7 +1,6 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import * as nodemailer from 'nodemailer';
-import { resolve4 } from 'dns/promises';
 import { RegisterSellerDto } from './dto/auth.dto';
 
 @Injectable()
@@ -48,12 +47,17 @@ export class SellerRegistrationNotifierService {
 
     try {
       const mailPort = this.config.get<number>('MAIL_PORT') ?? 587;
-      const resolvedHost = await this.resolveSmtpHostIPv4(mailHost);
       const transporter = nodemailer.createTransport({
-        host: resolvedHost,
+        // IMPORTANT: keep hostname here so TLS can validate the server certificate
+        // (connecting via a resolved IP breaks cert altname checks for e.g. smtp.gmail.com).
+        host: mailHost,
         port: mailPort,
         secure: this.config.get<string>('MAIL_SECURE') === 'true',
         family: 4,
+        tls: {
+          // Ensure SNI / hostname verification uses the SMTP hostname
+          servername: mailHost,
+        },
         auth: this.config.get<string>('MAIL_USER')
           ? {
               user: this.config.get<string>('MAIL_USER'),
@@ -71,21 +75,6 @@ export class SellerRegistrationNotifierService {
       });
     } catch (err) {
       this.logger.error('SMTP failed for seller registration email', err);
-    }
-  }
-
-  /**
-   * Some hosts (Render/Heroku-like) cannot reach IPv6 SMTP endpoints.
-   * Force an IPv4 address when MAIL_HOST resolves to AAAA first.
-   */
-  private async resolveSmtpHostIPv4(host: string): Promise<string> {
-    // If it's already an IP literal, keep.
-    if (/^\d{1,3}(\.\d{1,3}){3}$/.test(host)) return host;
-    try {
-      const v4 = await resolve4(host);
-      return v4?.[0] || host;
-    } catch {
-      return host;
     }
   }
 
