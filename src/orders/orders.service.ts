@@ -554,9 +554,21 @@ export class OrdersService {
     const buyer = await this.prisma.buyer.findUnique({
       where: { userId },
     });
-    if (!buyer) throw new ForbiddenException('User is not a registered buyer');
-
     const { page = 1, limit = 20, status, search } = query;
+    if (!buyer) {
+      return {
+        data: [],
+        meta: {
+          total: 0,
+          page,
+          limit,
+          totalPages: 0,
+          hasNext: false,
+          hasPrev: false,
+        },
+      };
+    }
+
     const skip = (page - 1) * limit;
     const where: Prisma.OrderWhereInput = {
       buyerId: buyer.id,

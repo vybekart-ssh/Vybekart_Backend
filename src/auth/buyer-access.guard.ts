@@ -7,10 +7,11 @@ import {
 import { Role } from '@prisma/client';
 
 /**
- * Allows buyer cart / orders when the user has Role.BUYER **or** a Buyer profile row.
- * {@link JwtStrategy} loads `buyerProfile` on `request.user`; some accounts can have a
- * profile without BUYER in `roles` (legacy / data drift). `/buyers/*` only uses JwtAuthGuard,
- * so those routes worked while `/orders/*` returned 403 from RolesGuard.
+ * Allows buyer cart / orders for:
+ * - Role.BUYER, or
+ * - a Buyer profile row (JWT user from DB), or
+ * - Role.SELLER only (same account using the buyer app — cart is Redis-keyed by userId;
+ *   {@link OrdersService.findMyOrders} returns an empty list when there is no Buyer row).
  */
 @Injectable()
 export class BuyerAccessGuard implements CanActivate {
@@ -24,9 +25,12 @@ export class BuyerAccessGuard implements CanActivate {
         'You do not have permission to access these resources',
       );
     }
-    const hasBuyerRole = user.roles?.some((r) => r === Role.BUYER) ?? false;
-    const hasBuyerProfile = user.buyerProfile != null;
-    if (hasBuyerRole || hasBuyerProfile) {
+    const roles = user.roles ?? [];
+    const allowed =
+      roles.includes(Role.BUYER) ||
+      roles.includes(Role.SELLER) ||
+      user.buyerProfile != null;
+    if (allowed) {
       return true;
     }
     throw new ForbiddenException(

@@ -49,8 +49,7 @@ export class OrdersController {
   }
 
   @Post('cart/items')
-  @UseGuards(JwtAuthGuard, RolesGuard)
-  @Roles(Role.BUYER)
+  @UseGuards(JwtAuthGuard, BuyerAccessGuard)
   addCartItem(
     @Request() req: { user: { id: string } },
     @Body() dto: CartItemDto,
@@ -103,22 +102,12 @@ export class OrdersController {
   }
 
   @Get()
-  @UseGuards(JwtAuthGuard, RolesGuard)
-  @Roles(Role.BUYER)
+  @UseGuards(JwtAuthGuard, BuyerAccessGuard)
   findMyOrders(
     @Request() req: { user: { id: string } },
     @Query() query: BuyerOrdersQueryDto,
   ) {
     return this.ordersService.findMyOrders(req.user.id, query);
-  }
-
-  @Get(':id/help')
-  @UseGuards(JwtAuthGuard, BuyerAccessGuard)
-  getOrderHelp(
-    @Request() req: { user: { id: string } },
-    @Param('id') id: string,
-  ) {
-    return this.ordersService.getOrderHelp(id, req.user.id);
   }
 
   @Get('seller')
@@ -137,6 +126,15 @@ export class OrdersController {
   @Roles(Role.SELLER)
   getSellerOrderCounts(@Request() req: { user: { id: string } }) {
     return this.ordersService.getSellerOrderCounts(req.user.id);
+  }
+
+  @Get(':id/help')
+  @UseGuards(JwtAuthGuard, BuyerAccessGuard)
+  getOrderHelp(
+    @Request() req: { user: { id: string } },
+    @Param('id') id: string,
+  ) {
+    return this.ordersService.getOrderHelp(id, req.user.id);
   }
 
   @Patch(':id/accept')
