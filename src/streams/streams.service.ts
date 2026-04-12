@@ -386,7 +386,7 @@ export class StreamsService {
       where.categoryId = categoryId;
     }
 
-    const [data, total] = await Promise.all([
+    const [raw, total] = await Promise.all([
       this.prisma.stream.findMany({
         where,
         include: streamWithSellerInclude,
@@ -396,6 +396,23 @@ export class StreamsService {
       }),
       this.prisma.stream.count({ where }),
     ]);
+    const data = await Promise.all(
+      raw.map(async (s) => {
+        let socketViewers = 0;
+        try {
+          socketViewers = await this.redis.scard(
+            this.redis.streamViewersKey(s.id),
+          );
+        } catch {
+          /* ignore redis errors for list payload */
+        }
+        const dbCount = s.viewCount ?? 0;
+        return {
+          ...s,
+          viewCount: Math.max(dbCount, socketViewers),
+        };
+      }),
+    );
     const totalPages = Math.ceil(total / limit);
     return {
       data,
@@ -560,7 +577,11 @@ export class StreamsService {
     const stream = await this.assertStreamOwnership(id, userId);
     const wasLive = stream.isLive;
     if (stream.livekitRoomName) {
-      await this.livekit.deleteRoom(stream.livekitRoomName);
+      await this.livekit.deleteRoom(stream.livekitRoomName).catch((e) => {
+        this.logger.warn(
+          `LiveKit deleteRoom failed while stopping stream ${id}: ${String(e)}`,
+        );
+      });
     }
     const updated = await this.prisma.stream.update({
       where: { id },
@@ -615,6 +636,23 @@ export class StreamsService {
           identity || `viewer-${userId}`,
         );
 
+    if (!isOwner && stream.isLive) {
+      const dedupeKey = `stream:viewer:join:${streamId}:${userId}`;
+      const firstInWindow = await this.redis.setNx(dedupeKey, '1', 600);
+      if (firstInWindow) {
+        try {
+          await this.prisma.stream.update({
+            where: { id: streamId },
+            data: { viewCount: { increment: 1 } },
+          });
+        } catch (e) {
+          this.logger.warn(
+            `viewCount increment failed for stream ${streamId}: ${String(e)}`,
+          );
+        }
+      }
+    }
+
     return {
       token,
       livekitUrl: stream.livekitUrl,
@@ -641,6 +679,25 @@ export class StreamsService {
       stream.livekitRoomName,
       identity,
     );
+
+    if (stream.isLive) {
+      const safeId = identity.replace(/[^a-zA-Z0-9_-]/g, '').slice(0, 128) || 'viewer';
+      const dedupeKey = `stream:viewer:join:${streamId}:${safeId}`;
+      const firstInWindow = await this.redis.setNx(dedupeKey, '1', 600);
+      if (firstInWindow) {
+        try {
+          await this.prisma.stream.update({
+            where: { id: streamId },
+            data: { viewCount: { increment: 1 } },
+          });
+        } catch (e) {
+          this.logger.warn(
+            `viewCount increment (viewer-token) failed for stream ${streamId}: ${String(e)}`,
+          );
+        }
+      }
+    }
+
     return {
       token,
       wsUrl: this.livekit.getWebSocketUrl(),

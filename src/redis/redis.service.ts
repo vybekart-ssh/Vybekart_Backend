@@ -45,6 +45,16 @@ export class RedisService implements OnModuleInit, OnModuleDestroy {
     }
   }
 
+  /** SET key NX with TTL. Returns true if the key was set (first time). */
+  async setNx(
+    key: string,
+    value: string,
+    ttlSeconds: number,
+  ): Promise<boolean> {
+    const r = await this.client.set(key, value, 'EX', ttlSeconds, 'NX');
+    return r === 'OK';
+  }
+
   async del(key: string): Promise<void> {
     await this.client.del(key);
   }

@@ -6,6 +6,11 @@ import {
 import { ConfigService } from '@nestjs/config';
 import * as admin from 'firebase-admin';
 
+export type FcmAndroidOptions = {
+  /** Android 8+ channel id — must match a channel created in the app (e.g. buyer_live_streams). */
+  channelId?: string;
+};
+
 @Injectable()
 export class FirebasePushService implements OnModuleInit {
   private readonly logger = new Logger(FirebasePushService.name);
@@ -42,18 +47,34 @@ export class FirebasePushService implements OnModuleInit {
     title: string,
     body: string,
     data: Record<string, string>,
+    android?: FcmAndroidOptions,
   ): Promise<void> {
     if (!this.isEnabled() || tokens.length === 0) return;
+    const stringData = Object.fromEntries(
+      Object.entries(data).map(([k, v]) => [k, v == null ? '' : String(v)]),
+    );
     const messaging = admin.messaging();
     const res = await messaging.sendEachForMulticast({
       tokens,
       notification: { title, body },
-      data,
-      android: { priority: 'high' as const },
+      data: stringData,
+      android: {
+        priority: 'high' as const,
+        ...(android?.channelId
+          ? {
+              notification: {
+                channelId: android.channelId,
+                sound: 'default',
+              },
+            }
+          : {}),
+      },
     });
     if (res.failureCount > 0) {
+      const firstErr = res.responses.find((r) => !r.success)?.error;
       this.logger.warn(
-        `FCM multicast: ${res.failureCount}/${tokens.length} failed`,
+        `FCM multicast: ${res.failureCount}/${tokens.length} failed` +
+          (firstErr ? ` (e.g. ${firstErr.message})` : ''),
       );
     }
   }
@@ -64,13 +85,14 @@ export class FirebasePushService implements OnModuleInit {
     title: string,
     body: string,
     data: Record<string, string>,
-    batchSize = 500,
+    opts?: { batchSize?: number; android?: FcmAndroidOptions },
   ): Promise<void> {
     if (!this.isEnabled() || tokens.length === 0) return;
+    const batchSize = opts?.batchSize ?? 500;
     const unique = [...new Set(tokens.filter((t) => t?.trim()))];
     for (let i = 0; i < unique.length; i += batchSize) {
       const batch = unique.slice(i, i + batchSize);
-      await this.sendToTokens(batch, title, body, data);
+      await this.sendToTokens(batch, title, body, data, opts?.android);
     }
   }
 }

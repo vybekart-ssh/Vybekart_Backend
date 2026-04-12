@@ -52,6 +52,7 @@ export class ScheduledLiveReminderService {
               type: 'SELLER_GO_LIVE_REMINDER',
               streamId: s.id,
             },
+            { channelId: 'seller_go_live' },
           );
         } catch (e) {
           this.logger.warn(`FCM failed for stream ${s.id}`, e);
