@@ -68,15 +68,22 @@ export class SupportService {
   }
 
   /**
-   * Buyer app feedback: creates a ticket and emails VybeKart team (same channel as account manager contact).
+   * In-app feedback (shopper or seller partner): ticket + professional HTML email to account manager.
    */
   async submitAppFeedback(userId: string, dto: AppFeedbackDto) {
-    const subject = dto.subject?.trim() || 'VybeKart buyer app feedback';
+    const role: 'buyer' | 'seller' =
+      dto.role === 'seller' ? 'seller' : 'buyer';
+    const userTopic = dto.subject?.trim() || '';
+    const defaultTopic =
+      role === 'seller'
+        ? 'Seller partner app feedback'
+        : 'Shopper app feedback';
+    const ticketSubject = userTopic || defaultTopic;
     const ticket = await this.prisma.supportTicket.create({
       data: {
         userId,
-        subject,
-        message: `[APP_FEEDBACK]\n${dto.message.trim()}`,
+        subject: ticketSubject,
+        message: `[APP_FEEDBACK|${role}]\n${dto.message.trim()}`,
       },
       select: { id: true, subject: true, createdAt: true },
     });
@@ -88,6 +95,8 @@ export class SupportService {
       return { ...ticket, emailed: false };
     }
 
+    const submittedAt = ticket.createdAt ?? new Date();
+
     const user = await this.prisma.user.findUnique({
       where: { id: userId },
       select: {
@@ -97,50 +106,40 @@ export class SupportService {
         phone: true,
         createdAt: true,
         buyerProfile: { select: { id: true } },
+        sellerProfile: { select: { id: true, businessName: true } },
       },
     });
 
-    const userBlock = user
-      ? [
-          `User ID: ${user.id}`,
-          `Name: ${user.name ?? '—'}`,
-          `Email: ${user.email}`,
-          `Phone: ${user.phone ?? '—'}`,
-          `Buyer profile: ${user.buyerProfile ? 'yes' : 'no'}`,
-          `Registered: ${user.createdAt?.toISOString() ?? '—'}`,
-        ].join('\n')
-      : `User ID: ${userId} (user record not found)`;
+    const ticketRef = appFeedbackTicketRef(ticket.id);
+    const metaRows =
+      role === 'seller'
+        ? buildSellerFeedbackMetaRows(user, userId)
+        : buildBuyerFeedbackMetaRows(user, userId);
 
-    const text = [
-      'VybeKart — Buyer app feedback',
-      '',
-      `Ticket: ${ticket.id}`,
-      `Subject: ${subject}`,
-      '',
-      '--- User ---',
-      userBlock,
-      '',
-      '--- Feedback ---',
-      dto.message.trim(),
-    ].join('\n');
-
-    const html = `<p><strong>VybeKart — Buyer app feedback</strong></p>
-<p>Ticket: <code>${escapeHtml(ticket.id)}</code><br>Subject: ${escapeHtml(subject)}</p>
-<h3>User</h3><pre style="white-space:pre-wrap;font-size:13px;">${escapeHtml(userBlock)}</pre>
-<h3>Feedback</h3><p style="white-space:pre-wrap;">${escapeHtml(dto.message.trim())}</p>`;
+    const { html, text, emailSubject } = buildProfessionalAppFeedbackEmail({
+      role,
+      ticketId: ticket.id,
+      ticketRef,
+      userSubject: userTopic || defaultTopic,
+      message: dto.message.trim(),
+      metaRows,
+      submittedAt,
+    });
 
     const resendKey = this.config.get<string>('RESEND_API_KEY')?.trim();
     const replyTo = user?.email?.trim() || 'noreply@vybekart.com';
+    const mailFrom =
+      this.config.get<string>('MAIL_FROM') ??
+      'VybeKart Support <onboarding@resend.dev>';
 
     if (resendKey) {
       try {
         await this.sendViaResend(resendKey, {
-          from:
-            this.config.get<string>('MAIL_FROM') ??
-            'VybeKart Support <onboarding@resend.dev>',
+          from: mailFrom,
           to: toEmail,
-          subject: `[Buyer feedback] ${subject}`,
+          subject: emailSubject,
           html,
+          text,
           replyTo,
         });
       } catch (err) {
@@ -170,9 +169,9 @@ export class SupportService {
           : undefined,
       } as any);
       await transporter.sendMail({
-        from: replyTo,
+        from: mailFrom,
         to: toEmail,
-        subject: `[Buyer feedback] ${subject}`,
+        subject: emailSubject,
         text,
         html,
         replyTo,
@@ -242,6 +241,7 @@ export class SupportService {
           to: toEmail,
           subject: dto.subject,
           html,
+          text,
           replyTo: sellerEmail,
         });
       } catch (err) {
@@ -289,7 +289,14 @@ export class SupportService {
 
   private async sendViaResend(
     apiKey: string,
-    opts: { from: string; to: string; subject: string; html: string; replyTo: string },
+    opts: {
+      from: string;
+      to: string;
+      subject: string;
+      html: string;
+      text: string;
+      replyTo: string;
+    },
   ): Promise<void> {
     const res = await fetch('https://api.resend.com/emails', {
       method: 'POST',
@@ -302,6 +309,7 @@ export class SupportService {
         to: [opts.to],
         subject: opts.subject,
         html: opts.html,
+        text: opts.text,
         reply_to: opts.replyTo,
       }),
     });
@@ -419,6 +427,171 @@ function buildConcernEmailTemplate(params: {
     .join('\n');
 
   return { html, text };
+}
+
+function appFeedbackTicketRef(ticketId: string): string {
+  return ticketId.replace(/-/g, '').slice(0, 10).toUpperCase();
+}
+
+type AppFeedbackUser = {
+  id: string;
+  name: string;
+  email: string;
+  phone: string | null;
+  createdAt: Date;
+  buyerProfile: { id: string } | null;
+  sellerProfile: { id: string; businessName: string } | null;
+} | null;
+
+function buildBuyerFeedbackMetaRows(
+  user: AppFeedbackUser,
+  fallbackUserId: string,
+): { label: string; value: string }[] {
+  if (!user) {
+    return [{ label: 'User ID', value: `${fallbackUserId} (record not found)` }];
+  }
+  return [
+    { label: 'Role', value: 'Shopper (buyer app)' },
+    { label: 'User ID', value: user.id },
+    { label: 'Name', value: user.name ?? '—' },
+    { label: 'Email', value: user.email },
+    { label: 'Phone', value: user.phone ?? '—' },
+    { label: 'Buyer profile', value: user.buyerProfile ? 'Yes' : 'No' },
+    { label: 'Registered', value: user.createdAt?.toISOString() ?? '—' },
+  ];
+}
+
+function buildSellerFeedbackMetaRows(
+  user: AppFeedbackUser,
+  fallbackUserId: string,
+): { label: string; value: string }[] {
+  if (!user) {
+    return [{ label: 'User ID', value: `${fallbackUserId} (record not found)` }];
+  }
+  const biz = user.sellerProfile?.businessName ?? '—';
+  return [
+    { label: 'Role', value: 'Seller partner' },
+    { label: 'User ID', value: user.id },
+    { label: 'Name', value: user.name ?? '—' },
+    { label: 'Email', value: user.email },
+    { label: 'Phone', value: user.phone ?? '—' },
+    { label: 'Store / business', value: biz },
+    { label: 'Seller profile ID', value: user.sellerProfile?.id ?? '—' },
+    { label: 'Registered', value: user.createdAt?.toISOString() ?? '—' },
+  ];
+}
+
+function buildProfessionalAppFeedbackEmail(params: {
+  role: 'buyer' | 'seller';
+  ticketId: string;
+  ticketRef: string;
+  userSubject: string;
+  message: string;
+  metaRows: { label: string; value: string }[];
+  submittedAt: Date;
+}): { html: string; text: string; emailSubject: string } {
+  const brand = '#1a56c9';
+  const headerTitle =
+    params.role === 'seller'
+      ? 'Seller partner feedback'
+      : 'Shopper feedback';
+  const preheader =
+    params.role === 'seller'
+      ? 'A VybeKart seller partner shared feedback from the partner app.'
+      : 'A VybeKart shopper shared feedback from the mobile app.';
+
+  const roleWord = params.role === 'seller' ? 'Seller partner' : 'Shopper';
+  let emailSubject = `VybeKart ${roleWord} feedback — Ref ${params.ticketRef}`;
+  if (
+    params.userSubject &&
+    params.userSubject.length <= 55 &&
+    params.userSubject !== 'Shopper app feedback' &&
+    params.userSubject !== 'Seller partner app feedback'
+  ) {
+    emailSubject = `${emailSubject} — ${params.userSubject}`;
+  }
+
+  const rowsHtml = params.metaRows
+    .map(
+      (r) =>
+        `<tr><td style="padding:10px 14px;border-bottom:1px solid #e8ecf1;font-size:14px;color:#64748b;width:38%;vertical-align:top;">${escapeHtml(r.label)}</td><td style="padding:10px 14px;border-bottom:1px solid #e8ecf1;font-size:14px;color:#0f172a;font-weight:500;vertical-align:top;">${escapeHtml(r.value)}</td></tr>`,
+    )
+    .join('');
+
+  const html = `<!DOCTYPE html>
+<html lang="en">
+<head><meta charset="utf-8"><meta name="viewport" content="width=device-width"><title>${escapeHtml(headerTitle)}</title></head>
+<body style="margin:0;padding:0;background-color:#f1f5f9;font-family:'Segoe UI',Roboto,Helvetica,Arial,sans-serif;">
+  <span style="display:none;font-size:1px;color:#f1f5f9;line-height:1px;max-height:0;max-width:0;opacity:0;overflow:hidden;">${escapeHtml(preheader)}</span>
+  <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background-color:#f1f5f9;padding:24px 12px;">
+    <tr>
+      <td align="center">
+        <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="max-width:560px;background:#ffffff;border-radius:12px;overflow:hidden;box-shadow:0 4px 24px rgba(15,23,42,0.08);">
+          <tr>
+            <td style="background:${brand};padding:20px 24px;">
+              <p style="margin:0;font-size:11px;font-weight:600;letter-spacing:0.12em;text-transform:uppercase;color:rgba(255,255,255,0.9);">VybeKart · In-app feedback</p>
+              <h1 style="margin:8px 0 0;font-size:22px;font-weight:700;color:#ffffff;line-height:1.25;">${escapeHtml(headerTitle)}</h1>
+            </td>
+          </tr>
+          <tr>
+            <td style="padding:20px 24px 8px;">
+              <p style="margin:0 0 16px;font-size:15px;color:#334155;line-height:1.55;">The following was submitted through the VybeKart mobile app. You can reply directly to reach the submitter.</p>
+              <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background:#f8fafc;border-radius:8px;margin-bottom:20px;border:1px solid #e2e8f0;">
+                <tr>
+                  <td style="padding:14px 18px;">
+                    <p style="margin:0 0 4px;font-size:12px;color:#64748b;text-transform:uppercase;letter-spacing:0.06em;">Reference</p>
+                    <p style="margin:0;font-size:18px;font-weight:700;color:${brand};letter-spacing:0.04em;">${escapeHtml(params.ticketRef)}</p>
+                    <p style="margin:8px 0 0;font-size:12px;color:#94a3b8;">Full ticket ID: <code style="background:#e2e8f0;padding:2px 6px;border-radius:4px;font-size:11px;">${escapeHtml(params.ticketId)}</code></p>
+                  </td>
+                </tr>
+              </table>
+              <p style="margin:0 0 8px;font-size:12px;font-weight:600;color:#64748b;text-transform:uppercase;letter-spacing:0.05em;">Topic</p>
+              <p style="margin:0 0 20px;font-size:16px;color:#0f172a;font-weight:600;">${escapeHtml(params.userSubject)}</p>
+            </td>
+          </tr>
+          <tr>
+            <td style="padding:0 24px;">
+              <p style="margin:0 0 10px;font-size:12px;font-weight:600;color:#64748b;text-transform:uppercase;letter-spacing:0.05em;">Submitter details</p>
+              <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="border-collapse:collapse;border:1px solid #e2e8f0;border-radius:8px;overflow:hidden;margin-bottom:22px;">
+                ${rowsHtml}
+              </table>
+            </td>
+          </tr>
+          <tr>
+            <td style="padding:0 24px 24px;">
+              <p style="margin:0 0 10px;font-size:12px;font-weight:600;color:#64748b;text-transform:uppercase;letter-spacing:0.05em;">Message</p>
+              <div style="padding:16px 18px;background:#fafbfc;border-left:4px solid ${brand};border-radius:0 8px 8px 0;font-size:15px;color:#1e293b;line-height:1.6;white-space:pre-wrap;">${escapeHtml(params.message)}</div>
+              <p style="margin:20px 0 0;font-size:12px;color:#94a3b8;">Submitted ${escapeHtml(params.submittedAt.toISOString())} · Reply-To is the submitter’s email when available.</p>
+            </td>
+          </tr>
+        </table>
+        <p style="margin:16px 0 0;font-size:11px;color:#94a3b8;max-width:560px;">Automated message from VybeKart support systems.</p>
+      </td>
+    </tr>
+  </table>
+</body>
+</html>`;
+
+  const textMeta = params.metaRows.map((r) => `${r.label}: ${r.value}`).join('\n');
+  const text = [
+    `VybeKart — ${headerTitle}`,
+    '',
+    preheader,
+    '',
+    `Reference: ${params.ticketRef}`,
+    `Ticket ID: ${params.ticketId}`,
+    `Topic: ${params.userSubject}`,
+    '',
+    '--- Submitter ---',
+    textMeta,
+    '',
+    '--- Message ---',
+    params.message,
+    '',
+    `Submitted: ${params.submittedAt.toISOString()}`,
+  ].join('\n');
+
+  return { html, text, emailSubject };
 }
 
 function escapeHtml(s: string): string {
