@@ -55,6 +55,33 @@ services:
       - key: LIVEKIT_API_SECRET
         value: "QaSpsD5ZeaKS7VBhHVW64ZdnNPPpDGJXaDRnims0lKY"
 
+      # ------------------------------------------------------------------
+      # Live stream → MP4 replay (LiveKit egress → Supabase Storage via S3 protocol)
+      # ------------------------------------------------------------------
+      # Dashboard: Supabase → Storage → enable S3 protocol → create bucket → S3 access keys.
+      # Set bucket to PUBLIC (or add policy) so replay MP4 URLs play in the app.
+      # LiveKit webhook (Cloud UI): POST ${API_PUBLIC_URL}/webhooks/livekit (egress_ended).
+      - key: LIVEKIT_RECORDING_USE_SUPABASE
+        value: "true"
+      # S3 endpoint is derived from SUPABASE_URL as https://<ref>.storage.supabase.co/storage/v1/s3
+      - key: LIVEKIT_RECORDING_S3_FORCE_PATH_STYLE
+        value: "true"
+      - key: LIVEKIT_RECORDING_S3_BUCKET
+        sync: false
+      # Copy "Region" from Supabase Storage S3 settings (often "local" or your project region)
+      - key: LIVEKIT_RECORDING_S3_REGION
+        sync: false
+      - key: LIVEKIT_RECORDING_S3_ACCESS_KEY
+        sync: false
+      - key: LIVEKIT_RECORDING_S3_SECRET
+        sync: false
+      # Override only if auto endpoint fails (default: empty = derive from SUPABASE_URL)
+      - key: LIVEKIT_RECORDING_S3_ENDPOINT
+        sync: false
+      # Dev only — never enable in production (skips LiveKit webhook signature check)
+      - key: LIVEKIT_WEBHOOK_SKIP_VERIFY
+        value: "false"
+
       - key: SUPPORT_ACCOUNT_MANAGER_NAME
         value: "Shubham Pol"
       - key: SUPPORT_ACCOUNT_MANAGER_EMAIL

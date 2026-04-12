@@ -29,6 +29,19 @@ export const envValidationSchema = Joi.object({
   LIVEKIT_URL: Joi.string().uri().optional(),
   LIVEKIT_API_KEY: Joi.string().optional(),
   LIVEKIT_API_SECRET: Joi.string().optional(),
+  /** Same project URL as uploads (used to derive Storage S3 endpoint when recording to Supabase). */
+  SUPABASE_URL: Joi.string().uri().optional(),
+  /** When true, use Supabase Storage S3 API + public object URLs for replays. */
+  LIVEKIT_RECORDING_USE_SUPABASE: Joi.string().valid('true', 'false', '1', '0').optional(),
+  LIVEKIT_RECORDING_S3_BUCKET: Joi.string().optional(),
+  LIVEKIT_RECORDING_S3_REGION: Joi.string().optional(),
+  LIVEKIT_RECORDING_S3_ACCESS_KEY: Joi.string().optional(),
+  LIVEKIT_RECORDING_S3_SECRET: Joi.string().optional(),
+  LIVEKIT_RECORDING_S3_ENDPOINT: Joi.string().optional(),
+  LIVEKIT_RECORDING_S3_FORCE_PATH_STYLE: Joi.string()
+    .valid('true', 'false', '1', '0')
+    .optional(),
+  LIVEKIT_WEBHOOK_SKIP_VERIFY: Joi.string().valid('true', 'false', '1', '0').optional(),
   // Support: account manager & escalation (optional)
   SUPPORT_ACCOUNT_MANAGER_NAME: Joi.string().optional(),
   SUPPORT_ACCOUNT_MANAGER_PHONE: Joi.string().optional(),

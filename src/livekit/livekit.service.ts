@@ -1,10 +1,51 @@
-import { Injectable, BadRequestException } from '@nestjs/common';
+import { Injectable, BadRequestException, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
-import { AccessToken, RoomServiceClient, VideoGrant } from 'livekit-server-sdk';
+import {
+  AccessToken,
+  EgressClient,
+  RoomServiceClient,
+  VideoGrant,
+} from 'livekit-server-sdk';
+import {
+  EncodedFileOutput,
+  EncodedFileType,
+  EncodingOptionsPreset,
+  EgressInfo,
+  EgressStatus,
+  S3Upload,
+} from '@livekit/protocol';
+
+/**
+ * Supabase Storage S3 protocol endpoint.
+ * @see https://supabase.com/docs/guides/storage/s3/authentication
+ */
+export function supabaseStorageS3EndpointFromSupabaseUrl(
+  supabaseUrl: string,
+): string | null {
+  try {
+    const trimmed = supabaseUrl.trim().replace(/\/$/, '');
+    const u = new URL(trimmed);
+    const host = u.hostname;
+    const m = host.match(/^([a-z0-9-]+)\.supabase\.co$/i);
+    if (!m) return null;
+    return `https://${m[1]}.storage.supabase.co/storage/v1/s3`;
+  } catch {
+    return null;
+  }
+}
+
+function durationSecondsFromFileInfo(duration: bigint): number | undefined {
+  if (duration === 0n) return undefined;
+  const n = Number(duration);
+  if (n > 1_000_000) return Math.round(n / 1_000_000_000);
+  return Math.round(n);
+}
 
 @Injectable()
 export class LiveKitService {
+  private readonly logger = new Logger(LiveKitService.name);
   private roomService: RoomServiceClient | null = null;
+  private egressClient: EgressClient | null = null;
   private apiKey: string | null = null;
   private apiSecret: string | null = null;
   private url: string | null = null;
@@ -18,11 +59,67 @@ export class LiveKitService {
       this.apiKey = apiKey;
       this.apiSecret = apiSecret;
       this.roomService = new RoomServiceClient(url, apiKey, apiSecret);
+      this.egressClient = new EgressClient(url, apiKey, apiSecret);
     }
   }
 
   isConfigured(): boolean {
     return !!(this.url && this.apiKey && this.apiSecret && this.roomService);
+  }
+
+  /** Use Supabase Storage (S3 protocol) + public replay URLs under SUPABASE_URL. */
+  private recordingUsesSupabase(): boolean {
+    const v = this.config.get<string>('LIVEKIT_RECORDING_USE_SUPABASE')?.trim();
+    return v === 'true' || v === '1';
+  }
+
+  private getEgressRecordingS3Params(): {
+    bucket: string;
+    region: string;
+    access: string;
+    secret: string;
+    endpoint: string;
+    forcePathStyle: boolean;
+  } | null {
+    const bucket = this.config.get<string>('LIVEKIT_RECORDING_S3_BUCKET')?.trim();
+    const access =
+      this.config.get<string>('LIVEKIT_RECORDING_S3_ACCESS_KEY')?.trim() ||
+      this.config.get<string>('AWS_ACCESS_KEY_ID')?.trim();
+    const secret =
+      this.config.get<string>('LIVEKIT_RECORDING_S3_SECRET')?.trim() ||
+      this.config.get<string>('AWS_SECRET_ACCESS_KEY')?.trim();
+    if (!bucket || !access || !secret) return null;
+
+    const useSb = this.recordingUsesSupabase();
+    let endpoint =
+      this.config.get<string>('LIVEKIT_RECORDING_S3_ENDPOINT')?.trim() || '';
+    if (!endpoint && useSb) {
+      const supabaseUrl = this.config.get<string>('SUPABASE_URL')?.trim();
+      if (supabaseUrl) {
+        endpoint = supabaseStorageS3EndpointFromSupabaseUrl(supabaseUrl) || '';
+      }
+    }
+    if (useSb && !endpoint) {
+      this.logger.warn(
+        'Supabase replay recording: set SUPABASE_URL or LIVEKIT_RECORDING_S3_ENDPOINT',
+      );
+      return null;
+    }
+
+    const regionCfg = this.config.get<string>('LIVEKIT_RECORDING_S3_REGION')?.trim();
+    const region = regionCfg || (useSb ? 'local' : 'us-east-1');
+
+    const fs = this.config.get<string>('LIVEKIT_RECORDING_S3_FORCE_PATH_STYLE');
+    let forcePathStyle = useSb;
+    if (fs === 'true' || fs === '1') forcePathStyle = true;
+    if (fs === 'false' || fs === '0') forcePathStyle = false;
+
+    return { bucket, region, access, secret, endpoint, forcePathStyle };
+  }
+
+  isReplayRecordingConfigured(): boolean {
+    if (!this.isConfigured() || !this.egressClient) return false;
+    return this.getEgressRecordingS3Params() !== null;
   }
 
   private assertConfigured(): void {
@@ -38,9 +135,6 @@ export class LiveKitService {
     return this.url!;
   }
 
-  /**
-   * WebSocket URL for browser clients (Room.connect). Converts http(s) to ws(s).
-   */
   getWebSocketUrl(): string {
     this.assertConfigured();
     const u = this.url!;
@@ -49,10 +143,6 @@ export class LiveKitService {
     return u;
   }
 
-  /**
-   * URL for clients (SDK) to connect. LiveKit uses 7880 for HTTP API and 7881 for WebSocket/RTC.
-   * If LIVEKIT_URL uses port 7880, we return the same host with port 7881 for client connections.
-   */
   getClientUrl(): string {
     this.assertConfigured();
     const u = this.url!;
@@ -60,22 +150,16 @@ export class LiveKitService {
     return u;
   }
 
-  /**
-   * Create a LiveKit room for a stream. Room name = streamId.
-   */
   async createRoom(roomName: string, metadata?: string): Promise<void> {
     this.assertConfigured();
     await this.roomService!.createRoom({
       name: roomName,
-      emptyTimeout: 10 * 60, // 10 minutes
+      emptyTimeout: 10 * 60,
       maxParticipants: 500,
       metadata: metadata ?? undefined,
     });
   }
 
-  /**
-   * Delete a LiveKit room when stream ends.
-   */
   async deleteRoom(roomName: string): Promise<void> {
     if (!this.roomService) return;
     try {
@@ -85,12 +169,6 @@ export class LiveKitService {
     }
   }
 
-  /**
-   * Generate an access token for a participant.
-   * @param roomName - LiveKit room name
-   * @param identity - Participant identity (e.g. user id or display name)
-   * @param options - canPublish for seller, canSubscribe for viewer
-   */
   async createToken(
     roomName: string,
     identity: string,
@@ -114,9 +192,6 @@ export class LiveKitService {
     return await at.toJwt();
   }
 
-  /**
-   * Create a publisher token (for seller broadcasting).
-   */
   async createPublisherToken(
     roomName: string,
     identity: string,
@@ -127,9 +202,6 @@ export class LiveKitService {
     });
   }
 
-  /**
-   * Create a subscriber token (for viewer watching).
-   */
   async createSubscriberToken(
     roomName: string,
     identity: string,
@@ -138,5 +210,120 @@ export class LiveKitService {
       canPublish: false,
       canSubscribe: true,
     });
+  }
+
+  /** Public URL for ExoPlayer when bucket objects are public. */
+  private supabasePublicReplayUrl(objectPath: string): string | null {
+    const key = objectPath.replace(/^\/+/, '');
+    if (!key) return null;
+    const base = this.config.get<string>('SUPABASE_URL')?.trim()?.replace(/\/$/, '');
+    const bucket = this.config.get<string>('LIVEKIT_RECORDING_S3_BUCKET')?.trim();
+    if (!base || !bucket) return null;
+    return `${base}/storage/v1/object/public/${bucket}/${key}`;
+  }
+
+  private extractReplayFromEgress(info: EgressInfo): {
+    replayUrl?: string;
+    durationSec?: number;
+  } {
+    const f = info.fileResults?.[0];
+    if (!f?.location) return {};
+    let replayUrl = f.location;
+    if (this.recordingUsesSupabase() && !replayUrl.includes('/object/public/')) {
+      const fn = f.filename?.trim();
+      if (fn) {
+        const pub = this.supabasePublicReplayUrl(fn);
+        if (pub) replayUrl = pub;
+      }
+    }
+    return {
+      replayUrl,
+      durationSec: durationSecondsFromFileInfo(f.duration),
+    };
+  }
+
+  /**
+   * Start MP4 room-composite egress to S3-compatible storage. `roomName` equals stream id.
+   */
+  async startRoomRecording(roomName: string): Promise<string | null> {
+    if (!this.isReplayRecordingConfigured() || !this.egressClient) {
+      return null;
+    }
+    this.assertConfigured();
+
+    const params = this.getEgressRecordingS3Params()!;
+    const filepath = `vybekart-replays/${roomName}.mp4`;
+
+    const s3 = new S3Upload({
+      accessKey: params.access,
+      secret: params.secret,
+      region: params.region,
+      bucket: params.bucket,
+      endpoint: params.endpoint,
+      forcePathStyle: params.forcePathStyle,
+    });
+
+    const output = new EncodedFileOutput({
+      fileType: EncodedFileType.MP4,
+      filepath,
+      output: { case: 's3', value: s3 },
+    });
+
+    try {
+      const info = await this.egressClient.startRoomCompositeEgress(
+        roomName,
+        output,
+        { encodingOptions: EncodingOptionsPreset.PORTRAIT_H264_720P_30 },
+      );
+      const id = info.egressId;
+      if (!id) {
+        this.logger.warn(`startRoomRecording: missing egressId for room ${roomName}`);
+        return null;
+      }
+      this.logger.log(`Started room recording egress ${id} for room ${roomName}`);
+      return id;
+    } catch (e) {
+      this.logger.warn(
+        `startRoomRecording failed for ${roomName}: ${e instanceof Error ? e.message : String(e)}`,
+      );
+      throw e;
+    }
+  }
+
+  async stopRoomRecording(egressId: string): Promise<{
+    replayUrl?: string;
+    durationSec?: number;
+    failed: boolean;
+  }> {
+    if (!this.egressClient) {
+      return { failed: true };
+    }
+    try {
+      const info = await this.egressClient.stopEgress(egressId);
+      const failed =
+        info.status === EgressStatus.EGRESS_FAILED ||
+        info.status === EgressStatus.EGRESS_ABORTED ||
+        !!info.error?.trim();
+      const { replayUrl, durationSec } = this.extractReplayFromEgress(info);
+      return { replayUrl, durationSec, failed };
+    } catch (e) {
+      this.logger.warn(
+        `stopRoomRecording ${egressId}: ${e instanceof Error ? e.message : String(e)}`,
+      );
+      return { failed: true };
+    }
+  }
+
+  applyEgressWebhookResult(info: EgressInfo): {
+    replayUrl?: string;
+    durationSec?: number;
+    failed: boolean;
+  } {
+    const failed =
+      info.status === EgressStatus.EGRESS_FAILED ||
+      info.status === EgressStatus.EGRESS_ABORTED ||
+      !!info.error?.trim();
+    const { replayUrl, durationSec } = this.extractReplayFromEgress(info);
+    return { replayUrl, durationSec, failed };
   }
 }

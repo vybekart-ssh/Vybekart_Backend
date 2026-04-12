@@ -27,6 +27,7 @@ import { BorzoModule } from './borzo/borzo.module';
 import { NotificationsModule } from './notifications/notifications.module';
 import { AppConfigModule } from './app-config/app-config.module';
 import { AdminModule } from './admin/admin.module';
+import { WebhooksModule } from './webhooks/webhooks.module';
 
 @Module({
   imports: [
@@ -46,6 +47,7 @@ import { AdminModule } from './admin/admin.module';
     HealthModule,
     RedisModule,
     LiveKitModule,
+    WebhooksModule,
     AppConfigModule,
     AdminModule,
     PrismaModule,

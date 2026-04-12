@@ -7,7 +7,9 @@ import { join, normalize, sep } from 'path';
 import * as fs from 'fs/promises';
 
 async function bootstrap() {
-  const app = await NestFactory.create<NestExpressApplication>(AppModule);
+  const app = await NestFactory.create<NestExpressApplication>(AppModule, {
+    rawBody: true,
+  });
   const uploadsRoot = join(process.cwd(), 'uploads');
   await fs.mkdir(uploadsRoot, { recursive: true });
 

@@ -11,7 +11,7 @@ import { CreateStreamDto } from './dto/create-stream.dto';
 import { UpdateStreamDto } from './dto/update-stream.dto';
 import { ScheduleStreamDto } from './dto/schedule-stream.dto';
 import { PrismaService } from '../prisma/prisma.service';
-import { Prisma, VerificationStatus } from '@prisma/client';
+import { Prisma, StreamReplayStatus, VerificationStatus } from '@prisma/client';
 import {
   PaginationQueryDto,
   PaginatedResult,
@@ -93,6 +93,56 @@ export class StreamsService {
   }
   private followsKey(userId: string) {
     return `buyer:${userId}:follows`;
+  }
+
+  private async tryStartStreamRecording(
+    streamId: string,
+    roomName: string,
+  ): Promise<void> {
+    if (!this.livekit.isReplayRecordingConfigured()) return;
+    try {
+      const egressId = await this.livekit.startRoomRecording(roomName);
+      if (!egressId) return;
+      await this.prisma.stream.update({
+        where: { id: streamId },
+        data: {
+          livekitEgressId: egressId,
+          replayStatus: StreamReplayStatus.RECORDING,
+        },
+      });
+    } catch (e) {
+      this.logger.warn(`tryStartStreamRecording ${streamId}: ${String(e)}`);
+    }
+  }
+
+  private async finalizeLiveRecordingAndRoom(stream: {
+    id: string;
+    livekitRoomName: string | null;
+    livekitEgressId: string | null;
+  }): Promise<Prisma.StreamUpdateInput> {
+    const patch: Prisma.StreamUpdateInput = {};
+    if (stream.livekitEgressId && this.livekit.isReplayRecordingConfigured()) {
+      try {
+        const r = await this.livekit.stopRoomRecording(stream.livekitEgressId);
+        patch.livekitEgressId = null;
+        if (r.replayUrl) {
+          patch.replayUrl = r.replayUrl;
+          if (r.durationSec != null) patch.replayDurationSec = r.durationSec;
+          patch.replayStatus = StreamReplayStatus.READY;
+        } else if (r.failed) {
+          patch.replayStatus = StreamReplayStatus.FAILED;
+        }
+      } catch {
+        patch.livekitEgressId = null;
+        patch.replayStatus = StreamReplayStatus.FAILED;
+      }
+    } else if (stream.livekitEgressId) {
+      patch.livekitEgressId = null;
+    }
+    if (stream.livekitRoomName) {
+      await this.livekit.deleteRoom(stream.livekitRoomName).catch(() => undefined);
+    }
+    return patch;
   }
 
   async create(createStreamDto: CreateStreamDto, userId: string) {
@@ -183,6 +233,8 @@ export class StreamsService {
         where: { id: stream.id },
         data: { livekitRoomName: roomName, livekitUrl },
       });
+
+      void this.tryStartStreamRecording(stream.id, roomName);
 
       this.logger.log(`Created LiveKit room for stream: ${stream.title}`);
 
@@ -348,6 +400,8 @@ export class StreamsService {
         include: streamWithSellerInclude,
       });
 
+      void this.tryStartStreamRecording(streamId, roomName);
+
       this.logger.log(`Started scheduled stream as live: ${stream.title}`);
 
       this.queueNotifyBuyersLiveStarted(updated);
@@ -489,6 +543,16 @@ export class StreamsService {
       const first = byId.get(productIds[0]);
       const thumbFromProduct = first?.images?.[0] ?? null;
 
+      let endLiveData: Prisma.StreamUpdateInput = {};
+      if (wasLiveBefore && dto.isLive === false) {
+        endLiveData = await this.finalizeLiveRecordingAndRoom({
+          id: stream.id,
+          livekitRoomName: stream.livekitRoomName,
+          livekitEgressId: stream.livekitEgressId,
+        });
+        endLiveData.endedAt = new Date();
+      }
+
       const updatedWithProducts = await this.prisma.stream.update({
         where: { id },
         data: {
@@ -523,6 +587,7 @@ export class StreamsService {
               sortOrder: index,
             })),
           },
+          ...endLiveData,
         },
         include: streamWithSellerInclude,
       });
@@ -549,6 +614,15 @@ export class StreamsService {
       data.startedAt = new Date(dto.scheduledAt);
     }
     if (dto.isLive !== undefined) data.isLive = dto.isLive;
+    if (wasLiveBefore && dto.isLive === false) {
+      const endLiveData = await this.finalizeLiveRecordingAndRoom({
+        id: stream.id,
+        livekitRoomName: stream.livekitRoomName,
+        livekitEgressId: stream.livekitEgressId,
+      });
+      Object.assign(data, endLiveData);
+      data.endedAt = new Date();
+    }
     const updated = await this.prisma.stream.update({
       where: { id },
       data,
@@ -563,9 +637,11 @@ export class StreamsService {
   async remove(id: string, userId: string) {
     const stream = await this.assertStreamOwnership(id, userId);
     const wasLive = stream.isLive;
-    if (stream.livekitRoomName) {
-      await this.livekit.deleteRoom(stream.livekitRoomName);
-    }
+    await this.finalizeLiveRecordingAndRoom({
+      id: stream.id,
+      livekitRoomName: stream.livekitRoomName,
+      livekitEgressId: stream.livekitEgressId,
+    });
     const deleted = await this.prisma.stream.delete({ where: { id } });
     if (wasLive) {
       this.queueNotifyBuyersLiveEnded(stream);
@@ -576,18 +652,17 @@ export class StreamsService {
   async stopStream(id: string, userId: string) {
     const stream = await this.assertStreamOwnership(id, userId);
     const wasLive = stream.isLive;
-    if (stream.livekitRoomName) {
-      await this.livekit.deleteRoom(stream.livekitRoomName).catch((e) => {
-        this.logger.warn(
-          `LiveKit deleteRoom failed while stopping stream ${id}: ${String(e)}`,
-        );
-      });
-    }
+    const finalizePatch = await this.finalizeLiveRecordingAndRoom({
+      id: stream.id,
+      livekitRoomName: stream.livekitRoomName,
+      livekitEgressId: stream.livekitEgressId,
+    });
     const updated = await this.prisma.stream.update({
       where: { id },
       data: {
         isLive: false,
         endedAt: new Date(),
+        ...finalizePatch,
       },
       include: streamWithSellerInclude,
     });
@@ -610,6 +685,9 @@ export class StreamsService {
       include: { seller: true },
     });
     if (!stream) throw new NotFoundException(`Stream ${streamId} not found`);
+    if (!stream.isLive) {
+      throw new BadRequestException('This stream is not live');
+    }
     if (!stream.livekitRoomName || !stream.livekitUrl) {
       throw new BadRequestException('Stream does not have LiveKit configured');
     }
@@ -672,6 +750,9 @@ export class StreamsService {
       where: { id: streamId },
     });
     if (!stream) throw new NotFoundException(`Stream ${streamId} not found`);
+    if (!stream.isLive) {
+      throw new BadRequestException('This stream is not live');
+    }
     if (!stream.livekitRoomName || !stream.livekitUrl) {
       throw new BadRequestException('Stream does not have LiveKit configured');
     }
@@ -883,14 +964,18 @@ export class StreamsService {
     );
     for (const s of zombies) {
       try {
-        if (s.livekitRoomName) {
-          await this.livekit
-            .deleteRoom(s.livekitRoomName)
-            .catch(() => undefined);
-        }
+        const finalizePatch = await this.finalizeLiveRecordingAndRoom({
+          id: s.id,
+          livekitRoomName: s.livekitRoomName,
+          livekitEgressId: s.livekitEgressId,
+        });
         const updated = await this.prisma.stream.update({
           where: { id: s.id },
-          data: { isLive: false, endedAt: new Date() },
+          data: {
+            isLive: false,
+            endedAt: new Date(),
+            ...finalizePatch,
+          },
           include: streamWithSellerInclude,
         });
         this.queueNotifyBuyersLiveEnded(updated);

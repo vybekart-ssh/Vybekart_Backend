@@ -60,7 +60,7 @@ export class BuyersService {
     if (!buyer) throw new NotFoundException('Buyer profile not found');
 
     const now = new Date();
-    const [upcomingLive, recentlyViewed, recommendedProducts] =
+    const [upcomingLive, archivedLives, recentlyViewed, recommendedProducts] =
       await this.prisma.$transaction([
         this.prisma.stream.findMany({
           where: {
@@ -72,6 +72,25 @@ export class BuyersService {
           orderBy: { startedAt: 'asc' },
           take: 20,
           include: { seller: { select: { businessName: true, id: true } } },
+        }),
+        this.prisma.stream.findMany({
+          where: {
+            isLive: false,
+            endedAt: { not: null },
+            replayUrl: { not: null },
+            visibility: StreamVisibility.PUBLIC,
+          },
+          orderBy: { endedAt: 'desc' },
+          take: 20,
+          select: {
+            id: true,
+            title: true,
+            thumbnailUrl: true,
+            endedAt: true,
+            replayUrl: true,
+            replayDurationSec: true,
+            seller: { select: { id: true, businessName: true } },
+          },
         }),
         this.prisma.recentlyViewedProduct.findMany({
           where: { buyerId: buyer.id },
@@ -105,6 +124,7 @@ export class BuyersService {
 
     return {
       upcomingLive,
+      archivedLives,
       recentlyViewed: recentlyViewed.map((rv) => ({
         id: rv.id,
         viewedAt: rv.viewedAt,

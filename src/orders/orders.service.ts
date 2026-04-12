@@ -56,6 +56,11 @@ export class OrdersService {
     if (!stream.startedAt) {
       throw new BadRequestException('This stream has not started yet');
     }
+    if (!stream.isLive || stream.endedAt) {
+      throw new BadRequestException(
+        'This stream has ended; you cannot purchase from a replay.',
+      );
+    }
     const allowed = new Set(stream.streamProducts.map((sp) => sp.productId));
     for (const pid of productIds) {
       if (!allowed.has(pid)) {

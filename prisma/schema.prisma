@@ -326,6 +326,14 @@ enum StreamVisibility {
   FOLLOWERS_ONLY
 }
 
+/// Server-side LiveKit egress recording lifecycle for buyer replays.
+enum StreamReplayStatus {
+  NONE
+  RECORDING
+  READY
+  FAILED
+}
+
 model Stream {
   id          String           @id @default(uuid())
   title       String
@@ -341,6 +349,14 @@ model Stream {
 
   livekitRoomName String?
   livekitUrl      String?
+
+  /// LiveKit egress id while recording; cleared after stop.
+  livekitEgressId String?
+
+  /// MP4 (or other) HTTPS URL after egress completes (public or signed).
+  replayUrl         String?
+  replayDurationSec Int?
+  replayStatus      StreamReplayStatus @default(NONE)
 
   viewCount Int       @default(0)
   startedAt DateTime?
