@@ -120,7 +120,7 @@ export class SupportService {
       role,
       ticketId: ticket.id,
       ticketRef,
-      userSubject: userTopic || defaultTopic,
+      topicLine: defaultTopic,
       message: dto.message.trim(),
       metaRows,
       submittedAt,
@@ -137,7 +137,7 @@ export class SupportService {
         await this.sendViaResend(resendKey, {
           from: mailFrom,
           to: toEmail,
-          subject: emailSubject,
+          subject: ensureNonEmptySubject(emailSubject, ticketRef, role),
           html,
           text,
           replyTo,
@@ -171,7 +171,7 @@ export class SupportService {
       await transporter.sendMail({
         from: mailFrom,
         to: toEmail,
-        subject: emailSubject,
+        subject: ensureNonEmptySubject(emailSubject, ticketRef, role),
         text,
         html,
         replyTo,
@@ -481,11 +481,22 @@ function buildSellerFeedbackMetaRows(
   ];
 }
 
+function ensureNonEmptySubject(
+  subject: string,
+  ticketRef: string,
+  role: 'buyer' | 'seller',
+): string {
+  const s = subject?.trim();
+  if (s && s.length > 0) return s;
+  const who = role === 'seller' ? 'Seller partner' : 'Shopper';
+  return `VybeKart ${who} app feedback | Ref ${ticketRef}`;
+}
+
 function buildProfessionalAppFeedbackEmail(params: {
   role: 'buyer' | 'seller';
   ticketId: string;
   ticketRef: string;
-  userSubject: string;
+  topicLine: string;
   message: string;
   metaRows: { label: string; value: string }[];
   submittedAt: Date;
@@ -501,15 +512,8 @@ function buildProfessionalAppFeedbackEmail(params: {
       : 'A VybeKart shopper shared feedback from the mobile app.';
 
   const roleWord = params.role === 'seller' ? 'Seller partner' : 'Shopper';
-  let emailSubject = `VybeKart ${roleWord} feedback — Ref ${params.ticketRef}`;
-  if (
-    params.userSubject &&
-    params.userSubject.length <= 55 &&
-    params.userSubject !== 'Shopper app feedback' &&
-    params.userSubject !== 'Seller partner app feedback'
-  ) {
-    emailSubject = `${emailSubject} — ${params.userSubject}`;
-  }
+  /** Explicit inbox subject line (always set here; guarded again before SMTP/Resend). */
+  const emailSubject = `VybeKart ${roleWord} app feedback | Ref ${params.ticketRef}`;
 
   const rowsHtml = params.metaRows
     .map(
@@ -545,8 +549,8 @@ function buildProfessionalAppFeedbackEmail(params: {
                   </td>
                 </tr>
               </table>
-              <p style="margin:0 0 8px;font-size:12px;font-weight:600;color:#64748b;text-transform:uppercase;letter-spacing:0.05em;">Topic</p>
-              <p style="margin:0 0 20px;font-size:16px;color:#0f172a;font-weight:600;">${escapeHtml(params.userSubject)}</p>
+              <p style="margin:0 0 8px;font-size:12px;font-weight:600;color:#64748b;text-transform:uppercase;letter-spacing:0.05em;">Category</p>
+              <p style="margin:0 0 20px;font-size:16px;color:#0f172a;font-weight:600;">${escapeHtml(params.topicLine)}</p>
             </td>
           </tr>
           <tr>
@@ -580,7 +584,7 @@ function buildProfessionalAppFeedbackEmail(params: {
     '',
     `Reference: ${params.ticketRef}`,
     `Ticket ID: ${params.ticketId}`,
-    `Topic: ${params.userSubject}`,
+    `Category: ${params.topicLine}`,
     '',
     '--- Submitter ---',
     textMeta,
