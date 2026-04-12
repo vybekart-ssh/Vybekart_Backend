@@ -18,6 +18,7 @@ import { CreateOrderDto } from './dto/create-order.dto';
 import { ShipOrderDto } from './dto/ship-order.dto';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
 import { RolesGuard } from '../auth/roles.guard';
+import { BuyerAccessGuard } from '../auth/buyer-access.guard';
 import { Roles } from '../auth/roles.decorator';
 import { SellerVerifiedGuard } from '../auth/seller-verified.guard';
 import { Role } from '@prisma/client';
@@ -33,8 +34,7 @@ export class OrdersController {
   constructor(private readonly ordersService: OrdersService) {}
 
   @Post()
-  @UseGuards(JwtAuthGuard, RolesGuard)
-  @Roles(Role.BUYER)
+  @UseGuards(JwtAuthGuard, BuyerAccessGuard)
   create(
     @Request() req: { user: { id: string } },
     @Body() createOrderDto: CreateOrderDto,
@@ -43,8 +43,7 @@ export class OrdersController {
   }
 
   @Get('cart')
-  @UseGuards(JwtAuthGuard, RolesGuard)
-  @Roles(Role.BUYER)
+  @UseGuards(JwtAuthGuard, BuyerAccessGuard)
   getCart(@Request() req: { user: { id: string } }) {
     return this.ordersService.getCart(req.user.id);
   }
@@ -60,8 +59,7 @@ export class OrdersController {
   }
 
   @Patch('cart/items/:productId')
-  @UseGuards(JwtAuthGuard, RolesGuard)
-  @Roles(Role.BUYER)
+  @UseGuards(JwtAuthGuard, BuyerAccessGuard)
   updateCartItem(
     @Request() req: { user: { id: string } },
     @Param('productId') productId: string,
@@ -77,8 +75,7 @@ export class OrdersController {
   }
 
   @Patch('checkout')
-  @UseGuards(JwtAuthGuard, RolesGuard)
-  @Roles(Role.BUYER)
+  @UseGuards(JwtAuthGuard, BuyerAccessGuard)
   checkout(
     @Request() req: { user: { id: string } },
     @Body() dto: CheckoutOrderDto,
@@ -87,8 +84,7 @@ export class OrdersController {
   }
 
   @Post('delivery-quote')
-  @UseGuards(JwtAuthGuard, RolesGuard)
-  @Roles(Role.BUYER)
+  @UseGuards(JwtAuthGuard, BuyerAccessGuard)
   deliveryQuote(
     @Request() req: { user: { id: string } },
     @Body() dto: DeliveryQuoteDto,
@@ -97,8 +93,7 @@ export class OrdersController {
   }
 
   @Delete('cart/items/:productId')
-  @UseGuards(JwtAuthGuard, RolesGuard)
-  @Roles(Role.BUYER)
+  @UseGuards(JwtAuthGuard, BuyerAccessGuard)
   removeCartItem(
     @Request() req: { user: { id: string } },
     @Param('productId') productId: string,
@@ -118,8 +113,7 @@ export class OrdersController {
   }
 
   @Get(':id/help')
-  @UseGuards(JwtAuthGuard, RolesGuard)
-  @Roles(Role.BUYER)
+  @UseGuards(JwtAuthGuard, BuyerAccessGuard)
   getOrderHelp(
     @Request() req: { user: { id: string } },
     @Param('id') id: string,
@@ -215,8 +209,7 @@ export class OrdersController {
   }
 
   @Patch(':id/cancel')
-  @UseGuards(JwtAuthGuard, RolesGuard)
-  @Roles(Role.BUYER)
+  @UseGuards(JwtAuthGuard, BuyerAccessGuard)
   cancelOrder(
     @Request() req: { user: { id: string } },
     @Param('id') id: string,
@@ -225,8 +218,7 @@ export class OrdersController {
   }
 
   @Patch(':id/return')
-  @UseGuards(JwtAuthGuard, RolesGuard)
-  @Roles(Role.BUYER)
+  @UseGuards(JwtAuthGuard, BuyerAccessGuard)
   returnOrder(
     @Request() req: { user: { id: string } },
     @Param('id') id: string,

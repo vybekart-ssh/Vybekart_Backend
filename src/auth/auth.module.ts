@@ -8,6 +8,7 @@ import { PrismaModule } from '../prisma/prisma.module';
 import { JwtStrategy } from './jwt.strategy';
 import { RedisModule } from '../redis/redis.module';
 import { SellerVerifiedGuard } from './seller-verified.guard';
+import { BuyerAccessGuard } from './buyer-access.guard';
 import { SellerRegistrationNotifierService } from './seller-registration-notifier.service';
 
 @Module({
@@ -29,8 +30,9 @@ import { SellerRegistrationNotifierService } from './seller-registration-notifie
     AuthService,
     JwtStrategy,
     SellerVerifiedGuard,
+    BuyerAccessGuard,
     SellerRegistrationNotifierService,
   ],
-  exports: [AuthService, SellerVerifiedGuard],
+  exports: [AuthService, SellerVerifiedGuard, BuyerAccessGuard],
 })
 export class AuthModule {}
