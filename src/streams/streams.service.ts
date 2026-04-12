@@ -125,8 +125,11 @@ export class StreamsService {
       try {
         const r = await this.livekit.stopRoomRecording(stream.livekitEgressId);
         patch.livekitEgressId = null;
-        if (r.replayUrl) {
-          patch.replayUrl = r.replayUrl;
+        const replayUrl =
+          r.replayUrl ||
+          (!r.failed ? this.livekit.publicReplayUrlForStreamId(stream.id) : null);
+        if (replayUrl) {
+          patch.replayUrl = replayUrl;
           if (r.durationSec != null) patch.replayDurationSec = r.durationSec;
           patch.replayStatus = StreamReplayStatus.READY;
         } else if (r.failed) {

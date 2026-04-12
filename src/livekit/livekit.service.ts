@@ -212,14 +212,30 @@ export class LiveKitService {
     });
   }
 
-  /** Public URL for ExoPlayer when bucket objects are public. */
-  private supabasePublicReplayUrl(objectPath: string): string | null {
-    const key = objectPath.replace(/^\/+/, '');
+  /** Public object URL when using Supabase Storage + a public bucket. */
+  private buildSupabasePublicObjectUrl(objectKey: string): string | null {
+    const key = objectKey.replace(/^\/+/, '');
     if (!key) return null;
     const base = this.config.get<string>('SUPABASE_URL')?.trim()?.replace(/\/$/, '');
     const bucket = this.config.get<string>('LIVEKIT_RECORDING_S3_BUCKET')?.trim();
     if (!base || !bucket) return null;
-    return `${base}/storage/v1/object/public/${bucket}/${key}`;
+    return `${base}/storage/v1/object/public/${encodeURIComponent(bucket)}/${key}`;
+  }
+
+  private supabasePublicReplayUrl(objectPath: string): string | null {
+    return this.buildSupabasePublicObjectUrl(objectPath);
+  }
+
+  /**
+   * LiveKit often finishes the MP4 upload after `stopEgress` returns, and `fileResults` may be empty
+   * until `egress_ended`. We always write to `vybekart-replays/{streamId}.mp4` — use that so
+   * `replayUrl` is set in Postgres even when the webhook is late or missing file metadata.
+   */
+  publicReplayUrlForStreamId(streamId: string): string | null {
+    if (!this.recordingUsesSupabase()) return null;
+    const id = streamId.trim();
+    if (!id) return null;
+    return this.buildSupabasePublicObjectUrl(`vybekart-replays/${id}.mp4`);
   }
 
   private extractReplayFromEgress(info: EgressInfo): {

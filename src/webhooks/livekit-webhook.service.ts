@@ -43,8 +43,12 @@ export class LivekitWebhookService {
     const roomName = info.roomName?.trim();
     if (!roomName) return;
 
-    const { replayUrl, durationSec, failed } =
+    const { replayUrl: egressReplayUrl, durationSec, failed } =
       this.livekit.applyEgressWebhookResult(info);
+
+    const replayUrl =
+      egressReplayUrl ||
+      (!failed ? this.livekit.publicReplayUrlForStreamId(roomName) : null);
 
     const data: Prisma.StreamUpdateInput = { livekitEgressId: null };
     if (replayUrl) {
