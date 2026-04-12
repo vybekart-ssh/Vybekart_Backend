@@ -5,11 +5,43 @@ import { AppModule } from './app.module';
 import helmet from 'helmet';
 import { join, normalize, sep } from 'path';
 import * as fs from 'fs/promises';
+import type { Request } from 'express';
+import * as express from 'express';
 
 async function bootstrap() {
+  /**
+   * LiveKit webhooks use `Content-Type: application/webhook+json`. Nest's default
+   * `express.json()` only parses `application/json`, so the body was never read and
+   * `req.rawBody` stayed empty → POST /webhooks/livekit returned 400.
+   * @see https://docs.livekit.io/home/server/webhooks/
+   */
   const app = await NestFactory.create<NestExpressApplication>(AppModule, {
     rawBody: true,
+    bodyParser: false,
   });
+
+  const captureRawBody = (
+    req: Request & { rawBody?: Buffer },
+    _res: express.Response,
+    buf: Buffer,
+  ) => {
+    if (Buffer.isBuffer(buf)) req.rawBody = buf;
+  };
+
+  app.use(
+    express.json({
+      verify: captureRawBody,
+      limit: '2mb',
+      type: ['application/json', 'application/webhook+json'],
+    }),
+  );
+  app.use(
+    express.urlencoded({
+      extended: true,
+      verify: captureRawBody,
+      limit: '2mb',
+    }),
+  );
   const uploadsRoot = join(process.cwd(), 'uploads');
   await fs.mkdir(uploadsRoot, { recursive: true });
 
