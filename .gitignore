@@ -62,3 +62,7 @@ report.[0-9]*.[0-9]*.[0-9]*.[0-9]*.json
 
 # Local uploads (packing videos, etc.)
 /uploads
+
+# Alpha invite bulk send (PII / logs)
+/scripts/alpha-invite/registrations.csv
+/scripts/alpha-invite/alpha-send-log-*.jsonl
