@@ -41,7 +41,7 @@ export class ProductsController {
   }
 
   @Get('my-listings')
-  @UseGuards(JwtAuthGuard, RolesGuard)
+  @UseGuards(JwtAuthGuard, RolesGuard, SellerVerifiedGuard)
   @Roles(Role.SELLER)
   findMyListings(
     @Request() req: { user: { id: string } },

@@ -46,6 +46,10 @@ function formatPickupAsBusinessAddress(p: PickupAddressDto): string {
 export class AuthService {
   private readonly logger = new Logger(AuthService.name);
 
+  private hasRole(user: { roles: Role[] }, role: Role) {
+    return Array.isArray(user.roles) && user.roles.includes(role);
+  }
+
   constructor(
     private prisma: PrismaService,
     private jwtService: JwtService,
@@ -62,15 +66,30 @@ export class AuthService {
     sellerProfile: { id: string; status: VerificationStatus } | null;
     buyerProfile: { id: string } | null;
   }) {
+    const hasSellerRole = this.hasRole(user, Role.SELLER);
+    const hasBuyerRole = this.hasRole(user, Role.BUYER);
+
+    // Defensive: don't let stray profile rows drive role-based UI/behavior.
+    if (!hasSellerRole && user.sellerProfile) {
+      this.logger.warn(
+        `User ${user.id} has sellerProfile but is missing SELLER role; hiding sellerProfileId in auth response.`,
+      );
+    }
+    if (!hasBuyerRole && user.buyerProfile) {
+      this.logger.warn(
+        `User ${user.id} has buyerProfile but is missing BUYER role; hiding buyerProfileId in auth response.`,
+      );
+    }
+
     return {
       id: user.id,
       email: user.email,
       name: user.name,
       roles: user.roles,
-      sellerProfileId: user.sellerProfile?.id ?? null,
-      buyerProfileId: user.buyerProfile?.id ?? null,
+      sellerProfileId: hasSellerRole ? user.sellerProfile?.id ?? null : null,
+      buyerProfileId: hasBuyerRole ? user.buyerProfile?.id ?? null : null,
       sellerVerificationStatus:
-        user.roles.includes(Role.SELLER) && user.sellerProfile
+        hasSellerRole && user.sellerProfile
           ? user.sellerProfile.status
           : null,
     };

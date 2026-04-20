@@ -12,7 +12,7 @@ fi
 
 npx prisma migrate deploy
 
-if [ "${RUN_DUMMY_SEED_ON_DEPLOY:-true}" = "true" ]; then
+if [ "${RUN_DUMMY_SEED_ON_DEPLOY:-false}" = "true" ]; then
   node /app/prisma/seed-dummy.js
 fi
 

@@ -111,7 +111,7 @@ services:
       - key: USE_REAL_IVS
         value: "false"
       - key: RUN_DUMMY_SEED_ON_DEPLOY
-        value: "true"
+        value: "false"
 
       # Borzo Business API (set tokens in Render Dashboard)
       - key: BORZO_ENV

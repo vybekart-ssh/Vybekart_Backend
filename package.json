@@ -21,6 +21,8 @@
     "seed:dummy": "ts-node prisma/seed-dummy.ts",
     "seed:admin": "ts-node prisma/ensure-admin.ts",
     "alpha-invite:send": "ts-node --transpile-only scripts/alpha-invite/send-alpha-invites.ts",
+    "audit:role-profile": "ts-node --transpile-only scripts/audit-role-profile-mismatches.ts",
+    "cleanup:dummy": "ts-node --transpile-only scripts/cleanup-dummy-data.ts",
     "postinstall": "node -e \"const fs=require('fs'),cp=require('child_process');const p='scripts/ensure-nest-use-interceptors-dts.js';if(fs.existsSync(p))cp.execSync('node '+p,{stdio:'inherit'});\""
   },
   "prisma": {

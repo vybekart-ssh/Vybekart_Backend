@@ -48,7 +48,7 @@ export class StreamsController {
   }
 
   @Post(':id/start-scheduled')
-  @UseGuards(JwtAuthGuard, RolesGuard)
+  @UseGuards(JwtAuthGuard, RolesGuard, SellerVerifiedGuard)
   @Roles(Role.SELLER)
   startScheduled(
     @Request() req: { user: { id: string } },
@@ -167,7 +167,7 @@ export class StreamsController {
   }
 
   @Patch(':id/stop')
-  @UseGuards(JwtAuthGuard, RolesGuard)
+  @UseGuards(JwtAuthGuard, RolesGuard, SellerVerifiedGuard)
   @Roles(Role.SELLER)
   stopStream(
     @Request() req: { user: { id: string } },

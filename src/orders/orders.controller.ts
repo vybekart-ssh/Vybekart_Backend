@@ -122,7 +122,7 @@ export class OrdersController {
   }
 
   @Get('seller/counts')
-  @UseGuards(JwtAuthGuard, RolesGuard)
+  @UseGuards(JwtAuthGuard, RolesGuard, SellerVerifiedGuard)
   @Roles(Role.SELLER)
   getSellerOrderCounts(@Request() req: { user: { id: string } }) {
     return this.ordersService.getSellerOrderCounts(req.user.id);
