@@ -1,5 +1,5 @@
 import { Injectable, Logger } from '@nestjs/common';
-import { Role } from '@prisma/client';
+import { Role, Prisma } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { FirebasePushService } from './firebase-push.service';
 
@@ -11,6 +11,9 @@ function clip(s: string, max: number): string {
   return `${t.slice(0, max - 1)}…`;
 }
 
+/** Shared Android channel id for buyer-facing live alerts (matches app channel). */
+export const ANDROID_BUYER_LIVE_CHANNEL = 'buyer_live_streams';
+
 @Injectable()
 export class BuyerLiveBroadcastService {
   private readonly logger = new Logger(BuyerLiveBroadcastService.name);
@@ -21,25 +24,40 @@ export class BuyerLiveBroadcastService {
   ) {}
 
   /**
-   * FCM tokens for users who should receive buyer live alerts:
-   * BUYER role and/or a Buyer profile (covers seller+buyer accounts and legacy role data).
+   * Users who should receive buyer live alerts: has buyer profile or BUYER role,
+   * but not seller-only (seller profile without buyer profile).
+   * @param excludeUserId e.g. the host — never notify the broadcasting seller on their own event.
    */
-  private async getBuyerFcmTokens(): Promise<string[]> {
-    const rows = await this.prisma.userPushDevice.findMany({
-      where: {
-        user: {
-          OR: [
-            { roles: { has: Role.BUYER } },
-            { buyerProfile: { isNot: null } },
+  async getBuyerLiveAudienceFcmTokens(excludeUserId?: string): Promise<string[]> {
+    const andParts: Prisma.UserWhereInput[] = [
+      {
+        NOT: {
+          AND: [
+            { sellerProfile: { isNot: null } },
+            { buyerProfile: { is: null } },
           ],
         },
       },
+      {
+        OR: [
+          { buyerProfile: { isNot: null } },
+          { roles: { has: Role.BUYER } },
+        ],
+      },
+    ];
+    if (excludeUserId) {
+      andParts.push({ id: { not: excludeUserId } });
+    }
+
+    const rows = await this.prisma.userPushDevice.findMany({
+      where: { user: { AND: andParts } },
       select: { fcmToken: true },
     });
-    return rows.map((r) => r.fcmToken);
+    const tokens: string[] = rows
+      .map((r) => r.fcmToken)
+      .filter((t): t is string => typeof t === 'string' && t.trim().length > 0);
+    return [...new Set(tokens)];
   }
-
-  private static readonly ANDROID_BUYER_LIVE_CHANNEL = 'buyer_live_streams';
 
   async notifyBuyersSellerWentLive(params: {
     streamId: string;
@@ -49,10 +67,12 @@ export class BuyerLiveBroadcastService {
   }): Promise<void> {
     if (!this.firebase.isEnabled()) return;
     try {
-      const tokens = await this.getBuyerFcmTokens();
+      const tokens = await this.getBuyerLiveAudienceFcmTokens(
+        params.sellerUserId,
+      );
       if (tokens.length === 0) {
         this.logger.warn(
-          'No buyer FCM tokens (BUYER role or buyer profile); skip live-started broadcast',
+          'No buyer FCM tokens for live-started broadcast; skip',
         );
         return;
       }
@@ -70,7 +90,7 @@ export class BuyerLiveBroadcastService {
           streamTitle: clip(params.title, FCM_DATA_MAX),
         },
         {
-          android: { channelId: BuyerLiveBroadcastService.ANDROID_BUYER_LIVE_CHANNEL },
+          android: { channelId: ANDROID_BUYER_LIVE_CHANNEL },
         },
       );
       this.logger.log(
@@ -89,10 +109,12 @@ export class BuyerLiveBroadcastService {
   }): Promise<void> {
     if (!this.firebase.isEnabled()) return;
     try {
-      const tokens = await this.getBuyerFcmTokens();
+      const tokens = await this.getBuyerLiveAudienceFcmTokens(
+        params.sellerUserId,
+      );
       if (tokens.length === 0) {
         this.logger.warn(
-          'No buyer FCM tokens (BUYER role or buyer profile); skip live-ended broadcast',
+          'No buyer FCM tokens for live-ended broadcast; skip',
         );
         return;
       }
@@ -110,7 +132,7 @@ export class BuyerLiveBroadcastService {
           streamTitle: clip(params.title, FCM_DATA_MAX),
         },
         {
-          android: { channelId: BuyerLiveBroadcastService.ANDROID_BUYER_LIVE_CHANNEL },
+          android: { channelId: ANDROID_BUYER_LIVE_CHANNEL },
         },
       );
       this.logger.log(

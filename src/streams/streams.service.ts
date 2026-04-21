@@ -63,11 +63,15 @@ export class StreamsService {
       );
   }
 
-  private queueNotifyBuyersLiveEnded(stream: {
-    id: string;
-    title: string;
-    seller: { userId: string; user?: { name?: string | null } | null };
-  }) {
+  private queueNotifyBuyersLiveEnded(
+    stream: {
+      id: string;
+      title: string;
+      seller: { userId: string; user?: { name?: string | null } | null };
+    },
+    opts?: { notifyBuyers?: boolean },
+  ) {
+    if (opts?.notifyBuyers === false) return;
     const sellerDisplayName =
       stream.seller?.user?.name?.trim() || 'A seller';
     void this.buyerLiveBroadcast
@@ -981,7 +985,7 @@ export class StreamsService {
           },
           include: streamWithSellerInclude,
         });
-        this.queueNotifyBuyersLiveEnded(updated);
+        this.queueNotifyBuyersLiveEnded(updated, { notifyBuyers: false });
       } catch (e) {
         this.logger.warn(
           `Zombie sweep failed for stream ${s.id}: ${String(e)}`,
