@@ -59,6 +59,12 @@ export const envValidationSchema = Joi.object({
   /** JSON string of Firebase service account (FCM server). Optional — push disabled if unset. */
   FIREBASE_SERVICE_ACCOUNT_JSON: Joi.string().optional(),
 
+  // Scheduled reports
+  DAILY_USERS_REPORT_ENABLED: Joi.string()
+    .valid('true', 'false', '1', '0')
+    .default('true'),
+  DAILY_USERS_REPORT_TO: Joi.string().email().optional(),
+
   // Borzo Business API (India)
   BORZO_ENV: Joi.string().valid('test', 'prod').default('test'),
   BORZO_AUTH_TOKEN_TEST: Joi.string().optional(),

@@ -28,6 +28,7 @@ import { NotificationsModule } from './notifications/notifications.module';
 import { AppConfigModule } from './app-config/app-config.module';
 import { AdminModule } from './admin/admin.module';
 import { WebhooksModule } from './webhooks/webhooks.module';
+import { ReportsModule } from './reports/reports.module';
 
 @Module({
   imports: [
@@ -45,6 +46,7 @@ import { WebhooksModule } from './webhooks/webhooks.module';
     ScheduleModule.forRoot(),
     NotificationsModule,
     HealthModule,
+    ReportsModule,
     RedisModule,
     LiveKitModule,
     WebhooksModule,
