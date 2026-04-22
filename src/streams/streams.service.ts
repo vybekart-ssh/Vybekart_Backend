@@ -174,7 +174,7 @@ export class StreamsService {
     }
     const sellerProducts = await this.prisma.product.findMany({
       where: { sellerId: seller.id, id: { in: productIds } },
-      select: { id: true },
+      select: { id: true, images: true },
     });
     const foundIds = new Set(sellerProducts.map((p) => p.id));
     const invalid = productIds.filter((id) => !foundIds.has(id));
@@ -183,6 +183,13 @@ export class StreamsService {
         `Products not found or not owned by you: ${invalid.join(', ')}`,
       );
     }
+
+    const byId = new Map(sellerProducts.map((p) => [p.id, p]));
+    const first = byId.get(productIds[0]);
+    const thumbnailUrl =
+      createStreamDto.thumbnailUrl?.trim() ||
+      first?.images?.[0]?.trim() ||
+      null;
 
     if (createStreamDto.categoryId) {
       const category = await this.prisma.category.findUnique({
@@ -211,6 +218,7 @@ export class StreamsService {
         isLive: true,
         startedAt: now,
         sellerLiveHeartbeatAt: now,
+        thumbnailUrl,
         streamProducts: {
           create: productIds.map((productId, index) => ({
             productId,
