@@ -326,6 +326,43 @@ export class StreamsService {
     });
   }
 
+  /**
+   * Auto-delete scheduled streams that were not started shortly after their scheduled time.
+   * Requirement: if seller doesn't start within 2 minutes of scheduled time, remove it.
+   *
+   * Notes:
+   * - Scheduled streams have `isLive=false`, `endedAt=null`, `livekitRoomName=null`.
+   * - We only delete streams scheduled in the past (startedAt <= now-2m).
+   */
+  @Cron(CronExpression.EVERY_MINUTE)
+  async deleteMissedScheduledStreams() {
+    const now = Date.now();
+    const cutoff = new Date(now - 2 * 60 * 1000);
+    const missed = await this.prisma.stream.findMany({
+      where: {
+        isLive: false,
+        endedAt: null,
+        livekitRoomName: null,
+        startedAt: { not: null, lte: cutoff },
+      },
+      select: { id: true, title: true },
+      take: 200,
+    });
+    if (missed.length === 0) return;
+    this.logger.log(
+      `Scheduled cleanup: deleting ${missed.length} missed scheduled stream(s)`,
+    );
+    for (const s of missed) {
+      await this.prisma.stream
+        .delete({ where: { id: s.id } })
+        .catch((e) =>
+          this.logger.warn(
+            `Scheduled cleanup delete failed for ${s.id}: ${String(e)}`,
+          ),
+        );
+    }
+  }
+
   /** Activate a scheduled stream: create LiveKit room, mark live, return publisher token (same shape as create). */
   async startScheduledStream(streamId: string, userId: string) {
     if (!this.livekit.isConfigured()) {

@@ -31,6 +31,11 @@ export const envValidationSchema = Joi.object({
   LIVEKIT_API_SECRET: Joi.string().optional(),
   /** Same project URL as uploads (used to derive Storage S3 endpoint when recording to Supabase). */
   SUPABASE_URL: Joi.string().uri().optional(),
+  /** Server-side key for Storage API (uploads + cleanup). Set in Render dashboard only. */
+  SUPABASE_SERVICE_ROLE_KEY: Joi.string().optional(),
+  /** Public bucket name for images/uploads (defaults to SUPABASE_PUBLIC_BUCKET). */
+  SUPABASE_PUBLIC_BUCKET: Joi.string().optional(),
+  CLEANUP_REPLAYS_ENABLED: Joi.string().valid('true', 'false', '1', '0').optional(),
   /** When true, use Supabase Storage S3 API + public object URLs for replays. */
   LIVEKIT_RECORDING_USE_SUPABASE: Joi.string().valid('true', 'false', '1', '0').optional(),
   LIVEKIT_RECORDING_S3_BUCKET: Joi.string().optional(),

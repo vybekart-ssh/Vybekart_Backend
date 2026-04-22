@@ -5,8 +5,6 @@ import {
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { PrismaService } from '../prisma/prisma.service';
-import * as fs from 'fs/promises';
-import * as path from 'path';
 import { UpdateSellerProfileDto } from './dto/update-seller-profile.dto';
 import { UpdateBankDetailsDto } from './dto/bank-details.dto';
 import { UpdateStoreDetailsDto } from './dto/store-details.dto';
@@ -14,7 +12,7 @@ import { UpdateSignatureDto } from './dto/signature.dto';
 import { UpdatePickupAddressDto } from './dto/pickup-address.dto';
 import { AddressType } from '@prisma/client';
 import { OrderStatus, VerificationStatus } from '@prisma/client';
-import { resolvePublicBaseUrl } from '../common/utils/public-base-url';
+import { SupabaseStorageService } from '../storage/supabase-storage.service';
 
 const STORE_IMAGE_MIME_EXT: Record<string, string> = {
   'image/jpeg': '.jpg',
@@ -29,6 +27,7 @@ export class SellersService {
   constructor(
     private prisma: PrismaService,
     private config: ConfigService,
+    private supabaseStorage: SupabaseStorageService,
   ) {}
 
   async findOne(userId: string) {
@@ -637,13 +636,17 @@ export class SellersService {
         'Image must be JPEG, PNG, WebP, or GIF',
       );
     }
-    const dir = path.join(process.cwd(), 'uploads', 'store', seller.id);
-    await fs.mkdir(dir, { recursive: true });
+    const bucket = this.supabaseStorage.publicBucket();
     const fname = `${kind}-${Date.now()}${ext}`;
-    const dest = path.join(dir, fname);
-    await fs.writeFile(dest, file.buffer);
-    const base = resolvePublicBaseUrl(this.config);
-    const url = `${base}/uploads/store/${seller.id}/${fname}`;
+    const objectKey = `vybekart-images/store/${seller.id}/${fname}`;
+    const { publicUrl: url } = await this.supabaseStorage.uploadPublicObject({
+      bucket,
+      objectKey,
+      contentType: mime,
+      bytes: file.buffer,
+      cacheControlSeconds: 60 * 60 * 24 * 30,
+      upsert: true,
+    });
     await this.prisma.seller.update({
       where: { id: seller.id },
       data:

@@ -29,6 +29,8 @@ import { AppConfigModule } from './app-config/app-config.module';
 import { AdminModule } from './admin/admin.module';
 import { WebhooksModule } from './webhooks/webhooks.module';
 import { ReportsModule } from './reports/reports.module';
+import { StorageModule } from './storage/storage.module';
+import { MediaModule } from './media/media.module';
 
 @Module({
   imports: [
@@ -52,6 +54,8 @@ import { ReportsModule } from './reports/reports.module';
     WebhooksModule,
     AppConfigModule,
     AdminModule,
+    StorageModule,
+    MediaModule,
     PrismaModule,
     UsersModule,
     AuthModule,
