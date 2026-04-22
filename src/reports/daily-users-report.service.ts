@@ -90,6 +90,10 @@ export class DailyUsersReportService {
     const analysis = this.buildAnalysis(users, last24h);
     const { subject, html, text, filename } = this.buildEmail(now, analysis);
 
+    this.logger.log(
+      `Daily users report starting (to=${to}, rows=${users.length}, resendKey=${this.config.get<string>('RESEND_API_KEY') ? 'set' : 'unset'})`,
+    );
+
     const resendKey = this.config.get<string>('RESEND_API_KEY')?.trim();
     if (resendKey) {
       try {
@@ -111,17 +115,21 @@ export class DailyUsersReportService {
           `Daily users report emailed via Resend to ${to} (rows=${users.length})`,
         );
       } catch (err) {
-        this.logger.error('Daily users report: Resend failed', err);
+        const msg = err instanceof Error ? err.message : String(err);
+        this.logger.error(`Daily users report: Resend failed: ${msg}`);
+        throw err;
       }
       return;
     }
 
     const mailHost = this.config.get<string>('MAIL_HOST')?.trim();
     if (!mailHost || mailHost.includes('@')) {
-      this.logger.warn(
-        'Daily users report skipped: configure RESEND_API_KEY or MAIL_HOST',
+      const reason = !mailHost
+        ? 'MAIL_HOST is missing'
+        : 'MAIL_HOST looks like an email (must be hostname)';
+      throw new Error(
+        `Daily users report cannot send: RESEND_API_KEY not set and ${reason}`,
       );
-      return;
     }
 
     try {
@@ -158,7 +166,9 @@ export class DailyUsersReportService {
         `Daily users report emailed via SMTP to ${to} (rows=${users.length})`,
       );
     } catch (err) {
-      this.logger.error('Daily users report: SMTP failed', err);
+      const msg = err instanceof Error ? err.message : String(err);
+      this.logger.error(`Daily users report: SMTP failed: ${msg}`);
+      throw err;
     }
   }
 

@@ -200,6 +200,7 @@ export class StreamsService {
         ? 'FOLLOWERS_ONLY'
         : 'PUBLIC';
 
+    const now = new Date();
     const stream = await this.prisma.stream.create({
       data: {
         title: createStreamDto.title,
@@ -208,7 +209,8 @@ export class StreamsService {
         visibility,
         sellerId: seller.id,
         isLive: true,
-        startedAt: new Date(),
+        startedAt: now,
+        sellerLiveHeartbeatAt: now,
         streamProducts: {
           create: productIds.map((productId, index) => ({
             productId,
@@ -396,11 +398,13 @@ export class StreamsService {
         `seller-${userId}`,
       );
 
+      const liveNow = new Date();
       const updated = await this.prisma.stream.update({
         where: { id: streamId },
         data: {
           isLive: true,
-          startedAt: new Date(),
+          startedAt: liveNow,
+          sellerLiveHeartbeatAt: liveNow,
           livekitRoomName: roomName,
           livekitUrl,
         },
@@ -504,7 +508,18 @@ export class StreamsService {
     });
     if (!stream) throw new NotFoundException(`Stream with ID ${id} not found`);
     const engagement = await this.getEngagementSummary(id);
-    return { ...stream, engagement };
+    let socketViewers = 0;
+    try {
+      socketViewers = await this.redis.scard(this.redis.streamViewersKey(id));
+    } catch {
+      /* ignore */
+    }
+    const dbCount = stream.viewCount ?? 0;
+    return {
+      ...stream,
+      engagement,
+      viewCount: Math.max(dbCount, socketViewers),
+    };
   }
 
   private async assertStreamOwnership(streamId: string, userId: string) {
@@ -659,16 +674,18 @@ export class StreamsService {
   async stopStream(id: string, userId: string) {
     const stream = await this.assertStreamOwnership(id, userId);
     const wasLive = stream.isLive;
+    const startedAt = stream.startedAt ?? stream.createdAt;
     const finalizePatch = await this.finalizeLiveRecordingAndRoom({
       id: stream.id,
       livekitRoomName: stream.livekitRoomName,
       livekitEgressId: stream.livekitEgressId,
     });
+    const endedAt = new Date();
     const updated = await this.prisma.stream.update({
       where: { id },
       data: {
         isLive: false,
-        endedAt: new Date(),
+        endedAt,
         ...finalizePatch,
       },
       include: streamWithSellerInclude,
@@ -676,7 +693,126 @@ export class StreamsService {
     if (wasLive) {
       this.queueNotifyBuyersLiveEnded(updated);
     }
-    return updated;
+    const summary = await this.buildStreamEndSummary(
+      id,
+      startedAt,
+      endedAt,
+      stream.viewCount ?? 0,
+    );
+    return { ...updated, summary };
+  }
+
+  private async buildStreamEndSummary(
+    streamId: string,
+    startedAt: Date,
+    endedAt: Date,
+    viewCountAtStop: number,
+  ) {
+    const engagement = await this.getEngagementSummary(streamId);
+    const durationMs = Math.max(0, endedAt.getTime() - startedAt.getTime());
+    const durationSeconds = Math.round(durationMs / 1000);
+    const orderAgg = await this.prisma.order.aggregate({
+      where: {
+        streamId,
+        createdAt: { gte: startedAt, lte: endedAt },
+      },
+      _count: { _all: true },
+      _sum: { totalAmount: true },
+    });
+    return {
+      durationSeconds,
+      viewCount: viewCountAtStop,
+      likes: engagement.likes,
+      comments: engagement.comments,
+      ordersPlaced: orderAgg._count._all,
+      revenueTotal: orderAgg._sum.totalAmount ?? 0,
+    };
+  }
+
+  /** Seller-only: current live stream for recovery UI. */
+  async findSellerActiveLive(userId: string) {
+    const seller = await this.prisma.seller.findUnique({
+      where: { userId },
+      select: { id: true },
+    });
+    if (!seller) return null;
+    const stream = await this.prisma.stream.findFirst({
+      where: {
+        sellerId: seller.id,
+        isLive: true,
+        endedAt: null,
+      },
+      orderBy: { startedAt: 'desc' },
+      include: streamWithSellerInclude,
+    });
+    if (!stream) {
+      return { stream: null, recoverableUntil: null as string | null };
+    }
+    const engagement = await this.getEngagementSummary(stream.id);
+    let socketViewers = 0;
+    try {
+      socketViewers = await this.redis.scard(
+        this.redis.streamViewersKey(stream.id),
+      );
+    } catch {
+      /* ignore */
+    }
+    const dbCount = stream.viewCount ?? 0;
+    const lastBeat = stream.sellerLiveHeartbeatAt ?? stream.startedAt ?? stream.createdAt;
+    const recoverableUntil = new Date(lastBeat.getTime() + 5 * 60 * 1000);
+    return {
+      stream: {
+        ...stream,
+        engagement,
+        viewCount: Math.max(dbCount, socketViewers),
+      },
+      recoverableUntil: recoverableUntil.toISOString(),
+    };
+  }
+
+  async touchSellerHeartbeat(streamId: string, userId: string) {
+    await this.assertStreamOwnership(streamId, userId);
+    const beat = new Date();
+    await this.prisma.stream.update({
+      where: { id: streamId },
+      data: { sellerLiveHeartbeatAt: beat },
+    });
+    return { ok: true, sellerLiveHeartbeatAt: beat.toISOString() };
+  }
+
+  /** Single round-trip for live UI: engagement + viewCount + comments tail. */
+  async getLiveState(streamId: string) {
+    const stream = await this.prisma.stream.findUnique({
+      where: { id: streamId },
+      select: {
+        id: true,
+        isLive: true,
+        viewCount: true,
+        title: true,
+      },
+    });
+    if (!stream) throw new NotFoundException(`Stream with ID ${streamId} not found`);
+    const engagement = await this.getEngagementSummary(streamId);
+    let socketViewers = 0;
+    try {
+      socketViewers = await this.redis.scard(
+        this.redis.streamViewersKey(streamId),
+      );
+    } catch {
+      /* ignore */
+    }
+    const comments = await this.getComments(streamId);
+    const tail = Array.isArray(comments)
+      ? (comments as unknown[]).slice(-30)
+      : [];
+    return {
+      streamId,
+      isLive: stream.isLive,
+      title: stream.title,
+      viewCount: Math.max(stream.viewCount ?? 0, socketViewers),
+      engagement,
+      comments: tail,
+    };
   }
 
   /**
@@ -954,11 +1090,17 @@ export class StreamsService {
     const maxLiveMs = 8 * 60 * 60 * 1000;
     const staleStart = new Date(now - maxLiveMs);
     const legacyCutoff = new Date(now - 24 * 60 * 60 * 1000);
+    const orphanCutoff = new Date(now - 5 * 60 * 1000);
     const zombies = await this.prisma.stream.findMany({
       where: {
         isLive: true,
         endedAt: null,
         OR: [
+          { sellerLiveHeartbeatAt: { lt: orphanCutoff } },
+          {
+            sellerLiveHeartbeatAt: null,
+            startedAt: { lt: orphanCutoff },
+          },
           { startedAt: { lt: staleStart } },
           { startedAt: null, createdAt: { lt: legacyCutoff } },
         ],

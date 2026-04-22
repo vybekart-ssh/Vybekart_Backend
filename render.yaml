@@ -120,3 +120,66 @@ services:
         sync: false
       - key: BORZO_AUTH_TOKEN_PROD
         sync: false
+
+  # Keep the free web service warm by hitting /health.
+  # Render free web services can still spin down; this reduces cold starts but cannot guarantee "zero downtime".
+  - type: cron
+    runtime: docker
+    name: vybekart-backend-keepalive
+    plan: free
+    schedule: "*/5 * * * *"
+    startCommand: >-
+      node -e "fetch((process.env.API_PUBLIC_URL||'').replace(/\\/+$/,'') + '/health').then(r=>{if(!r.ok)process.exit(2)}).catch(()=>process.exit(2))"
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: API_PUBLIC_URL
+        value: "https://vybekart-backend.onrender.com"
+      # Required by env validation on bootstrap (even though this job only calls /health)
+      - key: DATABASE_URL
+        value: "postgresql://postgres.axcsnealmdadjryogrnl:Vishal%4022337963@aws-1-ap-northeast-1.pooler.supabase.com:6543/postgres?pgbouncer=true"
+      - key: JWT_SECRET
+        value: "2f7c9e5a8a4d9e3a0c1b8e9d4f6a7c8b1d3e5f6a9b8c7d6e5f4a3b2c786"
+
+  # Run daily users CSV email reliably even if the web service is asleep.
+  # 10:00 PM IST = 4:30 PM UTC. Render cron schedules are UTC.
+  - type: cron
+    runtime: docker
+    name: vybekart-daily-users-report
+    plan: free
+    schedule: "30 16 * * *"
+    startCommand: "node dist/reports/run-daily-users-report.js"
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: DATABASE_URL
+        value: "postgresql://postgres.axcsnealmdadjryogrnl:Vishal%4022337963@aws-1-ap-northeast-1.pooler.supabase.com:6543/postgres?pgbouncer=true"
+      - key: DIRECT_URL
+        value: "postgresql://postgres.axcsnealmdadjryogrnl:Vishal%4022337963@aws-1-ap-northeast-1.pooler.supabase.com:5432/postgres?sslmode=require&connect_timeout=30"
+      - key: REDIS_URL
+        fromService:
+          type: keyvalue
+          name: vybekart-redis
+          property: connectionString
+      - key: JWT_SECRET
+        value: "2f7c9e5a8a4d9e3a0c1b8e9d4f6a7c8b1d3e5f6a9b8c7d6e5f4a3b2c786"
+      - key: JWT_REFRESH_SECRET
+        value: "2f7c9e5a8a4d9e3a0c1b8e9d4f6a7c8b1d3e5f6a9b8c7d6e5f4a3b2c777"
+      - key: DAILY_USERS_REPORT_ENABLED
+        value: "true"
+      - key: DAILY_USERS_REPORT_TO
+        value: "vybekart88@gmail.com"
+      # Prefer Resend on Render; set this in Dashboard
+      - key: RESEND_API_KEY
+        sync: false
+      # SMTP fallback (may be blocked on free tier)
+      - key: MAIL_HOST
+        value: "smtp.gmail.com"
+      - key: MAIL_PORT
+        value: "587"
+      - key: MAIL_USER
+        value: "vybekart88@gmail.com"
+      - key: MAIL_PASS
+        value: "uikcptploswockgb"
+      - key: MAIL_FROM
+        value: "vybekart88@gmail.com"

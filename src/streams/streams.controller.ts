@@ -65,6 +65,13 @@ export class StreamsController {
     return this.streamsService.findAllActive(query, categoryId);
   }
 
+  @Get('me/active-live')
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles(Role.SELLER)
+  findMyActiveLive(@Request() req: { user: { id: string } }) {
+    return this.streamsService.findSellerActiveLive(req.user.id);
+  }
+
   /**
    * Get a viewer token (no auth). Same as GET :id/viewer-token but path is unambiguous.
    * Use: GET /streams/viewer-token/:id or GET /streams/viewer-token?streamId=xxx
@@ -84,6 +91,11 @@ export class StreamsController {
     @Query('identity') identity?: string,
   ) {
     return this.streamsService.getViewerToken(id, identity || 'viewer-1');
+  }
+
+  @Get(':id/live-state')
+  getLiveState(@Param('id') id: string) {
+    return this.streamsService.getLiveState(id);
   }
 
   @Get(':id')
@@ -153,6 +165,16 @@ export class StreamsController {
     @Body() dto: JoinTokenDto,
   ) {
     return this.streamsService.getJoinToken(id, req.user.id, dto.identity);
+  }
+
+  @Patch(':id/seller-heartbeat')
+  @UseGuards(JwtAuthGuard, RolesGuard, SellerVerifiedGuard)
+  @Roles(Role.SELLER)
+  sellerHeartbeat(
+    @Request() req: { user: { id: string } },
+    @Param('id') id: string,
+  ) {
+    return this.streamsService.touchSellerHeartbeat(id, req.user.id);
   }
 
   @Patch(':id')
