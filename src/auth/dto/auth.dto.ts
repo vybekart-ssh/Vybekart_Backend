@@ -14,6 +14,7 @@ import {
   IsEnum,
 } from 'class-validator';
 import { Type } from 'class-transformer';
+import { Transform } from 'class-transformer';
 
 /** Login with email or phone (at least one required) and password. */
 export class LoginDto {
@@ -197,6 +198,12 @@ export class RegisterSellerDto {
 
   /** Product categories the seller operates in (Fashion, Beauty, etc.) */
   @IsArray()
+  @Transform(({ value }) => {
+    if (!Array.isArray(value)) return value;
+    return value
+      .map((v) => (typeof v === 'string' ? v.trim() : v))
+      .filter((v) => typeof v === 'string' && v.length > 0);
+  })
   @ArrayMinSize(1, { message: 'At least one category is required' })
   @IsUUID('4', { each: true })
   categoryIds: string[];
