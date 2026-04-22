@@ -28,7 +28,7 @@ services:
       - key: SUPABASE_PUBLIC_BUCKET
         value: "Vybekart"
       - key: SUPABASE_SERVICE_ROLE_KEY
-        value: "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImF4Y3NuZWFsbWRhZGpyeW9ncm5sIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc3NDg3OTc4NCwiZXhwIjoyMDkwNDU1Nzg0fQ.Y1m5gYqpdB7BKTjxKH2QqWSxlUlM4V2UvtPjstRiePw"
+        sync: false
       - key: DATABASE_URL
         value: "postgresql://postgres.axcsnealmdadjryogrnl:Vishal%4022337963@aws-1-ap-northeast-1.pooler.supabase.com:6543/postgres?pgbouncer=true"
       - key: DIRECT_URL
