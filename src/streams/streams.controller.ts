@@ -22,6 +22,7 @@ import { Roles } from '../auth/roles.decorator';
 import { SellerVerifiedGuard } from '../auth/seller-verified.guard';
 import { Role } from '@prisma/client';
 import { PaginationQueryDto } from '../common/dto/pagination-query.dto';
+import { SkipThrottle } from '@nestjs/throttler';
 
 @Controller('streams')
 export class StreamsController {
@@ -58,6 +59,7 @@ export class StreamsController {
   }
 
   @Get('active')
+  @SkipThrottle()
   findAllActive(
     @Query() query: PaginationQueryDto,
     @Query('categoryId') categoryId?: string,
@@ -94,11 +96,13 @@ export class StreamsController {
   }
 
   @Get(':id/live-state')
+  @SkipThrottle()
   getLiveState(@Param('id') id: string) {
     return this.streamsService.getLiveState(id);
   }
 
   @Get(':id')
+  @SkipThrottle()
   findOne(@Param('id') id: string) {
     return this.streamsService.findOne(id);
   }
