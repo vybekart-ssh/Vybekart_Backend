@@ -105,6 +105,18 @@ services:
       - key: RESEND_API_KEY
         sync: false
 
+      # OTP / SMS
+      - key: OTP_ENV
+        value: "production"
+      - key: ANDROID_SMS_APP_HASH
+        sync: false
+      - key: FAST2SMS_API_KEY
+        sync: false
+      - key: FAST2SMS_ROUTE
+        value: "q"
+      - key: FAST2SMS_SENDER_ID
+        sync: false
+
       # FCM (Firebase Admin): full service-account JSON as a single-line string. Set in Dashboard (do not commit).
       # Firebase Console → Project settings → Service accounts → Generate new private key.
       - key: FIREBASE_SERVICE_ACCOUNT_JSON

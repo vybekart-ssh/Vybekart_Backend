@@ -4,6 +4,30 @@ export const envValidationSchema = Joi.object({
   NODE_ENV: Joi.string()
     .valid('development', 'production', 'test')
     .default('development'),
+  /**
+   * OTP behavior switch:
+   * - testing: allow static bypass + log OTPs
+   * - production: disallow bypass + send SMS + log OTPs (per requirement)
+   */
+  OTP_ENV: Joi.string()
+    .valid('testing', 'production')
+    .when('NODE_ENV', {
+      is: 'production',
+      then: Joi.string().default('production'),
+      otherwise: Joi.string().default('testing'),
+    }),
+  /** Android SMS Retriever app hash (11 chars) appended to OTP SMS when set. */
+  ANDROID_SMS_APP_HASH: Joi.string().optional(),
+  /** Fast2SMS API key (required when OTP_ENV=production and sending SMS). */
+  FAST2SMS_API_KEY: Joi.string().optional(),
+  /** Fast2SMS route (e.g. q, otp, dlt). */
+  FAST2SMS_ROUTE: Joi.string().default('q'),
+  /** Fast2SMS sender id (only used for some routes/accounts). */
+  FAST2SMS_SENDER_ID: Joi.string().optional(),
+  /** Fast2SMS endpoint override (defaults to bulkV2). */
+  FAST2SMS_ENDPOINT: Joi.string()
+    .uri()
+    .default('https://www.fast2sms.com/dev/bulkV2'),
   PORT: Joi.number().default(3000),
   DATABASE_URL: Joi.string().required().messages({
     'string.empty': 'DATABASE_URL is required',

@@ -26,6 +26,7 @@ import {
 import { SendOtpDto, VerifyOtpDto } from './dto/otp.dto';
 import { Role, VerificationStatus } from '@prisma/client';
 import { SellerRegistrationNotifierService } from './seller-registration-notifier.service';
+import { Fast2SmsService } from '../notifications/fast2sms.service';
 
 const REFRESH_TTL_SECONDS = 30 * 24 * 60 * 60; // 30 days
 const OTP_TTL_SECONDS = 10 * 60; // 10 minutes
@@ -46,6 +47,57 @@ function formatPickupAsBusinessAddress(p: PickupAddressDto): string {
 export class AuthService {
   private readonly logger = new Logger(AuthService.name);
 
+  private otpEnv(): 'testing' | 'production' {
+    const raw = (this.config.get<string>('OTP_ENV') ?? '').trim();
+    if (raw === 'production') return 'production';
+    return 'testing';
+  }
+
+  private isOtpProd(): boolean {
+    return this.otpEnv() === 'production';
+  }
+
+  private maskIdentifier(id: string): string {
+    const s = (id ?? '').trim();
+    if (!s) return '';
+    if (s.includes('@')) {
+      const [u, d] = s.split('@');
+      const user = u ? `${u.slice(0, 2)}***${u.slice(-1)}` : '***';
+      return `${user}@${d}`;
+    }
+    // Phone: keep last 3-4 digits.
+    const digits = s.replace(/[^\d+]/g, '');
+    const last = digits.replace(/^\+/, '').slice(-4);
+    return `+**...${last}`;
+  }
+
+  private buildOtpSmsMessage(params: {
+    purpose?: 'LOGIN' | 'BUYER_SIGNUP' | 'SELLER_SIGNUP' | 'FORGOT_PASSWORD';
+    code: string;
+  }): string {
+    const ttlMin = Math.round(OTP_TTL_SECONDS / 60);
+    const brand = 'Vybekart';
+    const purpose = params.purpose ?? 'LOGIN';
+
+    const line1 =
+      purpose === 'FORGOT_PASSWORD'
+        ? `Your ${brand} password reset OTP is ${params.code}.`
+        : purpose === 'SELLER_SIGNUP'
+          ? `Welcome to ${brand} Partner. Your OTP to create your Seller account is ${params.code}.`
+          : purpose === 'BUYER_SIGNUP'
+            ? `Welcome to ${brand}. Your OTP to create your Buyer account is ${params.code}.`
+            : `Your ${brand} login OTP is ${params.code}.`;
+
+    const base = `${line1} Valid for ${ttlMin} minutes. Do not share this code with anyone.`;
+
+    // SMS Retriever requirement: add 11-char hash on a new line, ideally with <#> prefix.
+    const appHash = (this.config.get<string>('ANDROID_SMS_APP_HASH') ?? '').trim();
+    if (appHash) {
+      return `<#> ${base}\n${appHash}`;
+    }
+    return base;
+  }
+
   private hasRole(user: { roles: Role[] }, role: Role) {
     return Array.isArray(user.roles) && user.roles.includes(role);
   }
@@ -56,6 +108,7 @@ export class AuthService {
     private config: ConfigService,
     private redis: RedisService,
     private sellerRegistrationNotifier: SellerRegistrationNotifierService,
+    private fast2sms: Fast2SmsService,
   ) {}
 
   private authUserResponse(user: {
@@ -197,17 +250,22 @@ export class AuthService {
     const key = this.redis.otpKey(identifier);
     await this.redis.set(key, code, OTP_TTL_SECONDS);
 
-    // Production: inject OTP sender (Twilio, SendGrid, etc.) and send code
-    const sendViaProvider = this.config.get<string>('OTP_SEND_VIA') === 'true';
-    if (sendViaProvider) {
-      // TODO: integrate with SMS/Email provider using env (e.g. TWILIO_*, SENDGRID_*)
-      this.logger.warn(
-        `OTP send not configured; use OTP_SEND_VIA and provider env vars`,
-      );
-    } else {
-      this.logger.log(
-        `[DEV] OTP for ${identifier}: ${code} (expires ${OTP_TTL_SECONDS}s)`,
-      );
+    // Log OTP in all envs (per requirement). Keep identifier masked.
+    this.logger.log(
+      `OTP generated env=${this.otpEnv()} for=${this.maskIdentifier(identifier)} code=${code} ttlSeconds=${OTP_TTL_SECONDS}`,
+    );
+
+    // Production: send real SMS via Fast2SMS (phone only).
+    if (this.isOtpProd() && phone) {
+      const message = this.buildOtpSmsMessage({
+        purpose: dto.purpose,
+        code,
+      });
+      void this.fast2sms
+        .sendTextSms({ toPhone: phone, message })
+        .catch((err) =>
+          this.logger.warn(`Fast2SMS send failed: ${String(err)}`),
+        );
     }
 
     return { message: 'OTP sent successfully' };
@@ -227,16 +285,15 @@ export class AuthService {
     if (!identifier) {
       throw new BadRequestException('Either email or phone is required');
     }
-    const isTempBypass = code === '796300';
+    const isTempBypass = this.otpEnv() === 'testing' && code === '796300';
     if (!isTempBypass) {
       const key = this.redis.otpKey(identifier);
       const stored = await this.redis.get(key);
       if (!stored || stored !== code) {
-        if (this.config.get('NODE_ENV') === 'development') {
-          this.logger.debug(
-            `OTP verify failed: key=${key} stored=${stored ?? 'null'} received=${code}`,
-          );
-        }
+        // Avoid logging stored OTP; keep minimal diagnostic info.
+        this.logger.warn(
+          `OTP verify failed env=${this.otpEnv()} for=${this.maskIdentifier(identifier)} key=${key}`,
+        );
         throw new UnauthorizedException('Invalid or expired OTP');
       }
       await this.redis.del(key);
@@ -543,10 +600,20 @@ export class AuthService {
     ).toString();
     const key = this.redis.otpKey(`reset:${phone}`);
     await this.redis.set(key, code, OTP_TTL_SECONDS);
-    if (this.config.get<string>('OTP_SEND_VIA') !== 'true') {
-      this.logger.log(
-        `[DEV] Reset OTP for ${phone}: ${code} (expires ${OTP_TTL_SECONDS}s)`,
-      );
+    this.logger.log(
+      `OTP generated env=${this.otpEnv()} for=${this.maskIdentifier(phone)} code=${code} ttlSeconds=${OTP_TTL_SECONDS} purpose=FORGOT_PASSWORD`,
+    );
+
+    if (this.isOtpProd()) {
+      const message = this.buildOtpSmsMessage({
+        purpose: 'FORGOT_PASSWORD',
+        code,
+      });
+      void this.fast2sms
+        .sendTextSms({ toPhone: phone, message })
+        .catch((err) =>
+          this.logger.warn(`Fast2SMS reset OTP send failed: ${String(err)}`),
+        );
     }
     return { message: 'OTP sent to your mobile number' };
   }
@@ -555,9 +622,13 @@ export class AuthService {
   async resetPassword(dto: ResetPasswordDto) {
     const { phone, code, newPassword } = dto;
     const key = this.redis.otpKey(`reset:${phone}`);
-    const stored = await this.redis.get(key);
-    if (!stored || stored !== code.trim()) {
-      throw new UnauthorizedException('Invalid or expired OTP');
+    const trimmed = code.trim();
+    const isTempBypass = this.otpEnv() === 'testing' && trimmed === '796300';
+    if (!isTempBypass) {
+      const stored = await this.redis.get(key);
+      if (!stored || stored !== trimmed) {
+        throw new UnauthorizedException('Invalid or expired OTP');
+      }
     }
     const user = await this.prisma.user.findUnique({ where: { phone } });
     if (!user) {
@@ -584,9 +655,13 @@ export class AuthService {
   async verifyResetPasswordOtp(dto: VerifyResetPasswordDto) {
     const { phone, code } = dto;
     const key = this.redis.otpKey(`reset:${phone}`);
-    const stored = await this.redis.get(key);
-    if (!stored || stored !== code.trim()) {
-      throw new UnauthorizedException('Invalid or expired OTP');
+    const trimmed = code.trim();
+    const isTempBypass = this.otpEnv() === 'testing' && trimmed === '796300';
+    if (!isTempBypass) {
+      const stored = await this.redis.get(key);
+      if (!stored || stored !== trimmed) {
+        throw new UnauthorizedException('Invalid or expired OTP');
+      }
     }
 
     const user = await this.prisma.user.findUnique({
