@@ -98,6 +98,13 @@ export class CheckPhoneExistsDto {
   purpose?: CheckPhonePurpose;
 }
 
+/** Used to check whether an email already exists before starting long signup flows. */
+export class CheckEmailExistsDto {
+  @IsEmail()
+  @IsNotEmpty()
+  email: string;
+}
+
 export class RegisterBuyerDto {
   @IsEmail()
   @IsNotEmpty()

@@ -21,6 +21,7 @@ import {
   VerifyResetPasswordDto,
   CheckPhoneExistsDto,
   CheckPhonePurpose,
+  CheckEmailExistsDto,
   PickupAddressDto,
 } from './dto/auth.dto';
 import { SendOtpDto, VerifyOtpDto } from './dto/otp.dto';
@@ -697,6 +698,16 @@ export class AuthService {
       return { exists: !!user?.sellerProfile };
     }
     return { hasBuyer: !!user?.buyerProfile, hasSeller: !!user?.sellerProfile };
+  }
+
+  /** Check if an email already exists (case-insensitive). */
+  async checkEmailExists(dto: CheckEmailExistsDto): Promise<{ exists: boolean }> {
+    const email = dto.email.trim();
+    const user = await this.prisma.user.findFirst({
+      where: { email: { equals: email, mode: 'insensitive' } },
+      select: { id: true },
+    });
+    return { exists: !!user };
   }
 
   async registerPushDevice(

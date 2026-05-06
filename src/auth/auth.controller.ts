@@ -16,6 +16,7 @@ import {
   ResetPasswordDto,
   VerifyResetPasswordDto,
   CheckPhoneExistsDto,
+  CheckEmailExistsDto,
   RegisterFcmTokenDto,
 } from './dto/auth.dto';
 import { SendOtpDto, VerifyOtpDto } from './dto/otp.dto';
@@ -73,6 +74,11 @@ export class AuthController {
   @Post('check-phone')
   async checkPhone(@Body() dto: CheckPhoneExistsDto) {
     return this.authService.checkPhoneExists(dto);
+  }
+
+  @Post('check-email')
+  async checkEmail(@Body() dto: CheckEmailExistsDto) {
+    return this.authService.checkEmailExists(dto);
   }
 
   @Patch('me/fcm-token')
