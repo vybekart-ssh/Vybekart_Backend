@@ -94,6 +94,12 @@ export const envValidationSchema = Joi.object({
     .default('true'),
   DAILY_USERS_REPORT_TO: Joi.string().email().optional(),
 
+  // Daily DB backup (email attachment)
+  DAILY_DB_BACKUP_ENABLED: Joi.string()
+    .valid('true', 'false', '1', '0')
+    .default('true'),
+  DAILY_DB_BACKUP_TO: Joi.string().email().optional(),
+
   // Borzo Business API (India)
   BORZO_ENV: Joi.string().valid('test', 'prod').default('test'),
   BORZO_AUTH_TOKEN_TEST: Joi.string().optional(),

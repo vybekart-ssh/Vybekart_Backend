@@ -4,8 +4,8 @@ FROM node:22-slim AS builder
 
 WORKDIR /app
 
-# Prisma engine requires OpenSSL
-RUN apt-get update -y && apt-get install -y openssl ca-certificates && rm -rf /var/lib/apt/lists/*
+# Prisma engine requires OpenSSL; backups need pg_dump
+RUN apt-get update -y && apt-get install -y openssl ca-certificates postgresql-client && rm -rf /var/lib/apt/lists/*
 
 COPY package.json package-lock.json* ./
 COPY scripts ./scripts/
@@ -22,8 +22,8 @@ FROM node:22-slim AS runner
 
 WORKDIR /app
 
-# Prisma migrate deploy needs OpenSSL in the runtime image
-RUN apt-get update -y && apt-get install -y openssl ca-certificates && rm -rf /var/lib/apt/lists/*
+# Prisma migrate deploy needs OpenSSL in the runtime image; backups need pg_dump
+RUN apt-get update -y && apt-get install -y openssl ca-certificates postgresql-client && rm -rf /var/lib/apt/lists/*
 
 ENV NODE_ENV=production
 
