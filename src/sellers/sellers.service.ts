@@ -236,7 +236,8 @@ export class SellersService {
     if (!seller) throw new NotFoundException('Seller not found');
     if (
       seller.status !== VerificationStatus.PENDING &&
-      seller.status !== VerificationStatus.VERIFIED
+      seller.status !== VerificationStatus.VERIFIED &&
+      seller.status !== VerificationStatus.NEEDS_CHANGES
     ) {
       throw new BadRequestException(
         'Seller cannot be marked as needs-changes in this state',
