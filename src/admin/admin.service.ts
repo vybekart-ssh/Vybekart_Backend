@@ -4,6 +4,7 @@ import { PrismaService } from '../prisma/prisma.service';
 import { SellersService } from '../sellers/sellers.service';
 import { AppConfigService } from '../app-config/app-config.service';
 import { UpdateAppConfigDto } from './dto/update-app-config.dto';
+import { RequestSellerChangesDto } from './dto/request-seller-changes.dto';
 
 @Injectable()
 export class AdminService {
@@ -27,6 +28,19 @@ export class AdminService {
 
   rejectSeller(sellerId: string, reason?: string) {
     return this.sellersService.reject(sellerId, reason ?? '');
+  }
+
+  requestSellerChanges(input: {
+    sellerId: string;
+    adminUserId: string;
+    dto: RequestSellerChangesDto;
+  }) {
+    return this.sellersService.requestChanges({
+      sellerId: input.sellerId,
+      adminUserId: input.adminUserId,
+      sections: input.dto.sections,
+      note: input.dto.note,
+    });
   }
 
   reregisterSeller(sellerId: string) {

@@ -15,6 +15,7 @@ import { Roles } from '../auth/roles.decorator';
 import { Role, VerificationStatus } from '@prisma/client';
 import { AdminService } from './admin.service';
 import { UpdateAppConfigDto } from './dto/update-app-config.dto';
+import { RequestSellerChangesDto } from './dto/request-seller-changes.dto';
 
 @Controller('admin')
 @UseGuards(JwtAuthGuard, RolesGuard)
@@ -58,6 +59,19 @@ export class AdminController {
     @Body('reason') reason?: string,
   ) {
     return this.adminService.rejectSeller(id, reason);
+  }
+
+  @Patch('sellers/:id/request-changes')
+  requestChanges(
+    @Request() req: { user: { id: string } },
+    @Param('id') id: string,
+    @Body() dto: RequestSellerChangesDto,
+  ) {
+    return this.adminService.requestSellerChanges({
+      sellerId: id,
+      adminUserId: req.user.id,
+      dto,
+    });
   }
 
   @Patch('sellers/:id/reregister')
