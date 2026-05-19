@@ -13,6 +13,7 @@ import { UpdatePickupAddressDto } from './dto/pickup-address.dto';
 import { AddressType } from '@prisma/client';
 import { OrderStatus, VerificationStatus } from '@prisma/client';
 import { SupabaseStorageService } from '../storage/supabase-storage.service';
+import { FirebasePushService } from '../notifications/firebase-push.service';
 
 const STORE_IMAGE_MIME_EXT: Record<string, string> = {
   'image/jpeg': '.jpg',
@@ -28,13 +29,33 @@ export class SellersService {
     private prisma: PrismaService,
     private config: ConfigService,
     private supabaseStorage: SupabaseStorageService,
+    private firebasePush: FirebasePushService,
   ) {}
+
+  private async bestEffortPushToSellerUser(
+    userId: string,
+    title: string,
+    body: string,
+    data: Record<string, string>,
+  ) {
+    try {
+      const devices = await this.prisma.userPushDevice.findMany({
+        where: { userId },
+        select: { fcmToken: true },
+      });
+      const tokens = devices.map((d) => d.fcmToken).filter(Boolean);
+      await this.firebasePush.sendToTokensBatched(tokens, title, body, data);
+    } catch {
+      // best-effort: never fail the main workflow
+    }
+  }
 
   async findOne(userId: string) {
     const seller = await this.prisma.seller.findUnique({
       where: { userId },
       include: {
         user: { select: { id: true, name: true, email: true, phone: true } },
+        changeRequests: { take: 1, orderBy: { createdAt: 'desc' } },
         categories: {
           include: {
             category: { select: { id: true, name: true, slug: true } },
@@ -48,7 +69,15 @@ export class SellersService {
     const pickupAddress = await this.prisma.address.findFirst({
       where: { userId, type: 'PICKUP' },
     });
-    return { ...seller, pickupAddress: pickupAddress ?? null };
+    const latestChangeRequest = seller.changeRequests[0] ?? null;
+    // Remove the relation array from the response to keep payload small/stable.
+    // eslint-disable-next-line @typescript-eslint/no-unused-vars
+    const { changeRequests, ...sellerRest } = seller;
+    return {
+      ...sellerRest,
+      pickupAddress: pickupAddress ?? null,
+      latestChangeRequest,
+    };
   }
 
   async updateProfile(userId: string, dto: UpdateSellerProfileDto) {
@@ -115,6 +144,7 @@ export class SellersService {
             createdAt: true,
           },
         },
+        changeRequests: { take: 10, orderBy: { createdAt: 'desc' } },
         categories: {
           include: {
             category: { select: { id: true, name: true, slug: true } },
@@ -138,22 +168,30 @@ export class SellersService {
     if (!seller) throw new NotFoundException('Seller not found');
     if (
       seller.status !== VerificationStatus.PENDING &&
-      seller.status !== VerificationStatus.REJECTED
+      seller.status !== VerificationStatus.REJECTED &&
+      seller.status !== VerificationStatus.NEEDS_CHANGES
     ) {
       throw new BadRequestException(
-        'Seller can only be approved when pending or rejected',
+        'Seller can only be approved when pending, rejected, or needs changes',
       );
     }
-    return this.prisma.seller.update({
+    const updated = await this.prisma.seller.update({
       where: { id: sellerId },
       data: { status: VerificationStatus.VERIFIED, rejectionReason: null },
       include: {
         user: { select: { id: true, name: true, email: true } },
       },
     });
+    await this.bestEffortPushToSellerUser(
+      updated.userId,
+      'Seller verification approved',
+      'Your seller account is verified. You can now start selling on VybeKart.',
+      { type: 'SELLER_VERIFICATION', status: 'VERIFIED', sellerId },
+    );
+    return updated;
   }
 
-  /** Admin: reject / deny seller (pending or verified) */
+  /** Admin: reject / deny seller (final rejection) */
   async reject(sellerId: string, reason: string) {
     const seller = await this.prisma.seller.findUnique({
       where: { id: sellerId },
@@ -161,11 +199,12 @@ export class SellersService {
     if (!seller) throw new NotFoundException('Seller not found');
     if (
       seller.status !== VerificationStatus.PENDING &&
-      seller.status !== VerificationStatus.VERIFIED
+      seller.status !== VerificationStatus.VERIFIED &&
+      seller.status !== VerificationStatus.NEEDS_CHANGES
     ) {
       throw new BadRequestException('Seller cannot be rejected in this state');
     }
-    return this.prisma.seller.update({
+    const updated = await this.prisma.seller.update({
       where: { id: sellerId },
       data: {
         status: VerificationStatus.REJECTED,
@@ -173,6 +212,117 @@ export class SellersService {
       },
       include: {
         user: { select: { id: true, name: true, email: true } },
+      },
+    });
+    await this.bestEffortPushToSellerUser(
+      updated.userId,
+      'Seller verification rejected',
+      updated.rejectionReason ?? 'Your seller application was rejected.',
+      { type: 'SELLER_VERIFICATION', status: 'REJECTED', sellerId },
+    );
+    return updated;
+  }
+
+  /** Admin: request changes (guided) */
+  async requestChanges(input: {
+    sellerId: string;
+    adminUserId: string;
+    sections: string[];
+    note?: string;
+  }) {
+    const seller = await this.prisma.seller.findUnique({
+      where: { id: input.sellerId },
+    });
+    if (!seller) throw new NotFoundException('Seller not found');
+    if (
+      seller.status !== VerificationStatus.PENDING &&
+      seller.status !== VerificationStatus.VERIFIED &&
+      seller.status !== VerificationStatus.NEEDS_CHANGES
+    ) {
+      throw new BadRequestException(
+        'Seller cannot be marked as needs-changes in this state',
+      );
+    }
+
+    await this.prisma.$transaction(async (tx) => {
+      await tx.seller.update({
+        where: { id: input.sellerId },
+        data: {
+          status: VerificationStatus.NEEDS_CHANGES,
+        },
+      });
+
+      await tx.sellerChangeRequest.create({
+        data: {
+          sellerId: input.sellerId,
+          createdByAdminId: input.adminUserId,
+          note: input.note?.trim() ? input.note.trim() : null,
+          sections: input.sections,
+          statusAtCreation: seller.status,
+        },
+      });
+    });
+
+    await this.bestEffortPushToSellerUser(
+      seller.userId,
+      'Changes requested',
+      input.note?.trim()
+        ? input.note.trim()
+        : 'VybeKart has requested changes to your seller onboarding details.',
+      {
+        type: 'SELLER_VERIFICATION',
+        status: 'NEEDS_CHANGES',
+        sellerId: input.sellerId,
+      },
+    );
+
+    return this.findOneSellerForAdmin(input.sellerId);
+  }
+
+  /** Seller: resubmit after NEEDS_CHANGES */
+  async resubmitForReview(userId: string) {
+    const seller = await this.prisma.seller.findUnique({
+      where: { userId },
+      include: {
+        categories: { select: { categoryId: true } },
+      },
+    });
+    if (!seller) throw new NotFoundException('Seller profile not found');
+    if (seller.status !== VerificationStatus.NEEDS_CHANGES) {
+      throw new BadRequestException('Resubmission is only allowed in needs-changes');
+    }
+
+    const pickupAddress = await this.prisma.address.findFirst({
+      where: { userId, type: AddressType.PICKUP },
+    });
+
+    const missing: string[] = [];
+    if (!seller.businessName?.trim()) missing.push('businessName');
+    if (!seller.businessAddress?.trim()) missing.push('businessAddress');
+    if (!seller.primaryCategoryId?.trim()) missing.push('primaryCategoryId');
+    if (seller.categories.length === 0) missing.push('categories');
+    if (!pickupAddress) missing.push('pickupAddress');
+    if (!seller.bankName?.trim()) missing.push('bankName');
+    if (!seller.accountHolderName?.trim()) missing.push('accountHolderName');
+    if (!seller.bankAccount?.trim()) missing.push('bankAccount');
+    if (!seller.ifscCode?.trim()) missing.push('ifscCode');
+    if (!seller.accountType?.trim()) missing.push('accountType');
+    if (!seller.signatureUrl?.trim()) missing.push('signatureUrl');
+
+    if (missing.length) {
+      throw new BadRequestException(
+        `Please complete seller onboarding before resubmitting: ${missing.join(', ')}`,
+      );
+    }
+
+    return this.prisma.seller.update({
+      where: { userId },
+      data: {
+        status: VerificationStatus.PENDING,
+        rejectionReason: null,
+      },
+      include: {
+        user: { select: { id: true, name: true, email: true, phone: true } },
       },
     });
   }

@@ -1,0 +1,71 @@
+-- If you are in psql and the last transaction failed, run this first:
+-- ROLLBACK;
+
+BEGIN;
+
+-- UUID generator (Supabase usually already has this)
+CREATE EXTENSION IF NOT EXISTS pgcrypto;
+
+-- 1) Country: India only (explicit id)
+INSERT INTO public."Country" ("id", "code", "name")
+VALUES (gen_random_uuid(), 'IN', 'India')
+ON CONFLICT ("code") DO UPDATE
+SET "name" = EXCLUDED."name";
+
+-- Get India id
+WITH india AS (
+  SELECT "id" AS country_id FROM public."Country" WHERE "code" = 'IN'
+),
+states(code, name) AS (
+  VALUES
+    ('MH','Maharashtra'),
+    ('GJ','Gujarat'),
+    ('GA','Goa'),
+    ('DL','Delhi'),
+    ('KA','Karnataka'),
+    ('TN','Tamil Nadu'),
+    ('TS','Telangana'),
+    ('UP','Uttar Pradesh'),
+    ('RJ','Rajasthan'),
+    ('WB','West Bengal')
+)
+-- 2) State: insert only if missing (explicit id)
+INSERT INTO public."State" ("id", "countryId", "code", "name")
+SELECT gen_random_uuid(), india.country_id, s.code, s.name
+FROM india
+CROSS JOIN states s
+WHERE NOT EXISTS (
+  SELECT 1
+  FROM public."State" st
+  WHERE st."countryId" = india.country_id
+    AND st."code" = s.code
+);
+
+-- 3) Category: Fashion only (explicit id)
+INSERT INTO public."Category" ("id", "name", "slug", "iconUrl", "parentId")
+VALUES (gen_random_uuid(), 'Fashion', 'fashion', NULL, NULL)
+ON CONFLICT ("slug") DO UPDATE
+SET "name" = EXCLUDED."name";
+
+-- 4) FAQ: 10 rows, insert only if question not already present (explicit id)
+WITH faqs(question, answer, sortOrder) AS (
+  VALUES
+    ('What is VybeKart?', 'VybeKart is a live and social commerce platform where buyers can discover products and sellers can showcase and sell through live sessions and listings.', 1),
+    ('How do I create an account?', 'Open the app, choose Buyer or Seller, and follow the on-screen steps. You can sign up using your phone number and verify via OTP.', 2),
+    ('How does seller verification work?', 'To protect customers, seller profiles go through a verification process. Once verified, selling features are fully unlocked.', 3),
+    ('How long does seller verification take?', 'Verification typically completes within 24 hours, but it can take longer during high volume periods.', 4),
+    ('What if my seller verification needs changes?', 'If changes are requested, update the required details (bank, address, categories, signature, etc.) and resubmit for review from the app.', 5),
+    ('How do I place an order?', 'Browse products, add items to your cart (if available), and complete checkout. For live streams, you can purchase directly from the session when enabled.', 6),
+    ('How can I track my order?', 'If tracking is available, you will see the courier and tracking details inside your order screen after the seller ships the package.', 7),
+    ('What is the return and refund policy?', 'Return and refund eligibility depends on the product and seller policy. Check the product details page for the latest rules.', 8),
+    ('How do I contact support?', 'Go to Support/Help inside the app and submit your concern. Our team will respond via email as soon as possible.', 9),
+    ('How is my data protected?', 'We use secure authentication and follow best practices to protect your data. Avoid sharing OTPs and always keep your device updated.', 10)
+)
+INSERT INTO public."Faq" ("id", "question", "answer", "sortOrder")
+SELECT gen_random_uuid(), f.question, f.answer, f.sortOrder
+FROM faqs f
+WHERE NOT EXISTS (
+  SELECT 1 FROM public."Faq" x WHERE x."question" = f.question
+);
+
+COMMIT;

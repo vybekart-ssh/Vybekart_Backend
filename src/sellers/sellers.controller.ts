@@ -59,6 +59,7 @@ export class SellersController {
   @UseGuards(JwtAuthGuard, RolesGuard, SellerVerifiedGuard)
   @Roles(Role.SELLER)
   @Patch('bank-details')
+  @SkipSellerVerified()
   updateBankDetails(
     @Request() req: { user: { id: string } },
     @Body() dto: UpdateBankDetailsDto,
@@ -76,6 +77,7 @@ export class SellersController {
   @UseGuards(JwtAuthGuard, RolesGuard, SellerVerifiedGuard)
   @Roles(Role.SELLER)
   @Patch('store-details')
+  @SkipSellerVerified()
   updateStoreDetails(
     @Request() req: { user: { id: string } },
     @Body() dto: UpdateStoreDetailsDto,
@@ -138,6 +140,7 @@ export class SellersController {
   @UseGuards(JwtAuthGuard, RolesGuard, SellerVerifiedGuard)
   @Roles(Role.SELLER)
   @Patch('signature')
+  @SkipSellerVerified()
   updateSignature(
     @Request() req: { user: { id: string } },
     @Body() dto: UpdateSignatureDto,
@@ -148,10 +151,19 @@ export class SellersController {
   @UseGuards(JwtAuthGuard, RolesGuard, SellerVerifiedGuard)
   @Roles(Role.SELLER)
   @Patch('profile')
+  @SkipSellerVerified()
   updateProfile(
     @Request() req: { user: { id: string } },
     @Body() dto: UpdateSellerProfileDto,
   ) {
     return this.sellersService.updateProfile(req.user.id, dto);
+  }
+
+  @Post('me/resubmit')
+  @SkipSellerVerified()
+  @UseGuards(JwtAuthGuard, RolesGuard, SellerVerifiedGuard)
+  @Roles(Role.SELLER)
+  resubmitForReview(@Request() req: { user: { id: string } }) {
+    return this.sellersService.resubmitForReview(req.user.id);
   }
 }

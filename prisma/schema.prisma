@@ -28,6 +28,7 @@ enum VerificationStatus {
   PENDING
   VERIFIED
   REJECTED
+  NEEDS_CHANGES
 }
 
 /// Singleton row (`id = "global"`): minimum Android [versionCode] the app must have to run; master can raise it to force updates.
@@ -66,6 +67,9 @@ model User {
 
   /// FCM device tokens for push (seller go-live reminders, etc.)
   pushDevices UserPushDevice[]
+
+  /// Admin actions: change requests created by this user
+  sellerChangeRequestsCreated SellerChangeRequest[] @relation("AdminChangeRequests")
 
   // Legacy/Direct Relations (can be refactored to profiles later if needed, keeping simple for now)
   // Note: Orders usually link to a Buyer profile in strict systems, 
@@ -150,12 +154,33 @@ model Seller {
   // Scalability: Categories this seller operates in
   categories SellerCategory[]
 
+  /// Admin review: change requests history
+  changeRequests SellerChangeRequest[]
+
   // Operations
   products Product[]
   streams  Stream[]
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
+}
+
+model SellerChangeRequest {
+  id String @id @default(uuid())
+
+  sellerId String
+  seller   Seller @relation(fields: [sellerId], references: [id], onDelete: Cascade)
+
+  createdByAdminId String?
+  createdByAdmin   User? @relation("AdminChangeRequests", fields: [createdByAdminId], references: [id], onDelete: SetNull)
+
+  note            String?            @db.Text
+  sections        String[]
+  statusAtCreation VerificationStatus
+
+  createdAt DateTime @default(now())
+
+  @@index([sellerId, createdAt])
 }
 
 // Many-to-Many Link Table for Seller <-> Category
