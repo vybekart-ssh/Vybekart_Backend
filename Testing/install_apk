@@ -1,0 +1,2 @@
+cd D:\Vybekart\VybekartAndroid
+& "$env:LOCALAPPDATA\Android\Sdk\platform-tools\adb.exe" -s adb-13903681760001J-KFYDJz._adb-tls-connect._tcp install -r app\build\outputs\apk\debug\app-debug.apk
