@@ -5,9 +5,10 @@ import { PrismaModule } from '../prisma/prisma.module';
 import { MockDeliveryService } from './mock-delivery.service';
 import { BorzoModule } from '../borzo/borzo.module';
 import { AuthModule } from '../auth/auth.module';
+import { RatingsModule } from '../ratings/ratings.module';
 
 @Module({
-  imports: [PrismaModule, AuthModule, BorzoModule],
+  imports: [PrismaModule, AuthModule, BorzoModule, RatingsModule],
   controllers: [OrdersController],
   providers: [OrdersService, MockDeliveryService],
 })

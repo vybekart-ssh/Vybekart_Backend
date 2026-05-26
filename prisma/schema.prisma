@@ -71,6 +71,8 @@ model User {
   /// Admin actions: change requests created by this user
   sellerChangeRequestsCreated SellerChangeRequest[] @relation("AdminChangeRequests")
 
+  ratingOverrideLogs RatingOverrideLog[]
+
   // Legacy/Direct Relations (can be refactored to profiles later if needed, keeping simple for now)
   // Note: Orders usually link to a Buyer profile in strict systems, 
   // but linking to User is easier for auth. We'll link to User for now.
@@ -161,6 +163,14 @@ model Seller {
   products Product[]
   streams  Stream[]
 
+  /// Phase 2: 0% commission while live-stream reward active
+  commissionWaiverActive Boolean @default(false)
+
+  rating                SellerRating?
+  replacementRequests   ReplacementRequest[]
+  followers             BuyerSellerFollow[]
+  liveQualificationDays SellerLiveQualificationDay[]
+
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 }
@@ -212,6 +222,10 @@ model Buyer {
   updatedAt             DateTime                @updatedAt
   Notification          Notification[]
   RecentlyViewedProduct RecentlyViewedProduct[]
+
+  rating              BuyerRating?
+  replacementRequests ReplacementRequest[]
+  follows             BuyerSellerFollow[]
 }
 
 // --------------------------------------
@@ -396,10 +410,14 @@ model Stream {
   /// Set when we send the "time to go live" FCM for this scheduled stream (dedupe)
   goLiveReminderSentAt DateTime?
 
+  /// Persisted duration when stream ends (Phase 2 live reward)
+  durationSeconds Int?
+
   sellerId       String
   seller         Seller          @relation(fields: [sellerId], references: [id])
   streamProducts StreamProduct[]
   orders         Order[]
+  session        StreamSession?
   createdAt      DateTime        @default(now())
 }
 
@@ -463,6 +481,8 @@ model Order {
 
   items OrderItem[]
 
+  replacementRequests ReplacementRequest[]
+
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 }
@@ -509,4 +529,122 @@ model OrderItem {
   /// Matches `variants.items[].id` on Product when the line is a specific SKU
   variantId    String?
   variantLabel String?
+}
+
+// --------------------------------------
+// Phase 2: Trust, ratings, replacement, follow
+// --------------------------------------
+
+enum ReplacementStatus {
+  REQUESTED
+  PENDING_ADMIN_REVIEW
+  APPROVED
+  REJECTED
+  SHIPPED
+  DELIVERED
+}
+
+enum RatingEntityType {
+  BUYER
+  SELLER
+}
+
+model BuyerRating {
+  id               String   @id @default(uuid())
+  buyerId          String   @unique
+  buyer            Buyer    @relation(fields: [buyerId], references: [id], onDelete: Cascade)
+  score            Float    @default(5.0)
+  replacementCount Int      @default(0)
+  deliveredCount   Int      @default(0)
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+}
+
+model SellerRating {
+  id            String   @id @default(uuid())
+  sellerId      String   @unique
+  seller        Seller   @relation(fields: [sellerId], references: [id], onDelete: Cascade)
+  overall       Float    @default(5.0)
+  quality       Float    @default(5.0)
+  originality   Float    @default(5.0)
+  valueForMoney Float    @default(5.0)
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+}
+
+model RatingOverrideLog {
+  id          String           @id @default(uuid())
+  adminUserId String
+  admin       User             @relation(fields: [adminUserId], references: [id], onDelete: Cascade)
+  entityType  RatingEntityType
+  entityId    String
+  field       String
+  oldValue    Float
+  newValue    Float
+  reason      String?
+  createdAt   DateTime         @default(now())
+
+  @@index([entityType, entityId])
+  @@index([adminUserId, createdAt])
+}
+
+model ReplacementRequest {
+  id               String            @id @default(uuid())
+  orderId          String
+  order            Order             @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  buyerId          String
+  buyer            Buyer             @relation(fields: [buyerId], references: [id], onDelete: Cascade)
+  sellerId         String
+  seller           Seller            @relation(fields: [sellerId], references: [id], onDelete: Cascade)
+  orderItemId      String?
+  status           ReplacementStatus @default(REQUESTED)
+  reason           String            @db.Text
+  description      String?           @db.Text
+  photoUrls        String[]
+  adminNote        String?           @db.Text
+  autoApproved     Boolean           @default(false)
+  decidedAt        DateTime?
+  decidedByAdminId String?
+  createdAt        DateTime          @default(now())
+  updatedAt        DateTime          @updatedAt
+
+  @@index([sellerId, createdAt])
+  @@index([buyerId, createdAt])
+  @@index([status])
+  @@index([orderId])
+}
+
+model BuyerSellerFollow {
+  id        String   @id @default(uuid())
+  buyerId   String
+  buyer     Buyer    @relation(fields: [buyerId], references: [id], onDelete: Cascade)
+  sellerId  String
+  seller    Seller   @relation(fields: [sellerId], references: [id], onDelete: Cascade)
+  createdAt DateTime @default(now())
+
+  @@unique([buyerId, sellerId])
+  @@index([sellerId])
+}
+
+model SellerLiveQualificationDay {
+  id           String   @id @default(uuid())
+  sellerId     String
+  seller       Seller   @relation(fields: [sellerId], references: [id], onDelete: Cascade)
+  date         DateTime @db.Date
+  totalSeconds Int      @default(0)
+  qualified    Boolean  @default(false)
+
+  @@unique([sellerId, date])
+  @@index([sellerId, date])
+}
+
+model StreamSession {
+  id              String   @id @default(uuid())
+  streamId        String   @unique
+  stream          Stream   @relation(fields: [streamId], references: [id], onDelete: Cascade)
+  sellerId        String
+  durationSeconds Int
+  endedAt         DateTime
+
+  @@index([sellerId, endedAt])
 }

@@ -19,6 +19,7 @@ import {
 import { LiveKitService } from '../livekit/livekit.service';
 import { RedisService } from '../redis/redis.service';
 import { BuyerLiveBroadcastService } from '../notifications/buyer-live-broadcast.service';
+import { RatingsService } from '../ratings/ratings.service';
 
 const streamWithSellerInclude = {
   seller: {
@@ -42,6 +43,7 @@ export class StreamsService {
     private livekit: LiveKitService,
     private redis: RedisService,
     private buyerLiveBroadcast: BuyerLiveBroadcastService,
+    private ratings: RatingsService,
   ) {}
 
   private queueNotifyBuyersLiveStarted(stream: {
@@ -726,15 +728,31 @@ export class StreamsService {
       livekitEgressId: stream.livekitEgressId,
     });
     const endedAt = new Date();
+    const durationMs = Math.max(0, endedAt.getTime() - startedAt.getTime());
+    const durationSeconds = Math.round(durationMs / 1000);
     const updated = await this.prisma.stream.update({
       where: { id },
       data: {
         isLive: false,
         endedAt,
+        durationSeconds,
         ...finalizePatch,
       },
       include: streamWithSellerInclude,
     });
+    await this.prisma.streamSession.upsert({
+      where: { streamId: id },
+      create: {
+        streamId: id,
+        sellerId: stream.sellerId,
+        durationSeconds,
+        endedAt,
+      },
+      update: { durationSeconds, endedAt },
+    });
+    if (durationSeconds > 0) {
+      await this.ratings.recordStreamDuration(stream.sellerId, durationSeconds);
+    }
     if (wasLive) {
       this.queueNotifyBuyersLiveEnded(updated);
     }
@@ -1070,12 +1088,20 @@ export class StreamsService {
 
   async followSeller(streamId: string, userId: string) {
     const stream = await this.findOne(streamId);
+    if (!stream.isLive || stream.endedAt) {
+      throw new BadRequestException('You can only follow during a live stream');
+    }
     const sellerId = stream.seller?.id;
     if (!sellerId) throw new NotFoundException('Seller not found');
-    const raw = await this.redis.get(this.followsKey(userId));
-    const follows: string[] = raw ? JSON.parse(raw) : [];
-    if (!follows.includes(sellerId)) follows.push(sellerId);
-    await this.redis.set(this.followsKey(userId), JSON.stringify(follows));
+    const buyer = await this.prisma.buyer.findUnique({ where: { userId } });
+    if (!buyer) throw new NotFoundException('Buyer profile not found');
+    await this.prisma.buyerSellerFollow.upsert({
+      where: {
+        buyerId_sellerId: { buyerId: buyer.id, sellerId },
+      },
+      create: { buyerId: buyer.id, sellerId },
+      update: {},
+    });
     return { followed: true, sellerId };
   }
 

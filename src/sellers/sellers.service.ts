@@ -14,6 +14,7 @@ import { AddressType } from '@prisma/client';
 import { OrderStatus, VerificationStatus } from '@prisma/client';
 import { SupabaseStorageService } from '../storage/supabase-storage.service';
 import { FirebasePushService } from '../notifications/firebase-push.service';
+import { RatingsService } from '../ratings/ratings.service';
 
 const STORE_IMAGE_MIME_EXT: Record<string, string> = {
   'image/jpeg': '.jpg',
@@ -30,6 +31,7 @@ export class SellersService {
     private config: ConfigService,
     private supabaseStorage: SupabaseStorageService,
     private firebasePush: FirebasePushService,
+    private ratings: RatingsService,
   ) {}
 
   private async bestEffortPushToSellerUser(
@@ -151,13 +153,25 @@ export class SellersService {
           },
         },
         primaryCategory: { select: { id: true, name: true, slug: true } },
+        rating: true,
       },
     });
     if (!seller) throw new NotFoundException('Seller not found');
     const pickupAddresses = await this.prisma.address.findMany({
       where: { userId: seller.userId, type: 'PICKUP' },
     });
-    return { ...seller, pickupAddresses };
+    const [liveReward, replacementPercent, followers] = await Promise.all([
+      this.ratings.getLiveRewardStatus(seller.id),
+      this.ratings.getSellerReplacementPercent(seller.id),
+      this.prisma.buyerSellerFollow.count({ where: { sellerId: seller.id } }),
+    ]);
+    return {
+      ...seller,
+      pickupAddresses,
+      liveReward,
+      replacementPercent,
+      followers,
+    };
   }
 
   /** Admin: approve seller */
@@ -418,6 +432,11 @@ export class SellersService {
     const { revenueLast7Days, ordersLast7Days } =
       await this.getLast7DaysChartSeries(sellerOrderWhere);
 
+    const [followers, liveReward] = await Promise.all([
+      this.prisma.buyerSellerFollow.count({ where: { sellerId: seller.id } }),
+      this.ratings.getLiveRewardStatus(seller.id),
+    ]);
+
     const mapSession = (s: {
       id: string;
       title: string;
@@ -443,7 +462,8 @@ export class SellersService {
       todayOrders,
       totalOrders,
       liveViewersToday: 0,
-      followers: 0,
+      followers,
+      liveReward,
       revenueLast7Days,
       ordersLast7Days,
       /** All future scheduled streams (not yet live), oldest first */

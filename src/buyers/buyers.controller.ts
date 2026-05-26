@@ -123,4 +123,24 @@ export class BuyersController {
   ) {
     return this.buyersService.deleteAddress(req.user.id, id);
   }
+
+  @UseGuards(JwtAuthGuard)
+  @Get('following')
+  listFollowing(@Request() req: { user: { id: string } }) {
+    return this.buyersService.listFollowing(req.user.id);
+  }
+
+  @UseGuards(JwtAuthGuard)
+  @Delete('following/:sellerId')
+  unfollow(
+    @Request() req: { user: { id: string } },
+    @Param('sellerId') sellerId: string,
+  ) {
+    return this.buyersService.unfollow(req.user.id, sellerId);
+  }
+
+  @Get('sellers/:sellerId/public-profile')
+  getSellerPublicProfile(@Param('sellerId') sellerId: string) {
+    return this.buyersService.getSellerPublicProfile(sellerId);
+  }
 }

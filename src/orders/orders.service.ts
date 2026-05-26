@@ -28,11 +28,15 @@ import {
   findVariantItem,
   productHasVariantItems,
 } from '../products/product-variants.util';
+import { RatingsService } from '../ratings/ratings.service';
+
+const POST_LIVE_CART_HOURS = 24;
 
 type CartState = {
   items: CartItemDto[];
   streamId?: string;
   streamTitle?: string;
+  cartExpiresAt?: string;
 };
 
 @Injectable()
@@ -43,6 +47,7 @@ export class OrdersService {
     private config: ConfigService,
     private mockDelivery: MockDeliveryService,
     private borzo: BorzoService,
+    private ratings: RatingsService,
   ) {}
 
   private async assertStreamAndProducts(streamId: string, productIds: string[]) {
@@ -56,7 +61,15 @@ export class OrdersService {
     if (!stream.startedAt) {
       throw new BadRequestException('This stream has not started yet');
     }
-    if (!stream.isLive || stream.endedAt) {
+    if (!stream.isLive && stream.endedAt) {
+      const expiry = new Date(stream.endedAt);
+      expiry.setHours(expiry.getHours() + POST_LIVE_CART_HOURS);
+      if (new Date() > expiry) {
+        throw new BadRequestException(
+          'Your cart from this live stream has expired.',
+        );
+      }
+    } else if (!stream.isLive || stream.endedAt) {
       throw new BadRequestException(
         'This stream has ended; you cannot purchase from a replay.',
       );
@@ -98,12 +111,35 @@ export class OrdersService {
     }
   }
 
-  private async saveCartState(userId: string, state: CartState) {
-    await this.redis.set(this.cartKey(userId), JSON.stringify(state));
+  private async saveCartState(userId: string, state: CartState, ttlSeconds?: number) {
+    await this.redis.set(this.cartKey(userId), JSON.stringify(state), ttlSeconds);
+  }
+
+  private async syncCartExpiry(userId: string, streamId: string | undefined, state: CartState) {
+    if (!streamId) return state;
+    const stream = await this.prisma.stream.findUnique({
+      where: { id: streamId },
+      select: { endedAt: true, isLive: true },
+    });
+    if (!stream?.endedAt) return state;
+    const expires = new Date(stream.endedAt);
+    expires.setHours(expires.getHours() + POST_LIVE_CART_HOURS);
+    const next = { ...state, cartExpiresAt: expires.toISOString() };
+    const ttl = Math.max(1, Math.floor((expires.getTime() - Date.now()) / 1000));
+    if (ttl <= 0) {
+      await this.redis.del(this.cartKey(userId));
+      return { items: [] };
+    }
+    await this.saveCartState(userId, next, ttl);
+    return next;
   }
 
   async getCart(userId: string) {
-    const { items, streamId, streamTitle } = await this.loadCartState(userId);
+    let state = await this.loadCartState(userId);
+    if (state.streamId && state.items.length) {
+      state = await this.syncCartExpiry(userId, state.streamId, state);
+    }
+    const { items, streamId, streamTitle, cartExpiresAt } = state;
     if (!items.length) {
       return {
         items: [],
@@ -112,6 +148,8 @@ export class OrdersService {
         total: 0,
         streamId: null,
         streamTitle: null,
+        checkoutExpiresAt: null,
+        secondsRemaining: 0,
       };
     }
 
@@ -158,6 +196,29 @@ export class OrdersService {
     const shipping = subtotal > 0 ? 90 : 0;
     const total = subtotal + shipping;
 
+    let checkoutExpiresAt: string | null = cartExpiresAt ?? null;
+    let secondsRemaining = 0;
+    if (streamId && !checkoutExpiresAt) {
+      const stream = await this.prisma.stream.findUnique({
+        where: { id: streamId },
+        select: { endedAt: true, isLive: true },
+      });
+      if (stream?.endedAt) {
+        const expires = new Date(stream.endedAt);
+        expires.setHours(expires.getHours() + POST_LIVE_CART_HOURS);
+        checkoutExpiresAt = expires.toISOString();
+        secondsRemaining = Math.max(
+          0,
+          Math.floor((expires.getTime() - Date.now()) / 1000),
+        );
+      }
+    } else if (checkoutExpiresAt) {
+      secondsRemaining = Math.max(
+        0,
+        Math.floor((new Date(checkoutExpiresAt).getTime() - Date.now()) / 1000),
+      );
+    }
+
     return {
       items: normalized,
       subtotal,
@@ -165,6 +226,8 @@ export class OrdersService {
       total,
       streamId: streamId ?? null,
       streamTitle: streamTitle?.trim() || null,
+      checkoutExpiresAt,
+      secondsRemaining,
     };
   }
 
@@ -913,7 +976,7 @@ export class OrdersService {
       );
     }
 
-    return this.prisma.order.update({
+    const order = await this.prisma.order.update({
       where: { id: orderId },
       data: {
         status: OrderStatus.DELIVERED,
@@ -926,6 +989,10 @@ export class OrdersService {
         },
       },
     });
+    if (order.buyerId) {
+      await this.ratings.recordDeliveredOrder(order.buyerId);
+    }
+    return order;
   }
 
   /** Buyer: cancel own order. Only PENDING or PAID orders can be cancelled. Restores stock. */

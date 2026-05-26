@@ -13,6 +13,7 @@ import { RolesGuard } from '../auth/roles.guard';
 import { Roles } from '../auth/roles.decorator';
 import { SellerVerifiedGuard } from '../auth/seller-verified.guard';
 import { Role } from '@prisma/client';
+import { BuyerAccessGuard } from '../auth/buyer-access.guard';
 import { SupabaseStorageService } from '../storage/supabase-storage.service';
 
 @Controller('media')
@@ -47,6 +48,47 @@ export class MediaController {
             ? '.gif'
             : '.jpg';
       const objectKey = `vybekart-images/products/${req.user.id}/img-${Date.now()}-${Math.random()
+        .toString(16)
+        .slice(2)}${ext}`;
+      const { publicUrl } = await this.supabase.uploadPublicObject({
+        bucket,
+        objectKey,
+        contentType: mime,
+        bytes: f.buffer,
+        cacheControlSeconds: 60 * 60 * 24 * 30,
+        upsert: true,
+      });
+      urls.push(publicUrl);
+    }
+    return { urls };
+  }
+
+  @Post('buyer/images')
+  @UseGuards(JwtAuthGuard, BuyerAccessGuard)
+  @Roles(Role.BUYER)
+  @UseInterceptors(
+    FilesInterceptor('images', 4, {
+      limits: { fileSize: 8 * 1024 * 1024 },
+    }),
+  )
+  async uploadBuyerImages(
+    @Request() req: { user: { id: string } },
+    @UploadedFiles() files: Express.Multer.File[],
+  ) {
+    if (!files?.length) throw new BadRequestException('No images uploaded');
+    const bucket = this.supabase.publicBucket();
+    const urls: string[] = [];
+    for (const f of files) {
+      const mime = (f.mimetype ?? '').toLowerCase();
+      if (!mime.startsWith('image/')) {
+        throw new BadRequestException('Only image uploads are allowed');
+      }
+      const ext = mime.includes('png')
+        ? '.png'
+        : mime.includes('webp')
+          ? '.webp'
+          : '.jpg';
+      const objectKey = `vybekart-images/replacements/${req.user.id}/img-${Date.now()}-${Math.random()
         .toString(16)
         .slice(2)}${ext}`;
       const { publicUrl } = await this.supabase.uploadPublicObject({

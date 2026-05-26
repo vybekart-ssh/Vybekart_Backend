@@ -1,75 +1,17 @@
-1. Live view count color 
-2. Camera rotation 
-3. Make the screen bigger for seller partner
-4. State management for live streaming 
-5. Name vybekart on dashboard, explore page
-6. After seller exit live, please refresh live stream page.
-7. Seller scheduled live streams if not joined within 2 min delete the scheduled live stream. 
-8. Summary page addition for live stream ending. 
-9. like buttons, and other buttons please make it more fluent and fast. 
+VybeKart Phase 2 — documentation & implementation status
 
+  Product spec:     Testing/Phase2.md
+  Build playbook: Testing/Phase2-Implementation-Plan.md
 
-1. Logo (Border Blue)
-	VYBEKART name
-	Just Vybe It!
-	QR Code 
+Target: 14 May 2026
 
-14/05/2026
-1. Min duration 30min, min 10 live streams in 30 days. -> Per day 30 min live stream will be counted as 1 live stream
--> In seller dashboard add this card to show the status of live streaming. 
--> On reward 0% commission on sales will be applicable. 
+Implementation tracks:
+  [x] 0 Foundation — Prisma, migration, MailModule, Android expandable section
+  [x] 1 Ratings — backend module + admin override APIs
+  [x] 2 Replacement — backend flow + emails
+  [x] 3 Admin Users — Android tab + backend /admin/users/*
+  [x] 4 Live reward — stream duration + seller dashboard card (Android)
+  [x] 5 Post-live cart — 24h checkout (backend)
+  [x] 6 Follow — DB follow, live-only, Following page (Android)
 
-2. Replacement policy for customer 
--> Everyone is eligible for replacement.
--> within 7 days replacement 
--> replaceable only uptil 3 days. 
--> Store analysis of customer for replacement. 
-
-3. Seller partner rating
--> Overall rating (0/5)
--> Subratings
-	1. Quality
-	2. Originality (Live stream vs Actual)
-	3. Value for money
--> if multiple customers are replacing then seller partner is at fault -> send notification to admin(count keep 5) -> reduce by 2
-
-4. Followers and Following system implementation
--> Follow can be done from live stream only
--> Profile can be viewed from customer folllowers page. 
--> Fields -> 
-	1. Store logo
-	2. Store name + description
-	3. Rating
-	4. Replacement percentage
-
-5. Customer rating
--> will be for platform reference only 
--> (0/5) based on replacement ratio 
--> if 3 times replacing then customer -> send mail, decrease rating by 2 
-
-
-6. Only 24hr remain in cart, after that cart will get empty after live stream.
-
-7. Swipe up swipe down feature in live streaming.
-
-
-Payments: 
-
-Seller Product addition Summary: 
-MRP - 1000 
-Logistics - 75rs
-Payment Gateway - 2% (MRP+commission+logistics)
-Final Amount -> 1096.5
-Vybekart Commission - 5% (MRP - 5%) -> 950rs
-
-Vybekart Settlement Amounts: 
-1. 1096.5 received. 
-
-Settlement for Seller Partners: 
-1096.5 - 96.5 - 50  = 950rs
-
-
-**** Invoice Amazon Format
-
-
-
+Payments → Phase 3 (not started)

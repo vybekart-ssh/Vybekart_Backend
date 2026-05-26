@@ -85,6 +85,8 @@ export const envValidationSchema = Joi.object({
   MAIL_USER: Joi.string().optional(),
   MAIL_PASS: Joi.string().optional(),
   MAIL_FROM: Joi.string().optional(),
+  SUPPORT_EMAIL: Joi.string().email().optional(),
+  CONTACT_EMAIL: Joi.string().email().optional(),
   /** JSON string of Firebase service account (FCM server). Optional — push disabled if unset. */
   FIREBASE_SERVICE_ACCOUNT_JSON: Joi.string().optional(),
 

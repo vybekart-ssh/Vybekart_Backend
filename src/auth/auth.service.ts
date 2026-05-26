@@ -455,6 +455,12 @@ export class AuthService {
               },
             });
 
+        await tx.sellerRating.upsert({
+          where: { sellerId: seller.id },
+          create: { sellerId: seller.id },
+          update: {},
+        });
+
         // Ensure only one default PICKUP address.
         await tx.address.updateMany({
           where: { userId: user.id, type: 'PICKUP' },
@@ -572,6 +578,12 @@ export class AuthService {
                 userId: user.id,
               },
             });
+
+        await prisma.buyerRating.upsert({
+          where: { buyerId: buyer.id },
+          create: { buyerId: buyer.id },
+          update: {},
+        });
 
         return { user, buyer };
       });

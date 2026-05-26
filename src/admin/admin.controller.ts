@@ -93,4 +93,40 @@ export class AdminController {
   packingVideos(@Query('sellerId') sellerId?: string) {
     return this.adminService.listPackingVideos({ sellerId });
   }
+
+  @Get('users/buyers')
+  listBuyers(
+    @Query('q') q?: string,
+    @Query('page') page?: string,
+    @Query('limit') limit?: string,
+  ) {
+    return this.adminService.listBuyers(
+      q,
+      page ? parseInt(page, 10) : 1,
+      limit ? parseInt(limit, 10) : 20,
+    );
+  }
+
+  @Get('users/buyers/:id')
+  getBuyerDetail(@Param('id') id: string) {
+    return this.adminService.getBuyerDetail(id);
+  }
+
+  @Get('users/sellers')
+  listSellerDirectory(
+    @Query('q') q?: string,
+    @Query('page') page?: string,
+    @Query('limit') limit?: string,
+  ) {
+    return this.adminService.listSellerDirectory(
+      q,
+      page ? parseInt(page, 10) : 1,
+      limit ? parseInt(limit, 10) : 20,
+    );
+  }
+
+  @Get('users/sellers/:id')
+  getSellerUserDetail(@Param('id') id: string) {
+    return this.adminService.getSellerUserDetail(id);
+  }
 }

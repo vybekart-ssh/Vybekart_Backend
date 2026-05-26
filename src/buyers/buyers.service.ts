@@ -4,10 +4,14 @@ import { PrismaService } from '../prisma/prisma.service';
 import { UpdateBuyerProfileDto } from './dto/update-buyer-profile.dto';
 import { CreateAddressDto } from './dto/create-address.dto';
 import { UpdateAddressDto } from './dto/update-address.dto';
+import { RatingsService } from '../ratings/ratings.service';
 
 @Injectable()
 export class BuyersService {
-  constructor(private prisma: PrismaService) {}
+  constructor(
+    private prisma: PrismaService,
+    private ratings: RatingsService,
+  ) {}
 
   async findOne(userId: string) {
     const buyer = await this.prisma.buyer.findUnique({
@@ -328,5 +332,71 @@ export class BuyersService {
     if (!existing) throw new NotFoundException('Address not found');
     await this.prisma.address.delete({ where: { id: addressId } });
     return { success: true };
+  }
+
+  async listFollowing(userId: string) {
+    const buyer = await this.prisma.buyer.findUnique({ where: { userId } });
+    if (!buyer) throw new NotFoundException('Buyer profile not found');
+
+    const follows = await this.prisma.buyerSellerFollow.findMany({
+      where: { buyerId: buyer.id },
+      orderBy: { createdAt: 'desc' },
+      include: {
+        seller: {
+          select: {
+            id: true,
+            businessName: true,
+            description: true,
+            logoUrl: true,
+            rating: true,
+          },
+        },
+      },
+    });
+
+    const items = await Promise.all(
+      follows.map(async (f) => {
+        const replacementPercent = await this.ratings.getSellerReplacementPercent(
+          f.seller.id,
+        );
+        return {
+          sellerId: f.seller.id,
+          businessName: f.seller.businessName,
+          description: f.seller.description,
+          logoUrl: f.seller.logoUrl,
+          overall: f.seller.rating?.overall ?? 5,
+          replacementPercent,
+          followedAt: f.createdAt,
+        };
+      }),
+    );
+
+    return { items };
+  }
+
+  async unfollow(userId: string, sellerId: string) {
+    const buyer = await this.prisma.buyer.findUnique({ where: { userId } });
+    if (!buyer) throw new NotFoundException('Buyer profile not found');
+    await this.prisma.buyerSellerFollow.deleteMany({
+      where: { buyerId: buyer.id, sellerId },
+    });
+    return { unfollowed: true, sellerId };
+  }
+
+  async getSellerPublicProfile(sellerId: string) {
+    const seller = await this.prisma.seller.findUnique({
+      where: { id: sellerId },
+      select: {
+        id: true,
+        businessName: true,
+        description: true,
+        logoUrl: true,
+        bannerUrl: true,
+        status: true,
+      },
+    });
+    if (!seller) throw new NotFoundException('Seller not found');
+    const publicRating = await this.ratings.getSellerPublic(sellerId);
+    return { ...seller, ...publicRating };
   }
 }

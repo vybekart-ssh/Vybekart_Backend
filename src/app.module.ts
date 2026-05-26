@@ -31,6 +31,9 @@ import { WebhooksModule } from './webhooks/webhooks.module';
 import { ReportsModule } from './reports/reports.module';
 import { StorageModule } from './storage/storage.module';
 import { MediaModule } from './media/media.module';
+import { MailModule } from './mail/mail.module';
+import { RatingsModule } from './ratings/ratings.module';
+import { ReplacementsModule } from './replacements/replacements.module';
 
 @Module({
   imports: [
@@ -50,6 +53,9 @@ import { MediaModule } from './media/media.module';
     HealthModule,
     ReportsModule,
     RedisModule,
+    MailModule,
+    RatingsModule,
+    ReplacementsModule,
     LiveKitModule,
     WebhooksModule,
     AppConfigModule,
