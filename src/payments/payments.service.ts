@@ -1,5 +1,6 @@
 import {
   BadRequestException,
+  ForbiddenException,
   Injectable,
   Logger,
   ServiceUnavailableException,
@@ -24,6 +25,11 @@ type PendingPayment = {
   deliveryFee: number;
   deliveryProvider: string | null;
   streamId: string;
+};
+
+type RefundAttempt = {
+  status: 'REFUNDED' | 'REFUND_FAILED';
+  refundId?: string;
 };
 
 @Injectable()
@@ -75,6 +81,63 @@ export class PaymentsService {
       .digest('hex');
     if (expected !== signature) {
       throw new BadRequestException('Invalid payment signature');
+    }
+  }
+
+  private async attemptRefund(
+    paymentId: string,
+    amountPaise: number,
+  ): Promise<RefundAttempt> {
+    if (!this.razorpay) {
+      return { status: 'REFUND_FAILED' };
+    }
+    try {
+      const refund = await this.razorpay.payments.refund(paymentId, {
+        amount: amountPaise,
+        notes: { reason: 'checkout_failed_auto_refund' },
+      });
+      const refundId =
+        typeof refund === 'object' && refund !== null && 'id' in refund
+          ? String((refund as { id: string }).id)
+          : undefined;
+      this.logger.log(
+        `Auto-refund initiated payment=${paymentId} refundId=${refundId ?? 'unknown'} amountPaise=${amountPaise}`,
+      );
+      return { status: 'REFUNDED', refundId };
+    } catch (e) {
+      this.logger.error(
+        `Auto-refund failed payment=${paymentId} amountPaise=${amountPaise}`,
+        e instanceof Error ? e.stack : e,
+      );
+      return { status: 'REFUND_FAILED' };
+    }
+  }
+
+  private async recordCheckoutFailure(params: {
+    userId: string;
+    razorpayOrderId: string;
+    razorpayPaymentId: string;
+    amountPaise: number;
+    reason: string;
+    refund: RefundAttempt;
+  }): Promise<void> {
+    try {
+      await this.prisma.paymentCheckoutFailure.create({
+        data: {
+          userId: params.userId,
+          razorpayOrderId: params.razorpayOrderId,
+          razorpayPaymentId: params.razorpayPaymentId,
+          amountPaise: params.amountPaise,
+          reason: params.reason,
+          refundStatus: params.refund.status,
+          razorpayRefundId: params.refund.refundId ?? null,
+        },
+      });
+    } catch (e) {
+      this.logger.error(
+        `Failed to persist PaymentCheckoutFailure payment=${params.razorpayPaymentId}`,
+        e instanceof Error ? e.stack : e,
+      );
     }
   }
 
@@ -168,6 +231,20 @@ export class PaymentsService {
       return this.orders.toCheckoutResponse(existing);
     }
 
+    const priorFailure = await this.prisma.paymentCheckoutFailure.findUnique({
+      where: { razorpayPaymentId: dto.razorpayPaymentId },
+    });
+    if (priorFailure) {
+      if (priorFailure.refundStatus === 'REFUNDED') {
+        throw new BadRequestException(
+          'Your payment was refunded automatically because the order could not be completed. The refund should appear in 5–7 business days.',
+        );
+      }
+      throw new BadRequestException(
+        `We could not complete your order for this payment. Please contact support with payment ID: ${dto.razorpayPaymentId}`,
+      );
+    }
+
     const raw = await this.redis.get(this.pendingKey(dto.razorpayOrderId));
     if (!raw) {
       throw new BadRequestException(
@@ -192,26 +269,64 @@ export class PaymentsService {
       );
     }
 
-    const result = await this.orders.checkoutFromCart(
-      userId,
-      {
-        addressId: pending.addressId,
-        shippingAddress: pending.shippingAddress,
-        paymentMethod: 'RAZORPAY',
-      },
-      {
-        markPaid: true,
+    try {
+      const result = await this.orders.checkoutFromCart(
+        userId,
+        {
+          addressId: pending.addressId,
+          shippingAddress: pending.shippingAddress,
+          paymentMethod: 'RAZORPAY',
+        },
+        {
+          markPaid: true,
+          razorpayOrderId: dto.razorpayOrderId,
+          razorpayPaymentId: dto.razorpayPaymentId,
+          deliveryFee: pending.deliveryFee,
+          deliveryProvider: pending.deliveryProvider,
+        },
+      );
+
+      await this.redis.del(this.pendingKey(dto.razorpayOrderId));
+      this.logger.log(
+        `Razorpay checkout completed user=${userId} order=${result.orderId} payment=${dto.razorpayPaymentId}`,
+      );
+      return result;
+    } catch (err) {
+      const reason =
+        err instanceof BadRequestException || err instanceof ForbiddenException
+          ? err.message
+          : err instanceof Error
+            ? err.message
+            : String(err);
+
+      this.logger.error(
+        `Checkout failed after Razorpay capture user=${userId} rzOrder=${dto.razorpayOrderId} payment=${dto.razorpayPaymentId} reason=${reason}`,
+        err instanceof Error ? err.stack : undefined,
+      );
+
+      const refund = await this.attemptRefund(
+        dto.razorpayPaymentId,
+        pending.amountPaise,
+      );
+
+      await this.recordCheckoutFailure({
+        userId,
         razorpayOrderId: dto.razorpayOrderId,
         razorpayPaymentId: dto.razorpayPaymentId,
-        deliveryFee: pending.deliveryFee,
-        deliveryProvider: pending.deliveryProvider,
-      },
-    );
+        amountPaise: pending.amountPaise,
+        reason,
+        refund,
+      });
 
-    await this.redis.del(this.pendingKey(dto.razorpayOrderId));
-    this.logger.log(
-      `Razorpay checkout completed user=${userId} order=${result.orderId} payment=${dto.razorpayPaymentId}`,
-    );
-    return result;
+      if (refund.status === 'REFUNDED') {
+        throw new BadRequestException(
+          'Payment received but we could not place your order. A full refund has been initiated and should reflect in 5–7 business days.',
+        );
+      }
+
+      throw new BadRequestException(
+        `Payment received but we could not place your order. Our team will process a refund shortly — contact support with payment ID: ${dto.razorpayPaymentId}`,
+      );
+    }
   }
 }

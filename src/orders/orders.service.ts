@@ -86,10 +86,114 @@ export class OrdersService {
       );
     }
     const allowed = new Set(stream.streamProducts.map((sp) => sp.productId));
-    for (const pid of productIds) {
+    const uniqueIds = [...new Set(productIds)];
+    for (const pid of uniqueIds) {
       if (!allowed.has(pid)) {
         throw new BadRequestException(
           `Product is not part of this live stream listing`,
+        );
+      }
+    }
+  }
+
+  /**
+   * Validates cart lines can become an order (products, variants, stock, stream).
+   * Must run before Razorpay opens and again at checkout.
+   */
+  async validateCartForCheckout(userId: string): Promise<void> {
+    const rawState = await this.loadCartForUser(userId);
+    if (!rawState.items.length) {
+      throw new BadRequestException('Cart is empty');
+    }
+    if (!rawState.streamId) {
+      throw new BadRequestException(
+        'Checkout requires a live stream context. Add items from a live.',
+      );
+    }
+
+    const cart = await this.getCart(userId);
+    if (!cart.items.length) {
+      throw new BadRequestException('Cart is empty');
+    }
+    if (cart.items.length !== rawState.items.length) {
+      throw new BadRequestException(
+        'One or more products in your cart are no longer available. Please update your cart.',
+      );
+    }
+
+    const buyer = await this.prisma.buyer.findUnique({ where: { userId } });
+    if (!buyer) {
+      throw new ForbiddenException('User is not a registered buyer');
+    }
+
+    await this.validateOrderItems(
+      rawState.streamId,
+      cart.items.map((i) => ({
+        productId: i.productId,
+        quantity: i.quantity,
+        variantId: i.variantId,
+        variantLabel: i.variantLabel,
+      })),
+    );
+  }
+
+  private async validateOrderItems(
+    streamId: string,
+    items: Array<{
+      productId: string;
+      quantity: number;
+      variantId?: string;
+      variantLabel?: string;
+    }>,
+  ): Promise<void> {
+    if (!items.length) {
+      throw new BadRequestException('Order must have at least one item');
+    }
+
+    const uniqueProductIds = [...new Set(items.map((i) => i.productId))];
+    await this.assertStreamAndProducts(streamId, uniqueProductIds);
+
+    const products = await this.prisma.product.findMany({
+      where: { id: { in: uniqueProductIds } },
+      include: { seller: true },
+    });
+    if (products.length !== uniqueProductIds.length) {
+      const found = new Set(products.map((p) => p.id));
+      const missing = uniqueProductIds.filter((id) => !found.has(id));
+      throw new BadRequestException(
+        missing.length
+          ? `One or more products not found: ${missing.join(', ')}`
+          : 'One or more products not found',
+      );
+    }
+
+    const productMap = new Map(products.map((p) => [p.id, p]));
+    for (const item of items) {
+      const product = productMap.get(item.productId);
+      if (!product) {
+        throw new BadRequestException(`Product ${item.productId} not found`);
+      }
+      const hasVariants = productHasVariantItems(product.variants);
+      if (hasVariants) {
+        if (!item.variantId?.trim()) {
+          throw new BadRequestException(
+            `variantId is required for product ${product.name}`,
+          );
+        }
+        const v = findVariantItem(product.variants, item.variantId);
+        if (!v) {
+          throw new BadRequestException(
+            `Invalid variant for product ${product.name}`,
+          );
+        }
+        if (v.stock < item.quantity) {
+          throw new BadRequestException(
+            `Insufficient stock for ${product.name} (${v.label}). Available: ${v.stock}`,
+          );
+        }
+      } else if (product.stock < item.quantity) {
+        throw new BadRequestException(
+          `Insufficient stock for product ${product.name}. Available: ${product.stock}`,
         );
       }
     }
@@ -592,6 +696,8 @@ export class OrdersService {
    * Call before opening Razorpay so payment success never hits a failed checkout.
    */
   async prepareCheckoutForPayment(userId: string, addressId: string) {
+    await this.validateCartForCheckout(userId);
+
     const cart = await this.getCart(userId);
     if (!cart.items.length) {
       throw new BadRequestException('Cart is empty');
@@ -690,6 +796,8 @@ export class OrdersService {
     if (!options?.markPaid) {
       this.assertDirectCheckoutAllowed();
     }
+
+    await this.validateCartForCheckout(userId);
 
     const cart = await this.getCart(userId);
     if (!cart.items.length) {
@@ -872,20 +980,14 @@ export class OrdersService {
         'Orders are only allowed from a live stream (streamId is required).',
       );
     }
-    await this.assertStreamAndProducts(
-      dto.streamId,
-      dto.items.map((i) => i.productId),
-    );
 
-    const productIds = dto.items.map((i) => i.productId);
+    await this.validateOrderItems(dto.streamId, dto.items);
+
+    const uniqueProductIds = [...new Set(dto.items.map((i) => i.productId))];
     const products = await this.prisma.product.findMany({
-      where: { id: { in: productIds } },
+      where: { id: { in: uniqueProductIds } },
       include: { seller: true },
     });
-    if (products.length !== productIds.length) {
-      throw new BadRequestException('One or more products not found');
-    }
-
     const productMap = new Map(products.map((p) => [p.id, p]));
     let totalAmount = 0;
     const orderItemsData: {
@@ -897,34 +999,15 @@ export class OrdersService {
     }[] = [];
 
     for (const item of dto.items) {
-      const product = productMap.get(item.productId);
-      if (!product)
-        throw new BadRequestException(`Product ${item.productId} not found`);
+      const product = productMap.get(item.productId)!;
       const hasVariants = productHasVariantItems(product.variants);
       let linePrice = product.price;
       let variantId: string | null = item.variantId?.trim() ?? null;
       let variantLabel: string | null = item.variantLabel?.trim() ?? null;
       if (hasVariants) {
-        if (!item.variantId?.trim()) {
-          throw new BadRequestException(
-            `variantId is required for product ${product.name}`,
-          );
-        }
-        const v = findVariantItem(product.variants, item.variantId);
-        if (!v) {
-          throw new BadRequestException('Invalid variant on order line');
-        }
-        linePrice = v.sellingPrice;
-        variantLabel = v.label;
-        if (v.stock < item.quantity) {
-          throw new BadRequestException(
-            `Insufficient stock for ${product.name} (${v.label}). Available: ${v.stock}`,
-          );
-        }
-      } else if (product.stock < item.quantity) {
-        throw new BadRequestException(
-          `Insufficient stock for product ${product.name}. Available: ${product.stock}`,
-        );
+        const v = findVariantItem(product.variants, item.variantId!);
+        linePrice = v!.sellingPrice;
+        variantLabel = v!.label;
       }
       totalAmount += linePrice * item.quantity;
       orderItemsData.push({

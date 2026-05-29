@@ -501,6 +501,23 @@ enum OrderStatus {
   RETURNED
 }
 
+/// Razorpay captured but order placement failed (auto-refund audit trail).
+model PaymentCheckoutFailure {
+  id                String   @id @default(uuid())
+  userId            String
+  razorpayOrderId   String
+  razorpayPaymentId String   @unique
+  amountPaise       Int
+  reason            String   @db.Text
+  /// REFUNDED | REFUND_FAILED
+  refundStatus      String?
+  razorpayRefundId  String?
+  createdAt         DateTime @default(now())
+
+  @@index([userId, createdAt])
+  @@index([razorpayOrderId])
+}
+
 // --------------------------------------
 // Support Module
 // --------------------------------------
