@@ -3,6 +3,7 @@ import {
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
 import {
   OrderStatus,
   ReplacementStatus,
@@ -13,6 +14,11 @@ import { MailService } from '../mail/mail.service';
 import { RatingsService } from '../ratings/ratings.service';
 import { CreateReplacementDto } from './dto/create-replacement.dto';
 import { DecideReplacementDto } from './dto/decide-replacement.dto';
+import {
+  buildVybeKartMailShellHtml,
+  escapeHtml,
+  getVybeKartMailBranding,
+} from '../mail/templates/vybekart-email-layout';
 
 const SUBMIT_DAYS = 3;
 const AUTO_APPROVE_MIN_SCORE = 3;
@@ -23,6 +29,7 @@ export class ReplacementsService {
     private readonly prisma: PrismaService,
     private readonly mail: MailService,
     private readonly ratings: RatingsService,
+    private readonly config: ConfigService,
   ) {}
 
   async createForOrder(userId: string, orderId: string, dto: CreateReplacementDto) {
@@ -344,9 +351,23 @@ export class ReplacementsService {
     req: { buyer: { user: { email: string; name: string } }; id: string },
   ) {
     if (!req.buyer.user.email) return;
+    const branding = getVybeKartMailBranding(this.config);
+    const name = escapeHtml(req.buyer.user.name);
+    const html = buildVybeKartMailShellHtml({
+      branding,
+      recipientEmail: req.buyer.user.email,
+      headerBadge: 'Replacement',
+      headerTitle: 'We received your request',
+      headerSubtitle: 'Our team is reviewing it now',
+      bodyHtml: `<p style="margin:0 0 16px;font-size:16px;color:#334155;line-height:1.55;">Hi ${name},</p>
+        <p style="margin:0 0 16px;font-size:15px;color:#334155;line-height:1.55;">We received your <strong>replacement request</strong> and it is under review. You will receive another email once it is confirmed.</p>
+        <p style="margin:0;font-size:13px;color:#64748b;">Reference: ${escapeHtml(req.id)}</p>`,
+      whyReceivedHtml:
+        'You submitted a replacement request on VybeKart for a recent order.',
+    });
     await this.mail.sendToBuyer(req.buyer.user.email, {
       subject: 'VybeKart — replacement request received',
-      html: `<p>Hi ${req.buyer.user.name},</p><p>We received your replacement request and it is under review. You will receive another email once it is confirmed.</p><p>— VybeKart</p>`,
+      html,
       text: `Hi ${req.buyer.user.name},\n\nYour replacement request is under process. We will confirm shortly.\n\n— VybeKart`,
     });
   }
@@ -355,9 +376,22 @@ export class ReplacementsService {
     req: { buyer: { user: { email: string; name: string } }; id: string },
   ) {
     if (!req.buyer.user.email) return;
+    const branding = getVybeKartMailBranding(this.config);
+    const name = escapeHtml(req.buyer.user.name);
+    const html = buildVybeKartMailShellHtml({
+      branding,
+      recipientEmail: req.buyer.user.email,
+      headerBadge: 'Replacement',
+      headerTitle: 'Replacement approved!',
+      headerSubtitle: 'Your seller will ship soon',
+      bodyHtml: `<p style="margin:0 0 16px;font-size:16px;color:#334155;line-height:1.55;">Hi ${name},</p>
+        <p style="margin:0;font-size:15px;color:#334155;line-height:1.55;">Your replacement request has been <strong>approved</strong> and is being processed. The seller will ship your replacement item soon.</p>`,
+      whyReceivedHtml:
+        'Your VybeKart replacement request was approved by our team or seller.',
+    });
     await this.mail.sendToBuyer(req.buyer.user.email, {
       subject: 'VybeKart — replacement initiated',
-      html: `<p>Hi ${req.buyer.user.name},</p><p>Your replacement request has been approved and is being processed. The seller will ship your replacement item soon.</p><p>— VybeKart</p>`,
+      html,
       text: `Hi ${req.buyer.user.name},\n\nYour replacement has been approved and initiated.\n\n— VybeKart`,
     });
   }

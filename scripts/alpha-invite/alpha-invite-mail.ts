@@ -141,6 +141,7 @@ export function buildAlphaInviteHtml(
   row: RegistrationRow,
   b: AlphaInviteBranding,
 ): string {
+  const fn = firstName(row.name);
   const intro = personalizedIntro(row, b);
   const isSeller = row.registration_type === 'seller';
   const primaryUrl = isSeller ? (b.sellerUrl || b.driveUrl) : b.driveUrl;
@@ -155,7 +156,7 @@ export function buildAlphaInviteHtml(
               <p style="margin:0 0 16px;font-size:16px;line-height:1.6;color:#1A1D24;">This is an <strong>alpha</strong> build, so you may notice a few rough edges. <strong>If the app takes a little longer to open</strong>, please wait a minute and then restart the application—it should work fine. Please use the <strong>Feedback</strong> option inside the app (Profile / Help area) to tell us what worked, what didn’t, and what you want next—your input directly shapes VybeKart.</p>
               <table role="presentation" cellspacing="0" cellpadding="0" style="margin:24px 0;">
                 <tr>
-                  <td style="border-radius:8px;background:#1E88E5;">
+                  <td style="border-radius:10px;background:linear-gradient(135deg,#FF8A50,#FF5722);">
                     <a href="${escapeHtml(primaryUrl)}" style="display:inline-block;padding:14px 28px;color:#FFFFFF;text-decoration:none;font-size:16px;font-weight:600;">${escapeHtml(primaryLabel)}</a>
                   </td>
                 </tr>
@@ -166,6 +167,9 @@ export function buildAlphaInviteHtml(
   return buildVybeKartMailShellHtml({
     branding: b,
     recipientEmail: row.email,
+    headerBadge: 'Early access',
+    headerTitle: `Welcome aboard, ${fn}!`,
+    headerSubtitle: 'Your VybeKart alpha invite is here',
     bodyHtml: innerBody,
     whyReceivedHtml: `You submitted an early-access or pre-registration form on vybekart.co.in. This message is a one-time product update with download instructions.`,
     postLinksHtml:

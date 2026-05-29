@@ -76,6 +76,9 @@ export function buildOtpRegistrationAnnouncementHtml(
   return buildVybeKartMailShellHtml({
     branding: b,
     recipientEmail: p.recipientEmail,
+    headerBadge: 'Registration',
+    headerTitle: 'Complete your VybeKart signup',
+    headerSubtitle: `Hi ${first} — use your OTP below`,
     bodyHtml: bodyInnerHtml(b, first, otp),
     whyReceivedHtml: `You are on our early-access list for VybeKart (seller partner or buyer). This email explains how to complete app registration using the shared OTP for this phase.`,
     postLinksHtml:

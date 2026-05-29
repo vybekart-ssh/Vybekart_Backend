@@ -127,7 +127,7 @@ export function buildBuyerOrderConfirmationEmail(
     ])}
     ${lineItemsHtml(order.items)}
     ${totalsBlock(order.subtotal, order.deliveryFee, order.totalAmount)}
-    <p style="margin:0;font-size:13px;color:#64748b;line-height:1.5;">Track your order in the VybeKart app under <strong>Orders</strong>. For help, email <a href="mailto:${escapeHtml(branding.supportEmail)}" style="color:#1565C0;">${escapeHtml(branding.supportEmail)}</a>.</p>
+    <p style="margin:0;font-size:13px;color:#64748b;line-height:1.5;">Track your order in the VybeKart app under <strong>Orders</strong>. For help, email <a href="mailto:${escapeHtml(branding.supportEmail)}" style="color:#FF5722;font-weight:600;">${escapeHtml(branding.supportEmail)}</a>.</p>
   `;
 
   const html = buildVybeKartMailShellHtml({
