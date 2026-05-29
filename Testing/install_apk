@@ -1,2 +1,11 @@
 cd D:\Vybekart\VybekartAndroid
 & "$env:LOCALAPPDATA\Android\Sdk\platform-tools\adb.exe" -s adb-13903681760001J-KFYDJz._adb-tls-connect._tcp install -r app\build\outputs\apk\debug\app-debug.apk
+
+//For adding items into cart for redis 
+46bfc57d-1a29-4934-8962-376798367ff7	S	99
+c116d172-8e3e-4696-931d-d9fe79ccb0a1	M	100
+f7c3e2c2-82c4-4ead-984c-62aa1259b185	L	100
+623538c4-8ff1-4ecb-a7d8-ae7611d98082	XL	100
+
+
+SET orders:cart:c2cc6297-fc50-41b9-930d-2e9676db739b "{\"items\":[{\"productId\":\"2a176666-4485-47b4-887f-6f713f71edcd\",\"quantity\":1,\"variantId\":\"46bfc57d-1a29-4934-8962-376798367ff7\",\"variantLabel\":\"S\"},{\"productId\":\"2a176666-4485-47b4-887f-6f713f71edcd\",\"quantity\":1,\"variantId\":\"c116d172-8e3e-4696-931d-d9fe79ccb0a1\",\"variantLabel\":\"M\"},{\"productId\":\"2a176666-4485-47b4-887f-6f713f71edcd\",\"quantity\":1,\"variantId\":\"f7c3e2c2-82c4-4ead-984c-62aa1259b185\",\"variantLabel\":\"L\"},{\"productId\":\"2a176666-4485-47b4-887f-6f713f71edcd\",\"quantity\":1,\"variantId\":\"623538c4-8ff1-4ecb-a7d8-ae7611d98082\",\"variantLabel\":\"XL\"}],\"streamId\":\"65f77a11-86a0-4c00-9c04-fd4964e49962\",\"streamTitle\":\"My live show\",\"cartExpiresAt\":\"2026-06-15T23:59:59.000Z\",\"cartUpdatedAt\":\"2026-05-29T12:00:00.000Z\"}" EX 86400
