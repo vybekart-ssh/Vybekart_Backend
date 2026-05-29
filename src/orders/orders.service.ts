@@ -570,8 +570,26 @@ export class OrdersService {
     return this.getCart(userId);
   }
 
-  /** Subtotal + delivery + total for Razorpay order creation. */
-  async getCheckoutTotals(userId: string, addressId?: string) {
+  /** Resolve buyer shipping address (any type on file for this user). */
+  async resolveShippingAddressOrThrow(userId: string, addressId: string) {
+    const id = addressId?.trim();
+    if (!id) {
+      throw new BadRequestException('Shipping address is required');
+    }
+    const addr = await this.prisma.address.findFirst({
+      where: { id, userId },
+    });
+    if (!addr) {
+      throw new BadRequestException('Shipping address not found');
+    }
+    return { addr, formatted: formatAddressLine(addr) };
+  }
+
+  /**
+   * Full pre-payment validation: cart, stream, address, delivery quote, totals.
+   * Call before opening Razorpay so payment success never hits a failed checkout.
+   */
+  async prepareCheckoutForPayment(userId: string, addressId: string) {
     const cart = await this.getCart(userId);
     if (!cart.items.length) {
       throw new BadRequestException('Cart is empty');
@@ -582,21 +600,48 @@ export class OrdersService {
         'Checkout requires a live stream context. Add items from a live.',
       );
     }
-    const subtotal = cart.subtotal ?? 0;
-    let deliveryFee = cart.shipping ?? 0;
-    if (addressId) {
-      try {
-        const quote = await this.getDeliveryQuoteFromCart(userId, addressId);
-        deliveryFee = quote?.fee ?? 0;
-      } catch {
-        deliveryFee = 0;
-      }
+
+    const { formatted: shippingAddress } =
+      await this.resolveShippingAddressOrThrow(userId, addressId);
+
+    let deliveryFee = 0;
+    let deliveryProvider: string | null = null;
+    try {
+      const quote = await this.getDeliveryQuoteFromCart(userId, addressId);
+      deliveryFee = quote?.fee ?? 0;
+      deliveryProvider = quote?.provider ?? null;
+    } catch (e) {
+      if (e instanceof BadRequestException) throw e;
+      deliveryFee = 0;
     }
+
+    const subtotal = cart.subtotal ?? 0;
+    const total = subtotal + deliveryFee;
+    if (total <= 0) {
+      throw new BadRequestException('Cart total must be greater than zero');
+    }
+
     return {
       subtotal,
       deliveryFee,
-      total: subtotal + deliveryFee,
+      total,
       streamId,
+      shippingAddress,
+      deliveryProvider,
+    };
+  }
+
+  /** Subtotal + delivery + total for Razorpay order creation. */
+  async getCheckoutTotals(userId: string, addressId?: string) {
+    if (!addressId?.trim()) {
+      throw new BadRequestException('Shipping address is required');
+    }
+    const prep = await this.prepareCheckoutForPayment(userId, addressId);
+    return {
+      subtotal: prep.subtotal,
+      deliveryFee: prep.deliveryFee,
+      total: prep.total,
+      streamId: prep.streamId,
     };
   }
 
@@ -635,6 +680,9 @@ export class OrdersService {
       markPaid?: boolean;
       razorpayOrderId?: string;
       razorpayPaymentId?: string;
+      /** When set (Razorpay verify), skip re-quote and use this fee. */
+      deliveryFee?: number;
+      deliveryProvider?: string | null;
     },
   ) {
     if (!options?.markPaid) {
@@ -662,30 +710,34 @@ export class OrdersService {
       streamId,
     };
 
-    // Prefer structured address id.
-    if (dto.addressId) {
-      const addr = await this.prisma.address.findFirst({
-        where: { id: dto.addressId, userId, type: AddressType.SHIPPING },
-      });
-      if (!addr) throw new BadRequestException('Shipping address not found');
-      createDto.shippingAddress = formatAddressLine(addr);
+    if (dto.addressId?.trim()) {
+      const { formatted } = await this.resolveShippingAddressOrThrow(
+        userId,
+        dto.addressId,
+      );
+      createDto.shippingAddress = formatted;
+    } else if (!dto.shippingAddress?.trim()) {
+      throw new BadRequestException('Shipping address is required');
     }
 
-    // Delivery fee (charged to buyer) — calculated from cart context
-    const quote = dto.addressId
-      ? await this.getDeliveryQuoteFromCart(userId, dto.addressId)
-      : null;
+    const quote =
+      dto.addressId?.trim() && options?.deliveryFee === undefined
+        ? await this.getDeliveryQuoteFromCart(userId, dto.addressId).catch(
+            () => null,
+          )
+        : null;
 
     const order = await this.create(createDto, userId);
     if (!order) {
       throw new BadRequestException('Order creation failed');
     }
 
-    const deliveryFee = quote?.fee ?? 0;
+    const deliveryFee = options?.deliveryFee ?? quote?.fee ?? 0;
     const updateData: Prisma.OrderUpdateInput = {};
     if (deliveryFee > 0) {
       updateData.deliveryFee = deliveryFee;
-      updateData.deliveryProvider = quote?.provider ?? undefined;
+      updateData.deliveryProvider =
+        options?.deliveryProvider ?? quote?.provider ?? undefined;
       updateData.totalAmount = order.totalAmount + deliveryFee;
     }
     if (options?.markPaid) {
@@ -735,7 +787,7 @@ export class OrdersService {
     }
 
     const buyerAddr = await this.prisma.address.findFirst({
-      where: { id: addressId, userId, type: AddressType.SHIPPING },
+      where: { id: addressId, userId },
     });
     if (!buyerAddr) throw new BadRequestException('Shipping address not found');
 

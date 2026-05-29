@@ -1,5 +1,6 @@
-import { IsOptional, IsString, IsUUID } from 'class-validator';
+import { IsString } from 'class-validator';
 
+/** Address/cart context is read from the server payment session (Redis), not the client. */
 export class VerifyRazorpayPaymentDto {
   @IsString()
   razorpayOrderId!: string;
@@ -9,12 +10,4 @@ export class VerifyRazorpayPaymentDto {
 
   @IsString()
   razorpaySignature!: string;
-
-  @IsUUID()
-  @IsOptional()
-  addressId?: string;
-
-  @IsString()
-  @IsOptional()
-  shippingAddress?: string;
 }

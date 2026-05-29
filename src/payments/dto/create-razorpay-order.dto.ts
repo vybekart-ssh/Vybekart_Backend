@@ -1,11 +1,6 @@
-import { IsOptional, IsString, IsUUID } from 'class-validator';
+import { IsUUID } from 'class-validator';
 
 export class CreateRazorpayOrderDto {
   @IsUUID()
-  @IsOptional()
-  addressId?: string;
-
-  @IsString()
-  @IsOptional()
-  shippingAddress?: string;
+  addressId!: string;
 }

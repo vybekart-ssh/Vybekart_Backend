@@ -17,9 +17,13 @@ const PENDING_TTL_SECONDS = 30 * 60;
 
 type PendingPayment = {
   userId: string;
-  addressId?: string;
-  shippingAddress?: string;
+  addressId: string;
+  shippingAddress: string;
   amountPaise: number;
+  subtotal: number;
+  deliveryFee: number;
+  deliveryProvider: string | null;
+  streamId: string;
 };
 
 @Injectable()
@@ -81,12 +85,12 @@ export class PaymentsService {
       );
     }
 
-    const totals = await this.orders.getCheckoutTotals(userId, dto.addressId);
-    if (totals.total <= 0) {
-      throw new BadRequestException('Cart total must be greater than zero');
-    }
+    const prep = await this.orders.prepareCheckoutForPayment(
+      userId,
+      dto.addressId,
+    );
 
-    const amountPaise = Math.round(totals.total * 100);
+    const amountPaise = Math.round(prep.total * 100);
     if (amountPaise < 100) {
       throw new BadRequestException('Minimum payable amount is ₹1');
     }
@@ -98,15 +102,20 @@ export class PaymentsService {
       receipt,
       notes: {
         userId,
-        streamId: totals.streamId ?? '',
+        streamId: prep.streamId,
+        addressId: dto.addressId,
       },
     });
 
     const pending: PendingPayment = {
       userId,
       addressId: dto.addressId,
-      shippingAddress: dto.shippingAddress,
+      shippingAddress: prep.shippingAddress,
       amountPaise,
+      subtotal: prep.subtotal,
+      deliveryFee: prep.deliveryFee,
+      deliveryProvider: prep.deliveryProvider,
+      streamId: prep.streamId,
     };
     await this.redis.set(
       this.pendingKey(rzOrder.id),
@@ -119,14 +128,18 @@ export class PaymentsService {
       select: { name: true, email: true, phone: true },
     });
 
+    this.logger.log(
+      `Razorpay order created user=${userId} rz=${rzOrder.id} address=${dto.addressId} total=${prep.total}`,
+    );
+
     return {
       razorpayOrderId: rzOrder.id,
       amount: amountPaise,
       currency: 'INR',
       keyId: this.config.get<string>('RAZORPAY_KEY_ID'),
-      subtotal: totals.subtotal,
-      deliveryFee: totals.deliveryFee,
-      total: totals.total,
+      subtotal: prep.subtotal,
+      deliveryFee: prep.deliveryFee,
+      total: prep.total,
       prefill: {
         name: user?.name ?? '',
         email: user?.email ?? '',
@@ -173,20 +186,25 @@ export class PaymentsService {
       throw new BadRequestException('Payment does not belong to this account');
     }
 
-    const addressId = dto.addressId ?? pending.addressId;
-    const shippingAddress = dto.shippingAddress ?? pending.shippingAddress;
+    if (!pending.addressId || !pending.shippingAddress) {
+      throw new BadRequestException(
+        'Payment session is missing address. Please checkout again.',
+      );
+    }
 
     const result = await this.orders.checkoutFromCart(
       userId,
       {
-        addressId,
-        shippingAddress,
+        addressId: pending.addressId,
+        shippingAddress: pending.shippingAddress,
         paymentMethod: 'RAZORPAY',
       },
       {
         markPaid: true,
         razorpayOrderId: dto.razorpayOrderId,
         razorpayPaymentId: dto.razorpayPaymentId,
+        deliveryFee: pending.deliveryFee,
+        deliveryProvider: pending.deliveryProvider,
       },
     );
 
