@@ -3,6 +3,7 @@ import {
   NotFoundException,
   ForbiddenException,
   BadRequestException,
+  Logger,
 } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import { CreateOrderDto } from './dto/create-order.dto';
@@ -37,10 +38,13 @@ type CartState = {
   streamId?: string;
   streamTitle?: string;
   cartExpiresAt?: string;
+  cartUpdatedAt?: string;
 };
 
 @Injectable()
 export class OrdersService {
+  private readonly logger = new Logger(OrdersService.name);
+
   constructor(
     private prisma: PrismaService,
     private redis: RedisService,
@@ -69,9 +73,14 @@ export class OrdersService {
           'Your cart from this live stream has expired.',
         );
       }
-    } else if (!stream.isLive || stream.endedAt) {
+      // Within 24h post-live window — allow checkout.
+    } else if (!stream.isLive) {
       throw new BadRequestException(
         'This stream has ended; you cannot purchase from a replay.',
+      );
+    } else if (stream.endedAt && stream.isLive) {
+      throw new BadRequestException(
+        'This stream is no longer available for checkout.',
       );
     }
     const allowed = new Set(stream.streamProducts.map((sp) => sp.productId));
@@ -94,51 +103,245 @@ export class OrdersService {
     try {
       const parsed = JSON.parse(raw) as unknown;
       if (Array.isArray(parsed)) {
-        return { items: parsed as CartItemDto[] };
+        this.logger.warn(
+          `Legacy cart array format for userId=${userId} — will expire on next enforce`,
+        );
+        return {
+          items: parsed as CartItemDto[],
+          cartUpdatedAt: new Date(0).toISOString(),
+        };
       }
-      const o = parsed as {
-        items?: CartItemDto[];
-        streamId?: string;
-        streamTitle?: string;
-      };
+      const o = parsed as CartState;
       return {
         items: o.items ?? [],
         streamId: o.streamId,
         streamTitle: o.streamTitle,
+        cartExpiresAt: o.cartExpiresAt,
+        cartUpdatedAt: o.cartUpdatedAt,
       };
     } catch {
       return { items: [] };
     }
   }
 
-  private async saveCartState(userId: string, state: CartState, ttlSeconds?: number) {
-    await this.redis.set(this.cartKey(userId), JSON.stringify(state), ttlSeconds);
+  private streamCartIndexKey(streamId: string): string {
+    return this.redis.streamCartHoldersKey(streamId);
   }
 
-  private async syncCartExpiry(userId: string, streamId: string | undefined, state: CartState) {
-    if (!streamId) return state;
-    const stream = await this.prisma.stream.findUnique({
-      where: { id: streamId },
-      select: { endedAt: true, isLive: true },
-    });
-    if (!stream?.endedAt) return state;
-    const expires = new Date(stream.endedAt);
+  private async indexCartForStream(userId: string, streamId?: string) {
+    if (!streamId) return;
+    await this.redis.sadd(this.streamCartIndexKey(streamId), userId);
+  }
+
+  private async unindexCartForStream(userId: string, streamId?: string) {
+    if (!streamId) return;
+    await this.redis.srem(this.streamCartIndexKey(streamId), userId);
+  }
+
+  private async clearCart(userId: string, streamId?: string, reason?: string) {
+    if (reason) {
+      this.logger.log(
+        `Clearing cart userId=${userId} streamId=${streamId ?? 'none'} reason=${reason}`,
+      );
+    }
+    await this.redis.del(this.cartKey(userId));
+    await this.unindexCartForStream(userId, streamId);
+  }
+
+  private computeExpiryFromEnd(effectiveEnd: Date): Date {
+    const expires = new Date(effectiveEnd);
     expires.setHours(expires.getHours() + POST_LIVE_CART_HOURS);
-    const next = { ...state, cartExpiresAt: expires.toISOString() };
-    const ttl = Math.max(1, Math.floor((expires.getTime() - Date.now()) / 1000));
-    if (ttl <= 0) {
-      await this.redis.del(this.cartKey(userId));
+    return expires;
+  }
+
+  /**
+   * Enforce 24h post-live cart TTL. Persists Redis EXPIRE when still valid.
+   * Returns empty items when expired or stream context is invalid.
+   */
+  async enforceCartExpiry(userId: string, state: CartState): Promise<CartState> {
+    if (!state.items.length) {
       return { items: [] };
     }
-    await this.saveCartState(userId, next, ttl);
+
+    const now = Date.now();
+
+    if (state.cartExpiresAt) {
+      const expMs = new Date(state.cartExpiresAt).getTime();
+      if (now >= expMs) {
+        await this.clearCart(
+          userId,
+          state.streamId,
+          'stored cartExpiresAt passed',
+        );
+        return { items: [] };
+      }
+    }
+
+    if (!state.streamId) {
+      const updatedAt = state.cartUpdatedAt
+        ? new Date(state.cartUpdatedAt).getTime()
+        : 0;
+      const fallbackExpiry =
+        updatedAt + POST_LIVE_CART_HOURS * 60 * 60 * 1000;
+      if (!updatedAt || now >= fallbackExpiry) {
+        await this.clearCart(userId, undefined, 'missing streamId / stale legacy cart');
+        return { items: [] };
+      }
+      return state;
+    }
+
+    const stream = await this.prisma.stream.findUnique({
+      where: { id: state.streamId },
+      select: {
+        id: true,
+        isLive: true,
+        endedAt: true,
+        startedAt: true,
+        createdAt: true,
+        session: { select: { endedAt: true } },
+      },
+    });
+
+    if (!stream) {
+      await this.clearCart(userId, state.streamId, 'stream not found');
+      return { items: [] };
+    }
+
+    if (stream.isLive) {
+      const next: CartState = {
+        ...state,
+        cartUpdatedAt: new Date().toISOString(),
+      };
+      await this.saveCartState(userId, next);
+      await this.indexCartForStream(userId, state.streamId);
+      return next;
+    }
+
+    const effectiveEnd =
+      stream.endedAt ??
+      stream.session?.endedAt ??
+      stream.startedAt ??
+      stream.createdAt;
+
+    const expires = this.computeExpiryFromEnd(effectiveEnd);
+    const ttlSeconds = Math.floor((expires.getTime() - now) / 1000);
+
+    if (ttlSeconds <= 0) {
+      await this.clearCart(
+        userId,
+        state.streamId,
+        `post-live window ended (stream ended ${effectiveEnd.toISOString()})`,
+      );
+      return { items: [] };
+    }
+
+    const next: CartState = {
+      ...state,
+      cartExpiresAt: expires.toISOString(),
+      cartUpdatedAt: new Date().toISOString(),
+    };
+    await this.saveCartState(userId, next, ttlSeconds);
+    await this.indexCartForStream(userId, state.streamId);
+    this.logger.debug(
+      `Cart TTL refreshed userId=${userId} streamId=${state.streamId} ttlSeconds=${ttlSeconds} expiresAt=${expires.toISOString()}`,
+    );
     return next;
   }
 
-  async getCart(userId: string) {
-    let state = await this.loadCartState(userId);
-    if (state.streamId && state.items.length) {
-      state = await this.syncCartExpiry(userId, state.streamId, state);
+  /** Called when a stream ends — refresh TTL on all indexed buyer carts. */
+  async onStreamEnded(streamId: string, endedAt: Date) {
+    const expires = this.computeExpiryFromEnd(endedAt);
+    const ttlSeconds = Math.max(
+      1,
+      Math.floor((expires.getTime() - Date.now()) / 1000),
+    );
+    const holders = await this.redis.smembers(this.streamCartIndexKey(streamId));
+    this.logger.log(
+      `Stream ended streamId=${streamId} endedAt=${endedAt.toISOString()} refreshing ${holders.length} cart(s) ttlSeconds=${ttlSeconds}`,
+    );
+    for (const userId of holders) {
+      const state = await this.loadCartState(userId);
+      if (!state.items.length || state.streamId !== streamId) {
+        await this.unindexCartForStream(userId, streamId);
+        continue;
+      }
+      const next: CartState = {
+        ...state,
+        cartExpiresAt: expires.toISOString(),
+        cartUpdatedAt: new Date().toISOString(),
+      };
+      await this.saveCartState(userId, next, ttlSeconds);
     }
+  }
+
+  /** Sweep all buyer carts (cron) — clears any past post-live window. */
+  async sweepAllCarts(): Promise<number> {
+    const client = this.redis.getClient();
+    let cursor = '0';
+    let cleared = 0;
+    do {
+      const [next, keys] = await client.scan(
+        cursor,
+        'MATCH',
+        'orders:cart:*',
+        'COUNT',
+        50,
+      );
+      cursor = next;
+      for (const key of keys) {
+        const userId = key.replace(/^orders:cart:/, '');
+        const before = await this.loadCartState(userId);
+        if (!before.items.length) continue;
+        const after = await this.enforceCartExpiry(userId, before);
+        if (!after.items.length && before.items.length) cleared += 1;
+      }
+    } while (cursor !== '0');
+    if (cleared > 0) {
+      this.logger.log(`Cart sweep cleared ${cleared} expired cart(s)`);
+    }
+    return cleared;
+  }
+
+  private async loadCartForUser(userId: string): Promise<CartState> {
+    const state = await this.loadCartState(userId);
+    return this.enforceCartExpiry(userId, state);
+  }
+
+  private async saveCartState(userId: string, state: CartState, ttlSeconds?: number) {
+    if (!state.items.length) {
+      await this.clearCart(userId, state.streamId);
+      return;
+    }
+    const payload: CartState = {
+      ...state,
+      cartUpdatedAt: new Date().toISOString(),
+    };
+    await this.redis.set(this.cartKey(userId), JSON.stringify(payload), ttlSeconds);
+    await this.indexCartForStream(userId, state.streamId);
+  }
+
+  private async persistCartState(userId: string, state: CartState) {
+    if (!state.items.length) {
+      await this.clearCart(userId, state.streamId);
+      return;
+    }
+    const enforced = await this.enforceCartExpiry(userId, state);
+    if (!enforced.items.length) return;
+    if (enforced.cartExpiresAt) {
+      const ttl = Math.max(
+        1,
+        Math.floor(
+          (new Date(enforced.cartExpiresAt).getTime() - Date.now()) / 1000,
+        ),
+      );
+      await this.saveCartState(userId, enforced, ttl);
+    } else {
+      await this.saveCartState(userId, enforced);
+    }
+  }
+
+  async getCart(userId: string) {
+    const state = await this.loadCartForUser(userId);
     const { items, streamId, streamTitle, cartExpiresAt } = state;
     if (!items.length) {
       return {
@@ -198,25 +401,48 @@ export class OrdersService {
 
     let checkoutExpiresAt: string | null = cartExpiresAt ?? null;
     let secondsRemaining = 0;
-    if (streamId && !checkoutExpiresAt) {
+    if (checkoutExpiresAt) {
+      secondsRemaining = Math.max(
+        0,
+        Math.floor((new Date(checkoutExpiresAt).getTime() - Date.now()) / 1000),
+      );
+      if (secondsRemaining <= 0) {
+        await this.clearCart(userId, streamId ?? undefined, 'secondsRemaining zero on getCart');
+        return {
+          items: [],
+          subtotal: 0,
+          shipping: 0,
+          total: 0,
+          streamId: null,
+          streamTitle: null,
+          checkoutExpiresAt: null,
+          secondsRemaining: 0,
+        };
+      }
+    } else if (streamId) {
       const stream = await this.prisma.stream.findUnique({
         where: { id: streamId },
-        select: { endedAt: true, isLive: true },
+        select: {
+          endedAt: true,
+          isLive: true,
+          startedAt: true,
+          createdAt: true,
+          session: { select: { endedAt: true } },
+        },
       });
-      if (stream?.endedAt) {
-        const expires = new Date(stream.endedAt);
-        expires.setHours(expires.getHours() + POST_LIVE_CART_HOURS);
+      if (stream && !stream.isLive) {
+        const effectiveEnd =
+          stream.endedAt ??
+          stream.session?.endedAt ??
+          stream.startedAt ??
+          stream.createdAt;
+        const expires = this.computeExpiryFromEnd(effectiveEnd);
         checkoutExpiresAt = expires.toISOString();
         secondsRemaining = Math.max(
           0,
           Math.floor((expires.getTime() - Date.now()) / 1000),
         );
       }
-    } else if (checkoutExpiresAt) {
-      secondsRemaining = Math.max(
-        0,
-        Math.floor((new Date(checkoutExpiresAt).getTime() - Date.now()) / 1000),
-      );
     }
 
     return {
@@ -251,7 +477,7 @@ export class OrdersService {
       throw new BadRequestException('Requested quantity exceeds available stock');
     }
 
-    const state = await this.loadCartState(userId);
+    const state = await this.loadCartForUser(userId);
     if (state.items.length === 0 && !dto.streamId) {
       throw new BadRequestException(
         'streamId is required — add products from a live stream.',
@@ -293,7 +519,7 @@ export class OrdersService {
         variantLabel: dto.variantLabel?.trim(),
       });
     }
-    await this.saveCartState(userId, { items, streamId, streamTitle });
+    await this.persistCartState(userId, { items, streamId, streamTitle });
     return this.getCart(userId);
   }
 
@@ -303,7 +529,7 @@ export class OrdersService {
     quantity: number,
     variantId?: string,
   ) {
-    const state = await this.loadCartState(userId);
+    const state = await this.loadCartForUser(userId);
     const items = [...state.items];
     const vKey = variantId?.trim() ?? '';
     const idx = items.findIndex(
@@ -312,16 +538,17 @@ export class OrdersService {
     );
     if (idx < 0) throw new NotFoundException('Item not found in cart');
     items[idx].quantity = quantity;
-    await this.saveCartState(userId, {
+    await this.persistCartState(userId, {
       items,
       streamId: state.streamId,
       streamTitle: state.streamTitle,
+      cartExpiresAt: state.cartExpiresAt,
     });
     return this.getCart(userId);
   }
 
   async removeCartItem(userId: string, productId: string, variantId?: string) {
-    const state = await this.loadCartState(userId);
+    const state = await this.loadCartForUser(userId);
     const vKey = variantId?.trim() ?? '';
     const next = state.items.filter(
       (i) =>
@@ -329,13 +556,14 @@ export class OrdersService {
           i.productId === productId && (i.variantId?.trim() ?? '') === vKey
         ),
     );
-    await this.saveCartState(
+    await this.persistCartState(
       userId,
       next.length
         ? {
             items: next,
             streamId: state.streamId,
             streamTitle: state.streamTitle,
+            cartExpiresAt: state.cartExpiresAt,
           }
         : { items: [] },
     );
@@ -392,7 +620,7 @@ export class OrdersService {
         },
       });
     }
-    await this.redis.del(this.cartKey(userId));
+    await this.clearCart(userId, streamId ?? undefined, 'checkout completed');
 
     return {
       orderId: order?.id,

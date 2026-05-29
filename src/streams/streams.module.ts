@@ -6,9 +6,10 @@ import { AuthModule } from '../auth/auth.module';
 import { NotificationsModule } from '../notifications/notifications.module';
 import { PrismaModule } from '../prisma/prisma.module';
 import { RatingsModule } from '../ratings/ratings.module';
+import { OrdersModule } from '../orders/orders.module';
 
 @Module({
-  imports: [AuthModule, NotificationsModule, PrismaModule, RatingsModule],
+  imports: [AuthModule, NotificationsModule, PrismaModule, RatingsModule, OrdersModule],
   controllers: [StreamsController],
   providers: [StreamsService, StreamsGateway],
 })

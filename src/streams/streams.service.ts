@@ -20,6 +20,7 @@ import { LiveKitService } from '../livekit/livekit.service';
 import { RedisService } from '../redis/redis.service';
 import { BuyerLiveBroadcastService } from '../notifications/buyer-live-broadcast.service';
 import { RatingsService } from '../ratings/ratings.service';
+import { OrdersService } from '../orders/orders.service';
 
 const streamWithSellerInclude = {
   seller: {
@@ -44,6 +45,7 @@ export class StreamsService {
     private redis: RedisService,
     private buyerLiveBroadcast: BuyerLiveBroadcastService,
     private ratings: RatingsService,
+    private orders: OrdersService,
   ) {}
 
   private queueNotifyBuyersLiveStarted(stream: {
@@ -662,6 +664,8 @@ export class StreamsService {
       });
       if (wasLiveBefore && dto.isLive === false) {
         this.queueNotifyBuyersLiveEnded(updatedWithProducts);
+        const ended = updatedWithProducts.endedAt ?? new Date();
+        await this.orders.onStreamEnded(id, ended);
       }
       return updatedWithProducts;
     }
@@ -699,6 +703,8 @@ export class StreamsService {
     });
     if (wasLiveBefore && dto.isLive === false) {
       this.queueNotifyBuyersLiveEnded(updated);
+      const ended = updated.endedAt ?? new Date();
+      await this.orders.onStreamEnded(id, ended);
     }
     return updated;
   }
@@ -756,6 +762,7 @@ export class StreamsService {
     if (wasLive) {
       this.queueNotifyBuyersLiveEnded(updated);
     }
+    await this.orders.onStreamEnded(id, endedAt);
     const summary = await this.buildStreamEndSummary(
       id,
       startedAt,
@@ -1189,15 +1196,17 @@ export class StreamsService {
           livekitRoomName: s.livekitRoomName,
           livekitEgressId: s.livekitEgressId,
         });
+        const endedAt = new Date();
         const updated = await this.prisma.stream.update({
           where: { id: s.id },
           data: {
             isLive: false,
-            endedAt: new Date(),
+            endedAt,
             ...finalizePatch,
           },
           include: streamWithSellerInclude,
         });
+        await this.orders.onStreamEnded(s.id, endedAt);
         this.queueNotifyBuyersLiveEnded(updated, { notifyBuyers: false });
       } catch (e) {
         this.logger.warn(

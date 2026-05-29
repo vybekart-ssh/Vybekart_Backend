@@ -79,9 +79,18 @@ export class RedisService implements OnModuleInit, OnModuleDestroy {
     return this.client.scard(key);
   }
 
+  async smembers(key: string): Promise<string[]> {
+    return this.client.smembers(key);
+  }
+
   /** Key for stream viewer count: stream:viewers:{streamId} -> set of socket ids */
   streamViewersKey(streamId: string): string {
     return `stream:viewers:${streamId}`;
+  }
+
+  /** Buyers with a cart tied to a stream (for post-live TTL refresh). */
+  streamCartHoldersKey(streamId: string): string {
+    return `orders:stream-carts:${streamId}`;
   }
 
   /** Key for refresh token: refresh:{tokenId} -> userId, ttl */
