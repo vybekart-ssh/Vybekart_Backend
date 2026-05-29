@@ -156,7 +156,7 @@ export function buildAlphaInviteHtml(
               <p style="margin:0 0 16px;font-size:16px;line-height:1.6;color:#1A1D24;">This is an <strong>alpha</strong> build, so you may notice a few rough edges. <strong>If the app takes a little longer to open</strong>, please wait a minute and then restart the application—it should work fine. Please use the <strong>Feedback</strong> option inside the app (Profile / Help area) to tell us what worked, what didn’t, and what you want next—your input directly shapes VybeKart.</p>
               <table role="presentation" cellspacing="0" cellpadding="0" style="margin:24px 0;">
                 <tr>
-                  <td style="border-radius:10px;background:linear-gradient(135deg,#FF8A50,#FF5722);">
+                  <td style="border-radius:10px;background:linear-gradient(135deg,#00C6FF,#1565C0);">
                     <a href="${escapeHtml(primaryUrl)}" style="display:inline-block;padding:14px 28px;color:#FFFFFF;text-decoration:none;font-size:16px;font-weight:600;">${escapeHtml(primaryLabel)}</a>
                   </td>
                 </tr>
