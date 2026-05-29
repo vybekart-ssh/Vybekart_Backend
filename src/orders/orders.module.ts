@@ -4,12 +4,12 @@ import { OrdersService } from './orders.service';
 import { CartExpirySweepService } from './cart-expiry-sweep.service';
 import { PrismaModule } from '../prisma/prisma.module';
 import { MockDeliveryService } from './mock-delivery.service';
-import { BorzoModule } from '../borzo/borzo.module';
+import { DelhiveryModule } from '../delhivery/delhivery.module';
 import { AuthModule } from '../auth/auth.module';
 import { RatingsModule } from '../ratings/ratings.module';
 
 @Module({
-  imports: [PrismaModule, AuthModule, BorzoModule, RatingsModule],
+  imports: [PrismaModule, AuthModule, DelhiveryModule, RatingsModule],
   controllers: [OrdersController],
   providers: [OrdersService, MockDeliveryService, CartExpirySweepService],
   exports: [OrdersService],

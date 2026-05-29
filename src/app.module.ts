@@ -23,7 +23,7 @@ import { CountriesModule } from './countries/countries.module';
 import { LiveKitModule } from './livekit/livekit.module';
 import { SupportModule } from './support/support.module';
 import { MaterialTypesModule } from './material-types/material-types.module';
-import { BorzoModule } from './borzo/borzo.module';
+import { DelhiveryModule } from './delhivery/delhivery.module';
 import { NotificationsModule } from './notifications/notifications.module';
 import { AppConfigModule } from './app-config/app-config.module';
 import { AdminModule } from './admin/admin.module';
@@ -76,7 +76,7 @@ import { PaymentsModule } from './payments/payments.module';
     CountriesModule,
     SupportModule,
     MaterialTypesModule,
-    BorzoModule,
+    DelhiveryModule,
     AdminModule,
   ],
   controllers: [AppController],

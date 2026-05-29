@@ -127,12 +127,16 @@ services:
       - key: RUN_DUMMY_SEED_ON_DEPLOY
         value: "false"
 
-      # Borzo Business API (set tokens in Render Dashboard)
-      - key: BORZO_ENV
-        value: "test"
-      - key: BORZO_AUTH_TOKEN_TEST
+      # Delhivery (same-day / express) — set tokens in Render Dashboard when ready
+      - key: DELHIVERY_ENV
+        value: "staging"
+      - key: DELHIVERY_API_TOKEN_STAGING
         sync: false
-      - key: BORZO_AUTH_TOKEN_PROD
+      - key: DELHIVERY_API_TOKEN_PROD
+        sync: false
+      - key: DELHIVERY_CLIENT_NAME
+        sync: false
+      - key: DELHIVERY_PICKUP_LOCATION
         sync: false
 
       # Razorpay Standard Checkout (buyer payments) — set test keys in Render Dashboard:

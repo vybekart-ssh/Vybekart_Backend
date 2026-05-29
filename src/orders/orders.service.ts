@@ -20,7 +20,7 @@ import {
 import { SellerOrdersQueryDto } from './dto/seller-orders-query.dto';
 import { BuyerOrdersQueryDto } from './dto/buyer-orders-query.dto';
 import { MockDeliveryService } from './mock-delivery.service';
-import { BorzoService } from '../borzo/borzo.service';
+import { DelhiveryService } from '../delhivery/delhivery.service';
 import { resolvePublicBaseUrl } from '../common/utils/public-base-url';
 import * as fs from 'fs/promises';
 import * as path from 'path';
@@ -50,7 +50,7 @@ export class OrdersService {
     private redis: RedisService,
     private config: ConfigService,
     private mockDelivery: MockDeliveryService,
-    private borzo: BorzoService,
+    private delhivery: DelhiveryService,
     private ratings: RatingsService,
   ) {}
 
@@ -585,8 +585,12 @@ export class OrdersService {
     const subtotal = cart.subtotal ?? 0;
     let deliveryFee = cart.shipping ?? 0;
     if (addressId) {
-      const quote = await this.getDeliveryQuoteFromCart(userId, addressId);
-      deliveryFee = quote?.fee ?? 0;
+      try {
+        const quote = await this.getDeliveryQuoteFromCart(userId, addressId);
+        deliveryFee = quote?.fee ?? 0;
+      } catch {
+        deliveryFee = 0;
+      }
     }
     return {
       subtotal,
@@ -761,41 +765,40 @@ export class OrdersService {
     const buyerPhone = buyer?.phone ?? buyerAddr.phone;
     if (!buyerPhone) throw new BadRequestException('Buyer phone is missing');
 
-    const matter = buildMatterFromCart(cart.items);
-    const payload = {
-      type: 'standard' as const,
-      matter,
-      is_route_optimizer_enabled: false,
-      is_client_notification_enabled: false,
-      is_contact_person_notification_enabled: true,
-      points: [
-        {
-          address: formatAddressLine(pickup),
-          contact_person: {
-            phone: normalizeInPhone(sellerPhone),
-            name: stream.seller.businessName ?? stream.seller.user.name,
-          },
-          note: 'Pickup from seller',
-        },
-        {
-          address: formatAddressLine(buyerAddr),
-          contact_person: {
-            phone: normalizeInPhone(buyerPhone),
-            name: buyerAddr.contactName ?? buyer?.name ?? 'Buyer',
-          },
-          note: 'Deliver to buyer',
-        },
-      ],
-    };
-
-    const res: any = await this.borzo.calculate(payload as any);
-    const paymentAmount = res?.order?.payment_amount ?? res?.order?.delivery?.payment_amount;
-    const fee =
-      typeof paymentAmount === 'string' ? Number.parseFloat(paymentAmount) : 0;
-    if (!Number.isFinite(fee) || fee < 0) {
-      throw new BadRequestException('Unable to calculate delivery fee');
+    const weightGrams = estimateCartWeightGrams(cart.items.length);
+    const originPin = pickup.zip?.trim();
+    const destPin = buyerAddr.zip?.trim();
+    if (!originPin || !destPin) {
+      return {
+        provider: this.delhivery.isConfigured() ? 'DELHIVERY' : null,
+        fee: 0,
+        configured: this.delhivery.isConfigured(),
+        message: 'PIN codes required for delivery quote',
+      };
     }
-    return { provider: 'BORZO', fee, raw: res };
+
+    const quote = await this.delhivery.calculateShippingCost({
+      originPin,
+      destinationPin: destPin,
+      weightGrams,
+      paymentMode: 'Pre-paid',
+    });
+
+    if (!quote) {
+      return {
+        provider: null,
+        fee: 0,
+        configured: false,
+        message: 'Delivery partner not configured — shipping fee waived for now',
+      };
+    }
+
+    return {
+      provider: 'DELHIVERY',
+      fee: quote.fee,
+      configured: true,
+      raw: quote.raw,
+    };
   }
 
   async create(dto: CreateOrderDto, userId: string) {
@@ -1514,9 +1517,6 @@ export class OrdersService {
       );
     }
     const sellerUser = await this.prisma.user.findUnique({ where: { id: userId } });
-    if (!sellerUser?.phone) {
-      throw new BadRequestException('Seller phone is missing (required for Borzo)');
-    }
     const buyerPhone = order.buyer?.user?.phone;
     if (!buyerPhone) throw new BadRequestException('Buyer phone is missing');
     const dropAddress = order.shippingAddress?.trim();
@@ -1524,51 +1524,41 @@ export class OrdersService {
       throw new BadRequestException('Order shipping address is missing');
     }
 
-    const matter = `VybeKart order #${orderId.slice(-6)} (${order.items.length} items)`;
-    const payload = {
-      type: 'standard' as const,
-      matter,
-      is_contact_person_notification_enabled: true,
-      points: [
-        {
-          address: formatAddressLine(pickup),
-          contact_person: {
-            phone: normalizeInPhone(sellerUser.phone),
-            name: seller.businessName,
-          },
-          client_order_id: orderId.replace(/-/g, '').slice(0, 32),
-          note: 'Pickup from seller',
-        },
-        {
-          address: dropAddress,
-          contact_person: {
-            phone: normalizeInPhone(buyerPhone),
-            name: order.buyer?.user?.name ?? 'Buyer',
-          },
-          client_order_id: orderId.replace(/-/g, '').slice(0, 32),
-          note: 'Deliver to buyer',
-        },
-      ],
-    };
+    const destPinMatch = dropAddress.match(/\b(\d{6})\b/);
+    const destPin = destPinMatch?.[1] ?? '';
+    const originPin = pickup.zip?.trim() ?? '';
 
-    const res: any = await this.borzo.createOrder(payload as any);
-    const borzoOrder = res?.order ?? null;
-    const trackingUrl =
-      borzoOrder?.points?.find((p: any) => p?.tracking_url)?.tracking_url ?? null;
+    let shipmentData: {
+      waybill: string | null;
+      trackingUrl: string | null;
+      status: string | null;
+    } | null = null;
+
+    if (this.delhivery.isConfigured() && originPin && destPin) {
+      shipmentData = await this.delhivery.createShipment({
+        orderId: orderId.replace(/-/g, '').slice(0, 32),
+        pickupLocationName: seller.businessName,
+        originPin,
+        destinationPin: destPin,
+        consigneeName: order.buyer?.user?.name ?? 'Buyer',
+        consigneePhone: normalizeInPhone(buyerPhone),
+        consigneeAddress: dropAddress,
+        weightGrams: estimateCartWeightGrams(order.items.length),
+        paymentMode: 'Pre-paid',
+      });
+    }
 
     return this.prisma.order.update({
       where: { id: orderId },
       data: {
         status: OrderStatus.SHIPPED,
         shippedAt: new Date(),
-        carrierName: 'Borzo',
-        trackingId: borzoOrder?.order_name ? String(borzoOrder.order_name) : null,
-        deliveryProvider: 'BORZO',
-        borzoOrderId: borzoOrder?.order_id ?? null,
-        borzoOrderName: borzoOrder?.order_name ?? null,
-        borzoTrackingUrl: trackingUrl,
-        borzoOrderStatus: borzoOrder?.status ?? null,
-        deliveryStatus: borzoOrder?.status ?? 'REQUESTED',
+        carrierName: shipmentData?.waybill ? 'Delhivery' : null,
+        trackingId: shipmentData?.waybill ?? null,
+        deliveryProvider: shipmentData?.waybill ? 'DELHIVERY' : null,
+        borzoTrackingUrl: shipmentData?.trackingUrl,
+        borzoOrderStatus: shipmentData?.status,
+        deliveryStatus: shipmentData?.status ?? 'REQUESTED',
       },
       include: {
         items: { include: { product: true } },
@@ -1597,12 +1587,9 @@ export class OrdersService {
     if (!hasSellerProduct) {
       throw new ForbiddenException('This order does not contain your products');
     }
-    // If this is a Borzo order, refresh status from Borzo; else keep mock behavior.
-    if (order.deliveryProvider === 'BORZO' && order.borzoOrderId) {
-      const courier: any = await this.borzo.getCourier(order.borzoOrderId);
-      const orders: any = await this.borzo.getOrders({ order_id: order.borzoOrderId });
-      const latest = orders?.orders?.[0] ?? orders?.order ?? null;
-      const status = latest?.status ?? latest?.delivery?.status ?? order.deliveryStatus ?? null;
+    if (order.deliveryProvider === 'DELHIVERY' && order.trackingId) {
+      const track = await this.delhivery.trackShipment(order.trackingId);
+      const status = track?.status ?? order.deliveryStatus ?? null;
       const updated = await this.prisma.order.update({
         where: { id: orderId },
         data: {
@@ -1615,10 +1602,9 @@ export class OrdersService {
         trackingId: updated.trackingId,
         carrierName: updated.carrierName,
         orderStatus: updated.status,
-        borzo: {
-          orderId: updated.borzoOrderId,
+        delhivery: {
+          waybill: updated.trackingId,
           trackingUrl: updated.borzoTrackingUrl,
-          courier,
         },
       };
     }
@@ -1649,6 +1635,11 @@ function normalizeInPhone(raw: string): string {
   if (digits.length === 10) return `91${digits}`;
   if (digits.startsWith('91') && digits.length === 12) return digits;
   return digits;
+}
+
+/** Rough weight for Delhivery quotes (500g per line, min 500g). */
+function estimateCartWeightGrams(itemCount: number): number {
+  return Math.max(500, itemCount * 500);
 }
 
 function formatAddressLine(
