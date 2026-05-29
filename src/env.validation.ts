@@ -85,8 +85,13 @@ export const envValidationSchema = Joi.object({
   MAIL_USER: Joi.string().optional(),
   MAIL_PASS: Joi.string().optional(),
   MAIL_FROM: Joi.string().optional(),
+  /** From address for order confirmations (buyer + seller). */
+  NOREPLY_EMAIL: Joi.string().email().optional(),
   SUPPORT_EMAIL: Joi.string().email().optional(),
   CONTACT_EMAIL: Joi.string().email().optional(),
+  /** Public logo URL for HTML emails (optional). */
+  ALPHA_LOGO_URL: Joi.string().uri().optional(),
+  ALPHA_WEBSITE_URL: Joi.string().uri().optional(),
   /** JSON string of Firebase service account (FCM server). Optional — push disabled if unset. */
   FIREBASE_SERVICE_ACCOUNT_JSON: Joi.string().optional(),
 

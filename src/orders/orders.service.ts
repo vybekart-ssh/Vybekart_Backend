@@ -30,6 +30,7 @@ import {
   productHasVariantItems,
 } from '../products/product-variants.util';
 import { RatingsService } from '../ratings/ratings.service';
+import { OrderNotificationService } from '../mail/order-notification.service';
 
 const POST_LIVE_CART_HOURS = 24;
 
@@ -52,6 +53,7 @@ export class OrdersService {
     private mockDelivery: MockDeliveryService,
     private delhivery: DelhiveryService,
     private ratings: RatingsService,
+    private orderNotifications: OrderNotificationService,
   ) {}
 
   private async assertStreamAndProducts(streamId: string, productIds: string[]) {
@@ -764,6 +766,8 @@ export class OrdersService {
     }
 
     await this.clearCart(userId, streamId ?? undefined, 'checkout completed');
+
+    void this.orderNotifications.sendOrderPlacedEmails(orderId);
 
     return {
       orderId,

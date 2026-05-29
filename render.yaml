@@ -101,6 +101,11 @@ services:
         value: "uikcptploswockgb"
       - key: MAIL_FROM
         value: "contact@vybekart.co.in"
+      - key: NOREPLY_EMAIL
+        value: "noreply@vybekart.co.in"
+      # Optional: HTTPS logo for order confirmation emails
+      - key: ALPHA_LOGO_URL
+        sync: false
       # Set in Dashboard for concern emails (Render free tier blocks SMTP). Get key: https://resend.com
       - key: RESEND_API_KEY
         sync: false

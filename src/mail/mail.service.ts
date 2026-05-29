@@ -50,6 +50,25 @@ export class MailService {
     });
   }
 
+  /** Transactional mail (orders, receipts) — noreply@vybekart.co.in */
+  private noreplyFrom(): string {
+    const addr =
+      this.config.get<string>('NOREPLY_EMAIL')?.trim() ||
+      'noreply@vybekart.co.in';
+    return `VybeKart <${addr}>`;
+  }
+
+  async sendTransactional(
+    to: string,
+    input: Omit<SendEmailInput, 'from' | 'to'>,
+  ): Promise<void> {
+    await this.send({
+      ...input,
+      to,
+      from: this.noreplyFrom(),
+    });
+  }
+
   async send(input: SendEmailInput): Promise<void> {
     const resendKey = this.config.get<string>('RESEND_API_KEY')?.trim();
     const from = input.from ?? this.supportFrom();
