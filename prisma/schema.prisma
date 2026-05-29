@@ -479,6 +479,10 @@ model Order {
   deliveryStatus         String?
   deliveryMockShipmentId String?
 
+  /// Razorpay Standard Checkout (test/live)
+  razorpayOrderId   String? @unique
+  razorpayPaymentId String? @unique
+
   items OrderItem[]
 
   replacementRequests ReplacementRequest[]

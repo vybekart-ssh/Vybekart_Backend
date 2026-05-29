@@ -134,3 +134,10 @@ services:
         sync: false
       - key: BORZO_AUTH_TOKEN_PROD
         sync: false
+
+      # Razorpay Standard Checkout (buyer payments) — set test keys in Render Dashboard:
+      # https://dashboard.razorpay.com/app/keys
+      - key: RAZORPAY_KEY_ID
+        sync: false
+      - key: RAZORPAY_KEY_SECRET
+        sync: false

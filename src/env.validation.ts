@@ -106,4 +106,12 @@ export const envValidationSchema = Joi.object({
   BORZO_ENV: Joi.string().valid('test', 'prod').default('test'),
   BORZO_AUTH_TOKEN_TEST: Joi.string().optional(),
   BORZO_AUTH_TOKEN_PROD: Joi.string().optional(),
+
+  // Razorpay (buyer checkout)
+  RAZORPAY_KEY_ID: Joi.string().optional(),
+  RAZORPAY_KEY_SECRET: Joi.string().optional(),
+  /** When true, allow PATCH /orders/checkout without Razorpay (local/dev only). */
+  PAYMENTS_ALLOW_DIRECT_CHECKOUT: Joi.string()
+    .valid('true', 'false', '1', '0')
+    .optional(),
 });

@@ -34,6 +34,7 @@ import { MediaModule } from './media/media.module';
 import { MailModule } from './mail/mail.module';
 import { RatingsModule } from './ratings/ratings.module';
 import { ReplacementsModule } from './replacements/replacements.module';
+import { PaymentsModule } from './payments/payments.module';
 
 @Module({
   imports: [
@@ -56,6 +57,7 @@ import { ReplacementsModule } from './replacements/replacements.module';
     MailModule,
     RatingsModule,
     ReplacementsModule,
+    PaymentsModule,
     LiveKitModule,
     WebhooksModule,
     AppConfigModule,

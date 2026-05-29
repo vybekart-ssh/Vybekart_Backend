@@ -570,7 +570,73 @@ export class OrdersService {
     return this.getCart(userId);
   }
 
-  async checkoutFromCart(userId: string, dto: CheckoutOrderDto) {
+  /** Subtotal + delivery + total for Razorpay order creation. */
+  async getCheckoutTotals(userId: string, addressId?: string) {
+    const cart = await this.getCart(userId);
+    if (!cart.items.length) {
+      throw new BadRequestException('Cart is empty');
+    }
+    const streamId = (cart as { streamId?: string | null }).streamId;
+    if (!streamId) {
+      throw new BadRequestException(
+        'Checkout requires a live stream context. Add items from a live.',
+      );
+    }
+    const subtotal = cart.subtotal ?? 0;
+    let deliveryFee = cart.shipping ?? 0;
+    if (addressId) {
+      const quote = await this.getDeliveryQuoteFromCart(userId, addressId);
+      deliveryFee = quote?.fee ?? 0;
+    }
+    return {
+      subtotal,
+      deliveryFee,
+      total: subtotal + deliveryFee,
+      streamId,
+    };
+  }
+
+  toCheckoutResponse(order: {
+    id: string;
+    status: OrderStatus;
+    totalAmount: number;
+    deliveryFee?: number | null;
+    shippingAddress?: string | null;
+  }) {
+    return {
+      orderId: order.id,
+      status: order.status,
+      totalAmount: order.totalAmount,
+      deliveryFee: order.deliveryFee ?? 0,
+      estimatedDelivery: 'October 20, 2024',
+      shippingAddress: order.shippingAddress ?? '',
+      paymentMethod: 'RAZORPAY',
+    };
+  }
+
+  private assertDirectCheckoutAllowed() {
+    const keySecret = this.config.get<string>('RAZORPAY_KEY_SECRET')?.trim();
+    if (!keySecret) return;
+    const flag = this.config.get<string>('PAYMENTS_ALLOW_DIRECT_CHECKOUT');
+    if (flag === 'true' || flag === '1') return;
+    throw new BadRequestException(
+      'Please complete payment via Razorpay to place your order.',
+    );
+  }
+
+  async checkoutFromCart(
+    userId: string,
+    dto: CheckoutOrderDto,
+    options?: {
+      markPaid?: boolean;
+      razorpayOrderId?: string;
+      razorpayPaymentId?: string;
+    },
+  ) {
+    if (!options?.markPaid) {
+      this.assertDirectCheckoutAllowed();
+    }
+
     const cart = await this.getCart(userId);
     if (!cart.items.length) {
       throw new BadRequestException('Cart is empty');
@@ -610,23 +676,44 @@ export class OrdersService {
     if (!order) {
       throw new BadRequestException('Order creation failed');
     }
-    if (quote?.fee != null && quote.fee > 0) {
-      await this.prisma.order.update({
-        where: { id: order.id },
-        data: {
-          deliveryFee: quote.fee,
-          deliveryProvider: quote.provider,
-          totalAmount: order.totalAmount + quote.fee,
-        },
-      });
+
+    const deliveryFee = quote?.fee ?? 0;
+    const updateData: Prisma.OrderUpdateInput = {};
+    if (deliveryFee > 0) {
+      updateData.deliveryFee = deliveryFee;
+      updateData.deliveryProvider = quote?.provider ?? undefined;
+      updateData.totalAmount = order.totalAmount + deliveryFee;
     }
+    if (options?.markPaid) {
+      updateData.status = OrderStatus.PAID;
+      if (options.razorpayOrderId) {
+        updateData.razorpayOrderId = options.razorpayOrderId;
+      }
+      if (options.razorpayPaymentId) {
+        updateData.razorpayPaymentId = options.razorpayPaymentId;
+      }
+    }
+
+    let orderId = order.id;
+    let orderStatus = order.status;
+    let orderTotal = order.totalAmount;
+    if (Object.keys(updateData).length > 0) {
+      const updated = await this.prisma.order.update({
+        where: { id: order.id },
+        data: updateData,
+      });
+      orderId = updated.id;
+      orderStatus = updated.status;
+      orderTotal = updated.totalAmount;
+    }
+
     await this.clearCart(userId, streamId ?? undefined, 'checkout completed');
 
     return {
-      orderId: order?.id,
-      status: order?.status ?? 'PENDING',
-      totalAmount: (order?.totalAmount ?? cart.total) + (quote?.fee ?? 0),
-      deliveryFee: quote?.fee ?? 0,
+      orderId,
+      status: orderStatus,
+      totalAmount: orderTotal,
+      deliveryFee,
       estimatedDelivery: 'October 20, 2024',
       shippingAddress: createDto.shippingAddress ?? dto.shippingAddress ?? '',
       paymentMethod: dto.paymentMethod ?? 'CARD',
