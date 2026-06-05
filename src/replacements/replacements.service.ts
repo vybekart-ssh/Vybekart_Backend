@@ -291,8 +291,8 @@ export class ReplacementsService {
       await this.sendBuyerApprovedEmail(updated);
     } else if (updated.buyer.user.email) {
       await this.mail.sendToBuyer(updated.buyer.user.email, {
-        subject: 'VybeKart — replacement request update',
-        text: `Your replacement request could not be approved at this time.${dto.adminNote ? `\n\nNote: ${dto.adminNote}` : ''}\n\n— VybeKart`,
+        subject: 'Vybekart — replacement request update',
+        text: `Your replacement request could not be approved at this time.${dto.adminNote ? `\n\nNote: ${dto.adminNote}` : ''}\n\n— Vybekart`,
       });
     }
 
@@ -363,12 +363,12 @@ export class ReplacementsService {
         <p style="margin:0 0 16px;font-size:15px;color:#334155;line-height:1.55;">We received your <strong>replacement request</strong> and it is under review. You will receive another email once it is confirmed.</p>
         <p style="margin:0;font-size:13px;color:#64748b;">Reference: ${escapeHtml(req.id)}</p>`,
       whyReceivedHtml:
-        'You submitted a replacement request on VybeKart for a recent order.',
+        'You submitted a replacement request on Vybekart for a recent order.',
     });
     await this.mail.sendToBuyer(req.buyer.user.email, {
-      subject: 'VybeKart — replacement request received',
+      subject: 'Vybekart — replacement request received',
       html,
-      text: `Hi ${req.buyer.user.name},\n\nYour replacement request is under process. We will confirm shortly.\n\n— VybeKart`,
+      text: `Hi ${req.buyer.user.name},\n\nYour replacement request is under process. We will confirm shortly.\n\n— Vybekart`,
     });
   }
 
@@ -387,12 +387,12 @@ export class ReplacementsService {
       bodyHtml: `<p style="margin:0 0 16px;font-size:16px;color:#334155;line-height:1.55;">Hi ${name},</p>
         <p style="margin:0;font-size:15px;color:#334155;line-height:1.55;">Your replacement request has been <strong>approved</strong> and is being processed. The seller will ship your replacement item soon.</p>`,
       whyReceivedHtml:
-        'Your VybeKart replacement request was approved by our team or seller.',
+        'Your Vybekart replacement request was approved by our team or seller.',
     });
     await this.mail.sendToBuyer(req.buyer.user.email, {
-      subject: 'VybeKart — replacement initiated',
+      subject: 'Vybekart — replacement initiated',
       html,
-      text: `Hi ${req.buyer.user.name},\n\nYour replacement has been approved and initiated.\n\n— VybeKart`,
+      text: `Hi ${req.buyer.user.name},\n\nYour replacement has been approved and initiated.\n\n— Vybekart`,
     });
   }
 }

@@ -77,7 +77,7 @@ function personalizedIntro(row: RegistrationRow, b: AlphaInviteBranding): string
       ? 'as an early seller partner'
       : 'as an early shopper';
   let s = `<p style="margin:0 0 16px;font-size:16px;line-height:1.6;color:#1A1D24;">Dear ${escapeHtml(fn)},</p>`;
-  s += `<p style="margin:0 0 16px;font-size:16px;line-height:1.6;color:#1A1D24;">Thank you for joining VybeKart ${role} through <a href="${escapeHtml(b.websiteUrl)}" style="color:#1565C0;">vybekart.co.in</a>. Your early access is now live.</p>`;
+  s += `<p style="margin:0 0 16px;font-size:16px;line-height:1.6;color:#1A1D24;">Thank you for joining Vybekart ${role} through <a href="${escapeHtml(b.websiteUrl)}" style="color:#1565C0;">vybekart.co.in</a>. Your early access is now live.</p>`;
   if (row.city || row.interests) {
     const bits: string[] = [];
     if (row.city)
@@ -96,9 +96,9 @@ function buyerContentHtml(): string {
   return `
     <p style="margin:0 0 10px;font-size:16px;line-height:1.6;color:#1A1D24;"><strong>Still shopping fashion through static images?</strong></p>
     <p style="margin:0 0 14px;font-size:16px;line-height:1.6;color:#1A1D24;">Not sure about fit, color, or quality? Returns may be free, but your time isn’t.</p>
-    <p style="margin:0 0 16px;font-size:16px;line-height:1.6;color:#1A1D24;">With VybeKart, you can see it <strong>LIVE</strong> before you buy.</p>
+    <p style="margin:0 0 16px;font-size:16px;line-height:1.6;color:#1A1D24;">With Vybekart, you can see it <strong>LIVE</strong> before you buy.</p>
 
-    <p style="margin:0 0 10px;font-size:16px;line-height:1.6;color:#1A1D24;">On VybeKart you can:</p>
+    <p style="margin:0 0 10px;font-size:16px;line-height:1.6;color:#1A1D24;">On Vybekart you can:</p>
     <ul style="margin:0 0 18px;padding-left:20px;font-size:16px;line-height:1.65;color:#1A1D24;">
       <li style="margin:0 0 8px;">See outfits in real time</li>
       <li style="margin:0 0 8px;">Ask questions before buying</li>
@@ -107,7 +107,7 @@ function buyerContentHtml(): string {
     </ul>
 
     <p style="margin:0 0 14px;font-size:16px;line-height:1.6;color:#1A1D24;"><strong>No more guessing. No more disappointment.</strong></p>
-    <p style="margin:0 0 18px;font-size:16px;line-height:1.6;color:#1A1D24;">We’re building VybeKart with you—your honest feedback will directly shape the experience.</p>
+    <p style="margin:0 0 18px;font-size:16px;line-height:1.6;color:#1A1D24;">We’re building Vybekart with you—your honest feedback will directly shape the experience.</p>
   `.trim();
 }
 
@@ -115,9 +115,9 @@ function sellerContentHtml(): string {
   return `
     <p style="margin:0 0 10px;font-size:16px;line-height:1.6;color:#1A1D24;"><strong>Still selling fashion through static images?</strong></p>
     <p style="margin:0 0 14px;font-size:16px;line-height:1.6;color:#1A1D24;">Customers ask about size, fit, fabric, and real color—and even after that, returns still happen.</p>
-    <p style="margin:0 0 16px;font-size:16px;line-height:1.6;color:#1A1D24;">With VybeKart, your customers can see your products <strong>LIVE</strong> before buying.</p>
+    <p style="margin:0 0 16px;font-size:16px;line-height:1.6;color:#1A1D24;">With Vybekart, your customers can see your products <strong>LIVE</strong> before buying.</p>
 
-    <p style="margin:0 0 10px;font-size:16px;line-height:1.6;color:#1A1D24;">What VybeKart helps you do:</p>
+    <p style="margin:0 0 10px;font-size:16px;line-height:1.6;color:#1A1D24;">What Vybekart helps you do:</p>
     <ul style="margin:0 0 18px;padding-left:20px;font-size:16px;line-height:1.65;color:#1A1D24;">
       <li style="margin:0 0 8px;">Showcase products <strong>LIVE</strong></li>
       <li style="margin:0 0 8px;">Answer customer questions in real time</li>
@@ -153,7 +153,7 @@ export function buildAlphaInviteHtml(
               ${intro}
               ${heroImageHtml(b)}
               ${bodyContent}
-              <p style="margin:0 0 16px;font-size:16px;line-height:1.6;color:#1A1D24;">This is an <strong>alpha</strong> build, so you may notice a few rough edges. <strong>If the app takes a little longer to open</strong>, please wait a minute and then restart the application—it should work fine. Please use the <strong>Feedback</strong> option inside the app (Profile / Help area) to tell us what worked, what didn’t, and what you want next—your input directly shapes VybeKart.</p>
+              <p style="margin:0 0 16px;font-size:16px;line-height:1.6;color:#1A1D24;">This is an <strong>alpha</strong> build, so you may notice a few rough edges. <strong>If the app takes a little longer to open</strong>, please wait a minute and then restart the application—it should work fine. Please use the <strong>Feedback</strong> option inside the app (Profile / Help area) to tell us what worked, what didn’t, and what you want next—your input directly shapes Vybekart.</p>
               <table role="presentation" cellspacing="0" cellpadding="0" style="margin:24px 0;">
                 <tr>
                   <td style="border-radius:10px;background:linear-gradient(135deg,#00C6FF,#1565C0);">
@@ -169,7 +169,7 @@ export function buildAlphaInviteHtml(
     recipientEmail: row.email,
     headerBadge: 'Early access',
     headerTitle: `Welcome aboard, ${fn}!`,
-    headerSubtitle: 'Your VybeKart alpha invite is here',
+    headerSubtitle: 'Your Vybekart alpha invite is here',
     bodyHtml: innerBody,
     whyReceivedHtml: `You submitted an early-access or pre-registration form on vybekart.co.in. This message is a one-time product update with download instructions.`,
     postLinksHtml:
@@ -187,10 +187,10 @@ export function buildAlphaInviteText(
   const lines = [
     `Dear ${fn},`,
     '',
-    `Thank you for joining VybeKart (${isSeller ? 'seller partner' : 'shopper'}) via vybekart.co.in. Your early access is now live.`,
+    `Thank you for joining Vybekart (${isSeller ? 'seller partner' : 'shopper'}) via vybekart.co.in. Your early access is now live.`,
     '',
     isSeller
-      ? 'Still selling fashion through static images? Let customers see your products LIVE, ask questions, and buy with confidence. We’d love to partner with you as an early seller partner on VybeKart.'
+      ? 'Still selling fashion through static images? Let customers see your products LIVE, ask questions, and buy with confidence. We’d love to partner with you as an early seller partner on Vybekart.'
       : 'Still shopping fashion through static images? See outfits LIVE before buying and check fit, fabric, and true color in real time.',
     '',
     isSeller ? `Get seller partner early access: ${primaryUrl}` : `Download the app (APK): ${primaryUrl}`,
@@ -220,8 +220,8 @@ export function alphaInviteSubjectFor(row: RegistrationRow): string {
   const isSeller = row.registration_type === 'seller';
   const suffixRaw = (process.env.ALPHA_SUBJECT_SUFFIX || '').trim();
   const suffix = suffixRaw ? ` ${suffixRaw}` : '';
-  if (isSeller) return `Partner with VybeKart - Early Access${suffix}`;
+  if (isSeller) return `Partner with Vybekart - Early Access${suffix}`;
 
-  if (fn === 'there') return `Your VybeKart Android early access is ready${suffix}`;
-  return `${fn}, your VybeKart early access is ready${suffix}`;
+  if (fn === 'there') return `Your Vybekart Android early access is ready${suffix}`;
+  return `${fn}, your Vybekart early access is ready${suffix}`;
 }

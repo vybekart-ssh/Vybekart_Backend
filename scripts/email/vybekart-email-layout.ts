@@ -1,6 +1,8 @@
 /**
- * Shared VybeKart transactional HTML email shell (header, footer, contact block).
+ * Shared Vybekart transactional HTML email shell (header, footer, contact block).
  */
+
+export const VYBEKART_BRAND_NAME = 'Vybekart';
 
 export const VYBE_THEME = {
   cyan: '#00C6FF',
@@ -89,7 +91,7 @@ export function getVybeKartMailBranding(): VybeKartMailBranding {
     supportEmail: process.env.ALPHA_SUPPORT_EMAIL || 'support@vybekart.co.in',
     supportPhone: process.env.ALPHA_SUPPORT_PHONE || '',
     companyLegalName:
-      process.env.ALPHA_COMPANY_LEGAL_NAME || 'VybeKart',
+      process.env.ALPHA_COMPANY_LEGAL_NAME || VYBEKART_BRAND_NAME,
     termsUrl: process.env.ALPHA_TERMS_URL || 'https://vybekart.co.in/terms',
     privacyUrl: process.env.ALPHA_PRIVACY_URL || 'https://vybekart.co.in/privacy',
   };
@@ -98,9 +100,11 @@ export function getVybeKartMailBranding(): VybeKartMailBranding {
 function headerLogoMarkHtml(b: VybeKartMailBranding): string {
   const home = escapeHtml(b.websiteUrl);
   const src = escapeHtml(b.logoUrl || EMBEDDED_LOGO_DATA_URI);
-  return `<table role="presentation" cellspacing="0" cellpadding="0" border="0"><tr><td style="padding:0;line-height:0;">
-<a href="${home}" target="_blank" rel="noopener noreferrer" style="text-decoration:none;border:0;display:inline-block;">
-<img src="${src}" width="56" height="62" border="0" alt="VybeKart" style="display:block;width:56px;height:62px;border:0;outline:none;-ms-interpolation-mode:bicubic;"/>
+  const alt = escapeHtml(VYBEKART_BRAND_NAME);
+  return `<table role="presentation" cellspacing="0" cellpadding="0" border="0"><tr>
+<td class="vk-logo-wrap" bgcolor="#FFFFFF" style="padding:6px 8px;line-height:0;font-size:0;background-color:#FFFFFF;border-radius:14px;border:1px solid rgba(255,255,255,0.85);">
+<a href="${home}" target="_blank" rel="noopener noreferrer" style="text-decoration:none;border:0;display:inline-block;line-height:0;">
+<img class="vk-logo-img" src="${src}" width="56" height="62" border="0" alt="${alt}" style="display:block;width:56px;max-width:56px;height:auto;border:0;outline:none;-ms-interpolation-mode:bicubic;filter:none;-webkit-filter:none;mix-blend-mode:normal;"/>
 </a></td></tr></table>`;
 }
 
@@ -109,10 +113,12 @@ function headerHeroVisualHtml(b: VybeKartMailBranding): string {
     const src = escapeHtml(b.heroImageUrl);
     return `<img src="${src}" width="120" height="120" alt="" style="display:block;width:120px;height:120px;object-fit:contain;border:0;"/>`;
   }
-  return `<div style="width:108px;height:108px;border-radius:50%;background:rgba(0,198,255,0.15);border:2px solid rgba(0,198,255,0.45);text-align:center;line-height:108px;font-size:44px;margin:0 0 0 auto;">▶</div>`;
+  return `<div style="width:108px;height:108px;border-radius:50%;background:rgba(0,198,255,0.15);border:2px solid rgba(0,198,255,0.45);text-align:center;line-height:108px;font-size:52px;margin:0 0 0 auto;" aria-hidden="true">🛍️</div>`;
 }
 
 const EMAIL_DARK_MODE_CSS = `
+  .vk-logo-wrap { color-scheme: light only; }
+  .vk-logo-img { filter: none !important; -webkit-filter: none !important; mix-blend-mode: normal !important; }
   @media (prefers-color-scheme: dark) {
     .vk-body { background-color: ${VYBE_THEME.bgDark} !important; }
     .vk-card { background-color: ${VYBE_THEME.surfaceDark} !important; }
@@ -123,6 +129,17 @@ const EMAIL_DARK_MODE_CSS = `
     .vk-tagline-box { background: rgba(0,198,255,0.12) !important; border-color: rgba(0,198,255,0.28) !important; }
     .vk-link { color: ${VYBE_THEME.cyan} !important; }
     .vk-foot { color: ${VYBE_THEME.textMutedDark} !important; }
+    .vk-hero-header { color-scheme: light only; }
+    .vk-logo-wrap { background-color: #FFFFFF !important; border-color: #E2E8F0 !important; }
+    .vk-logo-img { filter: none !important; -webkit-filter: none !important; opacity: 1 !important; }
+  }
+  [data-ogsc] .vk-logo-wrap, [data-ogsb] .vk-logo-wrap {
+    background-color: #FFFFFF !important;
+    border-color: #E2E8F0 !important;
+  }
+  [data-ogsc] .vk-logo-img, [data-ogsb] .vk-logo-img {
+    filter: none !important;
+    -webkit-filter: none !important;
   }
 `.trim();
 
@@ -133,7 +150,7 @@ export function heroImageHtml(b: VybeKartMailBranding): string {
     <table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="margin:0 0 18px;border-collapse:collapse;">
       <tr><td style="padding:0;">
         <div style="border-radius:14px;overflow:hidden;background:${VYBE_THEME.navy};">
-          <img src="${src}" alt="VybeKart Live Shopping" width="536" style="display:block;width:100%;max-width:536px;height:220px;object-fit:cover;border:0;"/>
+          <img src="${src}" alt="Vybekart Live Shopping" width="536" style="display:block;width:100%;max-width:536px;height:220px;object-fit:cover;border:0;"/>
         </div>
       </td></tr>
     </table>`.trim();
@@ -152,11 +169,11 @@ export function buildVybeKartHeroHeaderHtml(params: {
     : '';
 
   return `<table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0">
-  <tr><td style="padding:0;background-color:${VYBE_THEME.navy};background-image:linear-gradient(135deg,${VYBE_THEME.cyan} 0%,${VYBE_THEME.primary} 32%,${VYBE_THEME.primaryDark} 58%,${VYBE_THEME.navy} 100%);">
+  <tr><td class="vk-hero-header" style="padding:0;background-color:${VYBE_THEME.navy};background-image:linear-gradient(135deg,${VYBE_THEME.cyan} 0%,${VYBE_THEME.primary} 32%,${VYBE_THEME.primaryDark} 58%,${VYBE_THEME.navy} 100%);">
       <table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0" style="background-image:url('data:image/svg+xml,%3Csvg xmlns=%22http://www.w3.org/2000/svg%22 width=%2248%22 height=%2248%22%3E%3Ccircle cx=%2224%22 cy=%2224%22 r=%222%22 fill=%22%2300C6FF%22 fill-opacity=%220.14%22/%3E%3C/svg%3E');background-repeat:repeat;">
         <tr><td style="padding:20px 24px 0;">
           <table role="presentation" width="100%"><tr>
-            <td align="left">${headerLogoMarkHtml(b)}&nbsp;<a href="${home}" style="text-decoration:none;font-size:24px;font-weight:800;color:#FFF;vertical-align:middle;">VybeKart</a></td>
+            <td align="left">${headerLogoMarkHtml(b)}&nbsp;<a href="${home}" style="text-decoration:none;font-size:24px;font-weight:800;color:#FFF;vertical-align:middle;">${escapeHtml(b.companyLegalName)}</a></td>
             <td align="right"><span style="display:inline-block;padding:8px 14px;border-radius:999px;background:rgba(0,198,255,0.22);border:1px solid rgba(0,198,255,0.55);font-size:13px;font-weight:700;color:#FFF;font-style:italic;">Just Vybe It!</span></td>
           </tr></table>
         </td></tr>
@@ -192,8 +209,8 @@ export function buildVybeKartMailShellHtml(o: VybeKartMailShellOptions): string 
     : '';
   const hero = buildVybeKartHeroHeaderHtml({
     branding: b,
-    headerBadge: o.headerBadge ?? 'VybeKart',
-    headerTitle: o.headerTitle ?? 'Something exciting from VybeKart',
+    headerBadge: o.headerBadge ?? VYBEKART_BRAND_NAME,
+    headerTitle: o.headerTitle ?? `Something exciting from ${VYBEKART_BRAND_NAME}`,
     headerSubtitle: o.headerSubtitle ?? 'Shop live. Sell live. All in one place.',
   });
 

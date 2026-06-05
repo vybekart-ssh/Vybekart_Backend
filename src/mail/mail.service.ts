@@ -20,7 +20,7 @@ export class MailService {
     return (
       this.config.get<string>('CONTACT_EMAIL')?.trim() ||
       this.config.get<string>('MAIL_FROM')?.trim() ||
-      'VybeKart <contact@vybekart.co.in>'
+      'Vybekart <contact@vybekart.co.in>'
     );
   }
 
@@ -28,7 +28,7 @@ export class MailService {
     return (
       this.config.get<string>('SUPPORT_EMAIL')?.trim() ||
       this.config.get<string>('MAIL_FROM')?.trim() ||
-      'VybeKart Support <support@vybekart.co.in>'
+      'Vybekart Support <support@vybekart.co.in>'
     );
   }
 
@@ -55,7 +55,7 @@ export class MailService {
     const addr =
       this.config.get<string>('NOREPLY_EMAIL')?.trim() ||
       'noreply@vybekart.co.in';
-    return `VybeKart <${addr}>`;
+    return `Vybekart <${addr}>`;
   }
 
   async sendTransactional(

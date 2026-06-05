@@ -135,7 +135,7 @@ export async function runSendRegistrationsMail(
 
   const apiKey = process.env.RESEND_API_KEY?.trim();
   const mailFrom =
-    process.env.MAIL_FROM?.trim() || 'VybeKart <noreply@vybekart.co.in>';
+    process.env.MAIL_FROM?.trim() || 'Vybekart <noreply@vybekart.co.in>';
 
   if (!fs.existsSync(csvPath)) {
     console.error('CSV not found:', csvPath);

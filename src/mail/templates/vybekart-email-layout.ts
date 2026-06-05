@@ -1,5 +1,8 @@
 import { ConfigService } from '@nestjs/config';
 
+/** Display name in all transactional emails (lowercase k). */
+export const VYBEKART_BRAND_NAME = 'Vybekart';
+
 /** VybeKart app palette (values/colors.xml + brand mark). */
 export const VYBE_THEME = {
   cyan: '#00C6FF',
@@ -94,7 +97,8 @@ export function getVybeKartMailBranding(config: ConfigService): VybeKartMailBran
     supportEmail:
       config.get<string>('SUPPORT_EMAIL')?.trim() || 'support@vybekart.co.in',
     companyLegalName:
-      config.get<string>('ALPHA_COMPANY_LEGAL_NAME')?.trim() || 'VybeKart',
+      config.get<string>('ALPHA_COMPANY_LEGAL_NAME')?.trim() ||
+      VYBEKART_BRAND_NAME,
     termsUrl:
       config.get<string>('ALPHA_TERMS_URL')?.trim() ||
       'https://vybekart.co.in/terms',
@@ -107,10 +111,11 @@ export function getVybeKartMailBranding(config: ConfigService): VybeKartMailBran
 function headerLogoMarkHtml(b: VybeKartMailBranding): string {
   const home = escapeHtml(b.websiteUrl);
   const src = escapeHtml(b.logoUrl || EMBEDDED_LOGO_DATA_URI);
+  const alt = escapeHtml(VYBEKART_BRAND_NAME);
   return `<table role="presentation" cellspacing="0" cellpadding="0" border="0" style="border-collapse:collapse;">
-<tr><td style="padding:0;line-height:0;font-size:0;">
-<a href="${home}" target="_blank" rel="noopener noreferrer" style="text-decoration:none;border:0;display:inline-block;">
-<img src="${src}" width="56" height="62" border="0" alt="VybeKart" style="display:block;width:56px;height:62px;max-width:56px;border:0;outline:none;text-decoration:none;-ms-interpolation-mode:bicubic;"/>
+<tr><td class="vk-logo-wrap" bgcolor="#FFFFFF" style="padding:6px 8px;line-height:0;font-size:0;background-color:#FFFFFF;border-radius:14px;border:1px solid rgba(255,255,255,0.85);">
+<a href="${home}" target="_blank" rel="noopener noreferrer" style="text-decoration:none;border:0;display:inline-block;line-height:0;">
+<img class="vk-logo-img" src="${src}" width="56" height="62" border="0" alt="${alt}" style="display:block;width:56px;max-width:56px;height:auto;border:0;outline:none;text-decoration:none;-ms-interpolation-mode:bicubic;filter:none;-webkit-filter:none;mix-blend-mode:normal;"/>
 </a>
 </td></tr></table>`;
 }
@@ -120,10 +125,12 @@ function headerHeroVisualHtml(b: VybeKartMailBranding): string {
     const src = escapeHtml(b.heroImageUrl);
     return `<img src="${src}" width="120" height="120" alt="" style="display:block;width:120px;height:120px;object-fit:contain;border:0;"/>`;
   }
-  return `<div style="width:108px;height:108px;border-radius:50%;background:rgba(0,198,255,0.15);border:2px solid rgba(0,198,255,0.45);text-align:center;line-height:108px;font-size:44px;margin:0 0 0 auto;">▶</div>`;
+  return `<div style="width:108px;height:108px;border-radius:50%;background:rgba(0,198,255,0.15);border:2px solid rgba(0,198,255,0.45);text-align:center;line-height:108px;font-size:52px;margin:0 0 0 auto;" aria-hidden="true">🛍️</div>`;
 }
 
 const EMAIL_DARK_MODE_CSS = `
+  .vk-logo-wrap { color-scheme: light only; }
+  .vk-logo-img { filter: none !important; -webkit-filter: none !important; mix-blend-mode: normal !important; }
   @media (prefers-color-scheme: dark) {
     .vk-body { background-color: ${VYBE_THEME.bgDark} !important; }
     .vk-card { background-color: ${VYBE_THEME.surfaceDark} !important; }
@@ -134,6 +141,17 @@ const EMAIL_DARK_MODE_CSS = `
     .vk-tagline-box { background: rgba(0,198,255,0.12) !important; border-color: rgba(0,198,255,0.28) !important; color: ${VYBE_THEME.textMutedDark} !important; }
     .vk-link { color: ${VYBE_THEME.cyan} !important; }
     .vk-foot { color: ${VYBE_THEME.textMutedDark} !important; }
+    .vk-hero-header { color-scheme: light only; }
+    .vk-logo-wrap { background-color: #FFFFFF !important; border-color: #E2E8F0 !important; }
+    .vk-logo-img { filter: none !important; -webkit-filter: none !important; opacity: 1 !important; }
+  }
+  [data-ogsc] .vk-logo-wrap, [data-ogsb] .vk-logo-wrap {
+    background-color: #FFFFFF !important;
+    border-color: #E2E8F0 !important;
+  }
+  [data-ogsc] .vk-logo-img, [data-ogsb] .vk-logo-img {
+    filter: none !important;
+    -webkit-filter: none !important;
   }
 `.trim();
 
@@ -151,7 +169,7 @@ export function buildVybeKartHeroHeaderHtml(params: {
 
   return `<table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0" style="border-collapse:collapse;">
   <tr>
-    <td style="padding:0;background-color:${VYBE_THEME.navy};background-image:linear-gradient(135deg,${VYBE_THEME.cyan} 0%,${VYBE_THEME.primary} 32%,${VYBE_THEME.primaryDark} 58%,${VYBE_THEME.navy} 100%);">
+    <td class="vk-hero-header" style="padding:0;background-color:${VYBE_THEME.navy};background-image:linear-gradient(135deg,${VYBE_THEME.cyan} 0%,${VYBE_THEME.primary} 32%,${VYBE_THEME.primaryDark} 58%,${VYBE_THEME.navy} 100%);">
       <!--[if gte mso 9]>
       <v:rect xmlns:v="urn:schemas-microsoft-com:vml" fill="true" stroke="false" style="width:600px;height:200px;">
         <v:fill type="gradient" color="${VYBE_THEME.primary}" color2="${VYBE_THEME.navy}" angle="135"/>
@@ -167,7 +185,7 @@ export function buildVybeKartHeroHeaderHtml(params: {
                     <tr>
                       <td valign="middle" style="padding:0 12px 0 0;">${headerLogoMarkHtml(b)}</td>
                       <td valign="middle">
-                        <a href="${home}" style="text-decoration:none;font-size:24px;font-weight:800;color:#FFFFFF;letter-spacing:-0.02em;line-height:1.1;">VybeKart</a>
+                        <a href="${home}" style="text-decoration:none;font-size:24px;font-weight:800;color:#FFFFFF;letter-spacing:-0.02em;line-height:1.1;">${escapeHtml(b.companyLegalName)}</a>
                       </td>
                     </tr>
                   </table>
@@ -258,7 +276,7 @@ export function buildVybeKartMailShellHtml(params: {
         </tr>
       </table>
       <p class="vk-foot" style="margin:16px 0 0;font-size:11px;color:${VYBE_THEME.textMutedLight};max-width:600px;line-height:1.5;text-align:center;">
-        Sent to ${escapeHtml(params.recipientEmail)}. Automated message from VybeKart —
+        Sent to ${escapeHtml(params.recipientEmail)}. Automated message from ${escapeHtml(b.companyLegalName)} —
         <a class="vk-link" href="mailto:${escapeHtml(b.supportEmail)}" style="color:${VYBE_THEME.textMutedLight};">${escapeHtml(b.supportEmail)}</a>
       </p>
     </td></tr>

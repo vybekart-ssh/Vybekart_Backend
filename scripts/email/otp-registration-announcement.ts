@@ -24,7 +24,7 @@ export const DEFAULT_REGISTRATION_OTP =
 
 /** Suggested subject when sending through Resend or your ESP. */
 export const OTP_REGISTRATION_ANNOUNCEMENT_SUBJECT =
-  'VybeKart — use this OTP to complete app registration';
+  'Vybekart — use this OTP to complete app registration';
 
 function firstName(full: string): string {
   const t = (full || '').trim();
@@ -50,7 +50,7 @@ function bodyInnerHtml(
   const otpDisplay = escapeHtml(otp);
   return `
     <p style="margin:0 0 16px;font-size:16px;line-height:1.6;color:#1A1D24;">Dear ${escapeHtml(first)},</p>
-    <p style="margin:0 0 16px;font-size:16px;line-height:1.6;color:#1A1D24;">We are writing to our <strong>early seller partners</strong> and <strong>buyers</strong> with a quick update about registering on the VybeKart application.</p>
+    <p style="margin:0 0 16px;font-size:16px;line-height:1.6;color:#1A1D24;">We are writing to our <strong>early seller partners</strong> and <strong>buyers</strong> with a quick update about registering on the Vybekart application.</p>
     <p style="margin:0 0 16px;font-size:16px;line-height:1.6;color:#1A1D24;">For this phase, the application registration OTP is initially set to:</p>
     <table role="presentation" cellspacing="0" cellpadding="0" style="margin:0 0 20px;">
       <tr>
@@ -77,10 +77,10 @@ export function buildOtpRegistrationAnnouncementHtml(
     branding: b,
     recipientEmail: p.recipientEmail,
     headerBadge: 'Registration',
-    headerTitle: 'Complete your VybeKart signup',
+    headerTitle: 'Complete your Vybekart signup',
     headerSubtitle: `Hi ${first} — use your OTP below`,
     bodyHtml: bodyInnerHtml(b, first, otp),
-    whyReceivedHtml: `You are on our early-access list for VybeKart (seller partner or buyer). This email explains how to complete app registration using the shared OTP for this phase.`,
+    whyReceivedHtml: `You are on our early-access list for Vybekart (seller partner or buyer). This email explains how to complete app registration using the shared OTP for this phase.`,
     postLinksHtml:
       'Do not share this OTP with anyone you do not trust. If you did not expect this message, please ignore it and contact support.',
   });
@@ -93,7 +93,7 @@ export function buildOtpRegistrationAnnouncementText(p: OtpAnnouncementParams): 
   const lines = [
     `Dear ${first},`,
     '',
-    'We are writing to our early seller partners and buyers with a quick update about registering on the VybeKart application.',
+    'We are writing to our early seller partners and buyers with a quick update about registering on the Vybekart application.',
     '',
     `Registration OTP (use in the app for seller partner or buyer registration): ${otp}`,
     '',
@@ -102,7 +102,7 @@ export function buildOtpRegistrationAnnouncementText(p: OtpAnnouncementParams): 
     `Support: ${b.supportEmail}`,
     `Website: ${b.websiteUrl}`,
     '',
-    'Why you received this: you are on our early-access list for VybeKart.',
+    'Why you received this: you are on our early-access list for Vybekart.',
     '',
     `Recipient: ${p.recipientEmail}`,
   ];
