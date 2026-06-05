@@ -15,6 +15,8 @@ import { OrderStatus, VerificationStatus } from '@prisma/client';
 import { SupabaseStorageService } from '../storage/supabase-storage.service';
 import { FirebasePushService } from '../notifications/firebase-push.service';
 import { RatingsService } from '../ratings/ratings.service';
+import { calculateSellerPayout } from '../pricing/seller-payout-calculator';
+import { PricingPreviewQueryDto } from './dto/pricing-preview.dto';
 
 const STORE_IMAGE_MIME_EXT: Record<string, string> = {
   'image/jpeg': '.jpg',
@@ -926,6 +928,29 @@ export class SellersService {
       state: next.state,
       zip: next.zip,
       country: next.country,
+    };
+  }
+
+  async getPricingPreview(userId: string, query: PricingPreviewQueryDto) {
+    const seller = await this.prisma.seller.findUnique({
+      where: { userId },
+      select: { id: true, commissionWaiverActive: true },
+    });
+    if (!seller) throw new NotFoundException('Seller profile not found');
+
+    const logisticsBase =
+      query.logisticsBase ??
+      Number(this.config.get('LOGISTICS_BASE_INR') ?? 75);
+
+    const breakdown = calculateSellerPayout(
+      query.customerPrice,
+      seller.commissionWaiverActive,
+      { logisticsBaseInr: logisticsBase },
+    );
+
+    return {
+      ...breakdown,
+      gstPercent: query.gstPercent ?? null,
     };
   }
 }

@@ -4,6 +4,7 @@ import {
   Patch,
   Post,
   Body,
+  Query,
   UseGuards,
   Request,
   UseInterceptors,
@@ -22,6 +23,7 @@ import { UpdateBankDetailsDto } from './dto/bank-details.dto';
 import { UpdateStoreDetailsDto } from './dto/store-details.dto';
 import { UpdateSignatureDto } from './dto/signature.dto';
 import { UpdatePickupAddressDto } from './dto/pickup-address.dto';
+import { PricingPreviewQueryDto } from './dto/pricing-preview.dto';
 
 @Controller('sellers')
 export class SellersController {
@@ -47,6 +49,16 @@ export class SellersController {
   @Get('revenue/today')
   getRevenueToday(@Request() req: { user: { id: string } }) {
     return this.sellersService.getRevenueToday(req.user.id);
+  }
+
+  @UseGuards(JwtAuthGuard, RolesGuard, SellerVerifiedGuard)
+  @Roles(Role.SELLER)
+  @Get('pricing-preview')
+  getPricingPreview(
+    @Request() req: { user: { id: string } },
+    @Query() query: PricingPreviewQueryDto,
+  ) {
+    return this.sellersService.getPricingPreview(req.user.id, query);
   }
 
   @UseGuards(JwtAuthGuard, RolesGuard, SellerVerifiedGuard)
