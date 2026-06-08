@@ -1,0 +1,3 @@
+-- AlterTable
+ALTER TABLE "Stream" ADD COLUMN IF NOT EXISTS "broadcastStartedAt" TIMESTAMP(3);
+ALTER TABLE "Stream" ADD COLUMN IF NOT EXISTS "buyersNotifiedAt" TIMESTAMP(3);

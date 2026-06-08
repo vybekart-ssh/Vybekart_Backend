@@ -181,6 +181,17 @@ export class StreamsController {
     return this.streamsService.touchSellerHeartbeat(id, req.user.id);
   }
 
+  /** Seller calls after camera track is publishing — notifies buyers and marks stream visible. */
+  @Patch(':id/publish-ready')
+  @UseGuards(JwtAuthGuard, RolesGuard, SellerVerifiedGuard)
+  @Roles(Role.SELLER)
+  publishReady(
+    @Request() req: { user: { id: string } },
+    @Param('id') id: string,
+  ) {
+    return this.streamsService.markBroadcastStarted(id, req.user.id);
+  }
+
   @Patch(':id')
   @UseGuards(JwtAuthGuard, RolesGuard, SellerVerifiedGuard)
   @Roles(Role.SELLER)

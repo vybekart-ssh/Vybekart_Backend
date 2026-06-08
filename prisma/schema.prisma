@@ -401,6 +401,11 @@ model Stream {
   startedAt DateTime?
   endedAt   DateTime?
 
+  /// Set when seller (or LiveKit webhook) confirms video is publishing — buyers notified after this.
+  broadcastStartedAt DateTime?
+  /// Dedupe FCM "seller went live" push.
+  buyersNotifiedAt     DateTime?
+
   /// Last seller-app heartbeat while publishing; used to end orphan lives ~5m after app kill.
   sellerLiveHeartbeatAt DateTime?
 

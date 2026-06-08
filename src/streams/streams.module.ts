@@ -12,5 +12,6 @@ import { OrdersModule } from '../orders/orders.module';
   imports: [AuthModule, NotificationsModule, PrismaModule, RatingsModule, OrdersModule],
   controllers: [StreamsController],
   providers: [StreamsService, StreamsGateway],
+  exports: [StreamsService],
 })
 export class StreamsModule {}

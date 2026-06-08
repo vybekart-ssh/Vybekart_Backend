@@ -80,6 +80,16 @@ export class StreamsGateway implements OnGatewayDisconnect {
     this.server.to(room).emit('floating_hearts', { streamId, from: client.id });
   }
 
+  /** Seller published video — viewers in the room can show video immediately. */
+  emitBroadcastStarted(streamId: string) {
+    const room = `stream:${streamId}`;
+    this.server.to(room).emit('broadcast_started', {
+      streamId,
+      timestamp: new Date().toISOString(),
+    });
+    this.logger.log(`broadcast_started emitted for stream ${streamId}`);
+  }
+
   @SubscribeMessage('pin_product')
   handlePinProduct(
     @MessageBody()

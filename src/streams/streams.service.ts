@@ -21,6 +21,7 @@ import { RedisService } from '../redis/redis.service';
 import { BuyerLiveBroadcastService } from '../notifications/buyer-live-broadcast.service';
 import { RatingsService } from '../ratings/ratings.service';
 import { OrdersService } from '../orders/orders.service';
+import { StreamsGateway } from './streams.gateway';
 
 const streamWithSellerInclude = {
   seller: {
@@ -46,6 +47,7 @@ export class StreamsService {
     private buyerLiveBroadcast: BuyerLiveBroadcastService,
     private ratings: RatingsService,
     private orders: OrdersService,
+    private streamsGateway: StreamsGateway,
   ) {}
 
   private queueNotifyBuyersLiveStarted(stream: {
@@ -264,10 +266,6 @@ export class StreamsService {
         include: streamWithSellerInclude,
       });
 
-      if (updated) {
-        this.queueNotifyBuyersLiveStarted(updated);
-      }
-
       return {
         ...updated,
         token: publisherToken,
@@ -464,8 +462,6 @@ export class StreamsService {
 
       this.logger.log(`Started scheduled stream as live: ${stream.title}`);
 
-      this.queueNotifyBuyersLiveStarted(updated);
-
       return {
         ...updated,
         token: publisherToken,
@@ -495,6 +491,7 @@ export class StreamsService {
     const where: Prisma.StreamWhereInput = {
       isLive: true,
       endedAt: null,
+      broadcastStartedAt: { not: null },
     };
     if (categoryId) {
       where.categoryId = categoryId;
@@ -850,6 +847,53 @@ export class StreamsService {
     return { ok: true, sellerLiveHeartbeatAt: beat.toISOString() };
   }
 
+  /**
+   * Called when the seller publishes video (app) or LiveKit fires track_published (webhook).
+   * Notifies buyers once and emits a socket event for viewers already in the room.
+   */
+  async markBroadcastStarted(streamId: string, userId?: string) {
+    if (userId) {
+      await this.assertStreamOwnership(streamId, userId);
+    }
+
+    const stream = await this.prisma.stream.findUnique({
+      where: { id: streamId },
+      include: streamWithSellerInclude,
+    });
+    if (!stream || !stream.isLive || stream.endedAt) {
+      return { ok: false as const, reason: 'not_live' };
+    }
+
+    const now = new Date();
+    const alreadyBroadcasting = !!stream.broadcastStartedAt;
+
+    const updated = await this.prisma.stream.update({
+      where: { id: streamId },
+      data: {
+        broadcastStartedAt: stream.broadcastStartedAt ?? now,
+      },
+      include: streamWithSellerInclude,
+    });
+
+    if (!updated.buyersNotifiedAt) {
+      await this.prisma.stream.update({
+        where: { id: streamId },
+        data: { buyersNotifiedAt: now },
+      });
+      this.queueNotifyBuyersLiveStarted(updated);
+    }
+
+    if (!alreadyBroadcasting) {
+      this.streamsGateway.emitBroadcastStarted(streamId);
+    }
+
+    return {
+      ok: true as const,
+      broadcastStartedAt:
+        updated.broadcastStartedAt?.toISOString() ?? now.toISOString(),
+    };
+  }
+
   /** Single round-trip for live UI: engagement + viewCount + comments tail. */
   async getLiveState(streamId: string) {
     const stream = await this.prisma.stream.findUnique({
@@ -859,6 +903,7 @@ export class StreamsService {
         isLive: true,
         viewCount: true,
         title: true,
+        broadcastStartedAt: true,
       },
     });
     if (!stream) throw new NotFoundException(`Stream with ID ${streamId} not found`);
@@ -878,6 +923,7 @@ export class StreamsService {
     return {
       streamId,
       isLive: stream.isLive,
+      isBroadcasting: !!stream.broadcastStartedAt,
       title: stream.title,
       viewCount: Math.max(stream.viewCount ?? 0, socketViewers),
       engagement,

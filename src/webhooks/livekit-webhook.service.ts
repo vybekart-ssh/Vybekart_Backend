@@ -4,6 +4,7 @@ import { Prisma, StreamReplayStatus } from '@prisma/client';
 import { WebhookReceiver } from 'livekit-server-sdk';
 import { PrismaService } from '../prisma/prisma.service';
 import { LiveKitService } from '../livekit/livekit.service';
+import { StreamsService } from '../streams/streams.service';
 
 @Injectable()
 export class LivekitWebhookService {
@@ -13,6 +14,7 @@ export class LivekitWebhookService {
     private prisma: PrismaService,
     private config: ConfigService,
     private livekit: LiveKitService,
+    private streamsService: StreamsService,
   ) {}
 
   async handleRawPayload(
@@ -36,7 +38,45 @@ export class LivekitWebhookService {
     const receiver = new WebhookReceiver(apiKey, apiSecret);
     const event = await receiver.receive(bodyStr, authorization, skip);
 
-    if (event.event !== 'egress_ended') return;
+    switch (event.event) {
+      case 'track_published':
+        await this.handleTrackPublished(event);
+        break;
+      case 'egress_ended':
+        await this.handleEgressEnded(event);
+        break;
+      default:
+        break;
+    }
+  }
+
+  private async handleTrackPublished(event: {
+    room?: { name?: string };
+    track?: { type?: string | number };
+  }) {
+    const roomName = event.room?.name?.trim();
+    if (!roomName) return;
+
+    const trackType = event.track?.type;
+    const isVideo =
+      trackType === 'VIDEO' ||
+      trackType === 1 ||
+      trackType === '1';
+
+    if (!isVideo) return;
+
+    try {
+      await this.streamsService.markBroadcastStarted(roomName);
+    } catch (e) {
+      this.logger.warn(
+        `track_published broadcast mark failed for ${roomName}: ${String(e)}`,
+      );
+    }
+  }
+
+  private async handleEgressEnded(event: {
+    egressInfo?: Parameters<LiveKitService['applyEgressWebhookResult']>[0];
+  }) {
     const info = event.egressInfo;
     if (!info) return;
 
