@@ -72,31 +72,91 @@ export class AuthService {
     return `+**...${last}`;
   }
 
+  private otpPurpose(
+    purpose?: 'LOGIN' | 'BUYER_SIGNUP' | 'SELLER_SIGNUP' | 'FORGOT_PASSWORD',
+  ): 'LOGIN' | 'BUYER_SIGNUP' | 'SELLER_SIGNUP' | 'FORGOT_PASSWORD' {
+    return purpose ?? 'LOGIN';
+  }
+
+  private isDltSmsRoute(): boolean {
+    return (this.config.get<string>('FAST2SMS_ROUTE') ?? 'q').trim() === 'dlt';
+  }
+
+  private dltMessageIdForPurpose(
+    purpose: 'LOGIN' | 'BUYER_SIGNUP' | 'SELLER_SIGNUP' | 'FORGOT_PASSWORD',
+  ): string | undefined {
+    const envKey =
+      purpose === 'FORGOT_PASSWORD'
+        ? 'FAST2SMS_DLT_MSG_ID_FORGOT_PASSWORD'
+        : purpose === 'SELLER_SIGNUP'
+          ? 'FAST2SMS_DLT_MSG_ID_SELLER_SIGNUP'
+          : purpose === 'BUYER_SIGNUP'
+            ? 'FAST2SMS_DLT_MSG_ID_BUYER_SIGNUP'
+            : 'FAST2SMS_DLT_MSG_ID_LOGIN';
+    return this.config.get<string>(envKey)?.trim() || undefined;
+  }
+
+  /** Non-DLT dev/testing route — free-form SMS with optional SMS Retriever hash. */
   private buildOtpSmsMessage(params: {
     purpose?: 'LOGIN' | 'BUYER_SIGNUP' | 'SELLER_SIGNUP' | 'FORGOT_PASSWORD';
     code: string;
   }): string {
     const ttlMin = Math.round(OTP_TTL_SECONDS / 60);
     const brand = 'Vybekart';
-    const purpose = params.purpose ?? 'LOGIN';
+    const purpose = this.otpPurpose(params.purpose);
 
     const line1 =
       purpose === 'FORGOT_PASSWORD'
         ? `Your ${brand} password reset OTP is ${params.code}.`
         : purpose === 'SELLER_SIGNUP'
-          ? `Welcome to ${brand} Partner. Your OTP to create your Seller account is ${params.code}.`
+          ? `Welcome to ${brand} Seller Partner. Your OTP to register as a Seller Partner is ${params.code}.`
           : purpose === 'BUYER_SIGNUP'
             ? `Welcome to ${brand}. Your OTP to create your Buyer account is ${params.code}.`
             : `Your ${brand} login OTP is ${params.code}.`;
 
     const base = `${line1} Valid for ${ttlMin} minutes. Do not share this code with anyone.`;
 
-    // SMS Retriever requirement: add 11-char hash on a new line, ideally with <#> prefix.
     const appHash = (this.config.get<string>('ANDROID_SMS_APP_HASH') ?? '').trim();
     if (appHash) {
       return `<#> ${base}\n${appHash}`;
     }
     return base;
+  }
+
+  private dispatchOtpSms(params: {
+    phone: string;
+    purpose?: 'LOGIN' | 'BUYER_SIGNUP' | 'SELLER_SIGNUP' | 'FORGOT_PASSWORD';
+    code: string;
+    logLabel: string;
+  }): void {
+    const purpose = this.otpPurpose(params.purpose);
+
+    if (this.isDltSmsRoute()) {
+      const messageId = this.dltMessageIdForPurpose(purpose);
+      if (!messageId) {
+        this.logger.warn(
+          `DLT message_id missing for purpose=${purpose} — ${params.logLabel} SMS skipped`,
+        );
+        return;
+      }
+      void this.fast2sms
+        .sendDltSms({
+          toPhone: params.phone,
+          messageId,
+          variablesValues: params.code,
+        })
+        .catch((err) =>
+          this.logger.warn(`Fast2SMS DLT send failed (${params.logLabel}): ${String(err)}`),
+        );
+      return;
+    }
+
+    const message = this.buildOtpSmsMessage({ purpose, code: params.code });
+    void this.fast2sms
+      .sendTextSms({ toPhone: params.phone, message })
+      .catch((err) =>
+        this.logger.warn(`Fast2SMS send failed (${params.logLabel}): ${String(err)}`),
+      );
   }
 
   private hasRole(user: { roles: Role[] }, role: Role) {
@@ -256,17 +316,13 @@ export class AuthService {
       `OTP generated env=${this.otpEnv()} for=${this.maskIdentifier(identifier)} code=${code} ttlSeconds=${OTP_TTL_SECONDS}`,
     );
 
-    // Production: send real SMS via Fast2SMS (phone only).
     if (this.isOtpProd() && phone) {
-      const message = this.buildOtpSmsMessage({
+      this.dispatchOtpSms({
+        phone,
         purpose: dto.purpose,
         code,
+        logLabel: 'otp/send',
       });
-      void this.fast2sms
-        .sendTextSms({ toPhone: phone, message })
-        .catch((err) =>
-          this.logger.warn(`Fast2SMS send failed: ${String(err)}`),
-        );
     }
 
     return { message: 'OTP sent successfully' };
@@ -618,15 +674,12 @@ export class AuthService {
     );
 
     if (this.isOtpProd()) {
-      const message = this.buildOtpSmsMessage({
+      this.dispatchOtpSms({
+        phone,
         purpose: 'FORGOT_PASSWORD',
         code,
+        logLabel: 'forgot-password',
       });
-      void this.fast2sms
-        .sendTextSms({ toPhone: phone, message })
-        .catch((err) =>
-          this.logger.warn(`Fast2SMS reset OTP send failed: ${String(err)}`),
-        );
     }
     return { message: 'OTP sent to your mobile number' };
   }

@@ -114,7 +114,7 @@ services:
       - key: RESEND_API_KEY
         sync: false
 
-      # OTP / SMS
+      # OTP / SMS (DLT via Fast2SMS — set message_ids in Dashboard after template approval)
       - key: OTP_ENV
         value: "production"
       - key: ANDROID_SMS_APP_HASH
@@ -122,8 +122,16 @@ services:
       - key: FAST2SMS_API_KEY
         sync: false
       - key: FAST2SMS_ROUTE
-        value: "q"
+        value: "dlt"
       - key: FAST2SMS_SENDER_ID
+        value: "VYBEKT"
+      - key: FAST2SMS_DLT_MSG_ID_LOGIN
+        sync: false
+      - key: FAST2SMS_DLT_MSG_ID_BUYER_SIGNUP
+        sync: false
+      - key: FAST2SMS_DLT_MSG_ID_SELLER_SIGNUP
+        sync: false
+      - key: FAST2SMS_DLT_MSG_ID_FORGOT_PASSWORD
         sync: false
 
       # FCM (Firebase Admin): full service-account JSON as a single-line string. Set in Dashboard (do not commit).

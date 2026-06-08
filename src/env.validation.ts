@@ -22,8 +22,13 @@ export const envValidationSchema = Joi.object({
   FAST2SMS_API_KEY: Joi.string().optional(),
   /** Fast2SMS route (e.g. q, otp, dlt). */
   FAST2SMS_ROUTE: Joi.string().default('q'),
-  /** Fast2SMS sender id (only used for some routes/accounts). */
+  /** DLT-approved 6-letter sender header (e.g. VYBEKT). Required when FAST2SMS_ROUTE=dlt. */
   FAST2SMS_SENDER_ID: Joi.string().optional(),
+  /** Fast2SMS DLT Manager message_id per OTP purpose (not telecom template_id). */
+  FAST2SMS_DLT_MSG_ID_LOGIN: Joi.string().optional(),
+  FAST2SMS_DLT_MSG_ID_BUYER_SIGNUP: Joi.string().optional(),
+  FAST2SMS_DLT_MSG_ID_SELLER_SIGNUP: Joi.string().optional(),
+  FAST2SMS_DLT_MSG_ID_FORGOT_PASSWORD: Joi.string().optional(),
   /** Fast2SMS endpoint override (defaults to bulkV2). */
   FAST2SMS_ENDPOINT: Joi.string()
     .uri()
