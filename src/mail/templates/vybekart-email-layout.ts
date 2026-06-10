@@ -22,7 +22,7 @@ export const VYBE_THEME = {
   borderDark: '#2D3548',
 } as const;
 
-/** Inline brand mark — always loads; immune to dark-mode PNG inversion. */
+/** Last-resort inline mark (many clients block data: URIs — prefer HTTPS logoUrl). */
 const EMBEDDED_LOGO_DATA_URI =
   'data:image/svg+xml,' +
   encodeURIComponent(
@@ -130,11 +130,19 @@ export function getVybeKartMailBranding(config: ConfigService): VybeKartMailBran
 
 function headerLogoMarkHtml(b: VybeKartMailBranding): string {
   const home = escapeHtml(b.websiteUrl);
-  const src = escapeHtml(EMBEDDED_LOGO_DATA_URI);
+  const rawLogo = (b.logoUrl ?? '').trim();
+  const src = escapeHtml(
+    rawLogo && !rawLogo.startsWith('data:') ? rawLogo : '',
+  );
   const alt = escapeHtml(VYBEKART_BRAND_NAME);
-  return `<a href="${home}" target="_blank" rel="noopener noreferrer" style="text-decoration:none;border:0;display:inline-block;line-height:0;">
-<img class="vk-logo-img" src="${src}" width="56" height="62" border="0" alt="${alt}" style="display:block;width:56px;max-width:56px;height:auto;border:0;outline:none;text-decoration:none;-ms-interpolation-mode:bicubic;filter:none !important;-webkit-filter:none !important;mix-blend-mode:normal;"/>
-</a>`;
+  if (!src) {
+    return `<a href="${home}" target="_blank" rel="noopener noreferrer" style="text-decoration:none;font-size:24px;font-weight:800;color:#FFFFFF;letter-spacing:-0.02em;line-height:1.1;">${alt}</a>`;
+  }
+  return `<span class="vk-logo-shield" style="display:inline-block;line-height:0;color-scheme:light only;">
+<a href="${home}" target="_blank" rel="noopener noreferrer" style="text-decoration:none;border:0;display:inline-block;line-height:0;">
+<img class="vk-logo-img" src="${src}" width="56" height="56" border="0" alt="${alt}" style="display:block;width:56px;max-width:56px;height:auto;border:0;outline:none;text-decoration:none;-ms-interpolation-mode:bicubic;"/>
+</a>
+</span>`;
 }
 
 function headerHeroVisualHtml(b: VybeKartMailBranding): string {
@@ -146,7 +154,13 @@ function headerHeroVisualHtml(b: VybeKartMailBranding): string {
 }
 
 const EMAIL_DARK_MODE_CSS = `
-  .vk-logo-img { filter: none !important; -webkit-filter: none !important; mix-blend-mode: normal !important; opacity: 1 !important; }
+  .vk-logo-shield { color-scheme: light only; }
+  .vk-logo-img {
+    filter: none !important;
+    -webkit-filter: none !important;
+    mix-blend-mode: normal !important;
+    opacity: 1 !important;
+  }
   .vk-hero-header { color-scheme: light only; }
   @media (prefers-color-scheme: dark) {
     .vk-body { background-color: ${VYBE_THEME.bgDark} !important; }
@@ -158,11 +172,18 @@ const EMAIL_DARK_MODE_CSS = `
     .vk-tagline-box { background: rgba(0,198,255,0.12) !important; border-color: rgba(0,198,255,0.28) !important; color: ${VYBE_THEME.textMutedDark} !important; }
     .vk-link { color: ${VYBE_THEME.cyan} !important; }
     .vk-foot { color: ${VYBE_THEME.textMutedDark} !important; }
-    .vk-logo-img { filter: none !important; -webkit-filter: none !important; opacity: 1 !important; }
+    .vk-logo-img {
+      filter: none !important;
+      -webkit-filter: none !important;
+      opacity: 1 !important;
+    }
   }
-  [data-ogsc] .vk-logo-img, [data-ogsb] .vk-logo-img {
-    filter: none !important;
-    -webkit-filter: none !important;
+  /* Gmail/Outlook dark mode auto-inverts images — undo to restore brand colors */
+  [data-ogsc] .vk-logo-img,
+  [data-ogsb] .vk-logo-img,
+  .gmail-dark .vk-logo-img {
+    filter: invert(1) hue-rotate(180deg) !important;
+    -webkit-filter: invert(1) hue-rotate(180deg) !important;
     opacity: 1 !important;
   }
 `.trim();

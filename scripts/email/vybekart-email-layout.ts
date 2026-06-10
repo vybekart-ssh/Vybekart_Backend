@@ -115,11 +115,19 @@ export function getVybeKartMailBranding(): VybeKartMailBranding {
 
 function headerLogoMarkHtml(b: VybeKartMailBranding): string {
   const home = escapeHtml(b.websiteUrl);
-  const src = escapeHtml(EMBEDDED_LOGO_DATA_URI);
+  const rawLogo = (b.logoUrl ?? '').trim();
+  const src = escapeHtml(
+    rawLogo && !rawLogo.startsWith('data:') ? rawLogo : '',
+  );
   const alt = escapeHtml(VYBEKART_BRAND_NAME);
-  return `<a href="${home}" target="_blank" rel="noopener noreferrer" style="text-decoration:none;border:0;display:inline-block;line-height:0;">
-<img class="vk-logo-img" src="${src}" width="56" height="62" border="0" alt="${alt}" style="display:block;width:56px;max-width:56px;height:auto;border:0;outline:none;-ms-interpolation-mode:bicubic;filter:none !important;-webkit-filter:none !important;mix-blend-mode:normal;"/>
-</a>`;
+  if (!src) {
+    return `<a href="${home}" target="_blank" rel="noopener noreferrer" style="text-decoration:none;font-size:24px;font-weight:800;color:#FFF;">${alt}</a>`;
+  }
+  return `<span class="vk-logo-shield" style="display:inline-block;line-height:0;color-scheme:light only;">
+<a href="${home}" target="_blank" rel="noopener noreferrer" style="text-decoration:none;border:0;display:inline-block;line-height:0;">
+<img class="vk-logo-img" src="${src}" width="56" height="56" border="0" alt="${alt}" style="display:block;width:56px;max-width:56px;height:auto;border:0;outline:none;-ms-interpolation-mode:bicubic;"/>
+</a>
+</span>`;
 }
 
 function headerHeroVisualHtml(b: VybeKartMailBranding): string {
@@ -131,6 +139,7 @@ function headerHeroVisualHtml(b: VybeKartMailBranding): string {
 }
 
 const EMAIL_DARK_MODE_CSS = `
+  .vk-logo-shield { color-scheme: light only; }
   .vk-logo-img { filter: none !important; -webkit-filter: none !important; mix-blend-mode: normal !important; opacity: 1 !important; }
   .vk-hero-header { color-scheme: light only; }
   @media (prefers-color-scheme: dark) {
@@ -145,9 +154,9 @@ const EMAIL_DARK_MODE_CSS = `
     .vk-foot { color: ${VYBE_THEME.textMutedDark} !important; }
     .vk-logo-img { filter: none !important; -webkit-filter: none !important; opacity: 1 !important; }
   }
-  [data-ogsc] .vk-logo-img, [data-ogsb] .vk-logo-img {
-    filter: none !important;
-    -webkit-filter: none !important;
+  [data-ogsc] .vk-logo-img, [data-ogsb] .vk-logo-img, .gmail-dark .vk-logo-img {
+    filter: invert(1) hue-rotate(180deg) !important;
+    -webkit-filter: invert(1) hue-rotate(180deg) !important;
     opacity: 1 !important;
   }
 `.trim();
