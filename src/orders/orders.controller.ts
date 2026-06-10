@@ -24,6 +24,7 @@ import { SellerVerifiedGuard } from '../auth/seller-verified.guard';
 import { Role } from '@prisma/client';
 import { PaginationQueryDto } from '../common/dto/pagination-query.dto';
 import { SellerOrdersQueryDto } from './dto/seller-orders-query.dto';
+import { SellerOrderCountsQueryDto } from './dto/seller-order-counts-query.dto';
 import { CartItemDto, UpdateCartQuantityDto } from './dto/cart-item.dto';
 import { CheckoutOrderDto } from './dto/checkout-order.dto';
 import { BuyerOrdersQueryDto } from './dto/buyer-orders-query.dto';
@@ -124,8 +125,21 @@ export class OrdersController {
   @Get('seller/counts')
   @UseGuards(JwtAuthGuard, RolesGuard, SellerVerifiedGuard)
   @Roles(Role.SELLER)
-  getSellerOrderCounts(@Request() req: { user: { id: string } }) {
-    return this.ordersService.getSellerOrderCounts(req.user.id);
+  getSellerOrderCounts(
+    @Request() req: { user: { id: string } },
+    @Query() query: SellerOrderCountsQueryDto,
+  ) {
+    return this.ordersService.getSellerOrderCounts(req.user.id, query.date);
+  }
+
+  @Get(':id/seller-detail')
+  @UseGuards(JwtAuthGuard, RolesGuard, SellerVerifiedGuard)
+  @Roles(Role.SELLER)
+  getSellerOrderDetail(
+    @Request() req: { user: { id: string } },
+    @Param('id') id: string,
+  ) {
+    return this.ordersService.getSellerOrderDetail(id, req.user.id);
   }
 
   @Get(':id/help')

@@ -4,6 +4,7 @@ import {
   ForbiddenException,
   BadRequestException,
   Logger,
+  ServiceUnavailableException,
 } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import { CreateOrderDto } from './dto/create-order.dto';
@@ -31,6 +32,11 @@ import {
 } from '../products/product-variants.util';
 import { RatingsService } from '../ratings/ratings.service';
 import { OrderNotificationService } from '../mail/order-notification.service';
+import {
+  isDelhiveryDeliveredStatus,
+  mapSellerOrder,
+  resolveSellerDateRange,
+} from './seller-order.mapper';
 
 const POST_LIVE_CART_HOURS = 24;
 
@@ -1235,33 +1241,29 @@ export class OrdersService {
       statusClause = { status: filter.status as OrderStatus };
     }
     let where: Prisma.OrderWhereInput = { ...baseWhere, ...statusClause };
-    if (filter?.date === 'today') {
-      const now = new Date();
-      const todayStart = new Date(
-        now.getFullYear(),
-        now.getMonth(),
-        now.getDate(),
-      );
-      const todayEnd = new Date(
-        todayStart.getTime() + 24 * 60 * 60 * 1000,
-      );
+    const dateRange = resolveSellerDateRange(filter?.date);
+    if (dateRange) {
       where = {
         ...where,
-        createdAt: { gte: todayStart, lt: todayEnd },
+        createdAt: { gte: dateRange.gte, lt: dateRange.lt },
       };
     }
+
+    const include = {
+      items: { include: { product: { include: { seller: true } } } },
+      buyer: {
+        include: {
+          user: {
+            select: { id: true, name: true, email: true, phone: true },
+          },
+        },
+      },
+    } as const;
 
     const [data, total] = await Promise.all([
       this.prisma.order.findMany({
         where,
-        include: {
-          items: { include: { product: { include: { seller: true } } } },
-          buyer: {
-            include: {
-              user: { select: { id: true, name: true, email: true } },
-            },
-          },
-        },
+        include,
         skip,
         take: limit,
         orderBy: { createdAt: 'desc' },
@@ -1270,7 +1272,7 @@ export class OrdersService {
     ]);
     const totalPages = Math.ceil(total / limit);
     return {
-      data,
+      data: data.map((o) => mapSellerOrder(o)),
       meta: {
         total,
         page,
@@ -1282,8 +1284,36 @@ export class OrdersService {
     };
   }
 
+  async getSellerOrderDetail(orderId: string, userId: string) {
+    const seller = await this.prisma.seller.findUnique({ where: { userId } });
+    if (!seller) {
+      throw new ForbiddenException('User is not a registered seller');
+    }
+    const order = await this.prisma.order.findUnique({
+      where: { id: orderId },
+      include: {
+        items: { include: { product: true } },
+        buyer: {
+          include: {
+            user: {
+              select: { id: true, name: true, email: true, phone: true },
+            },
+          },
+        },
+      },
+    });
+    if (!order) throw new NotFoundException('Order not found');
+    const hasSellerProduct = order.items.some(
+      (item) => item.product.sellerId === seller.id,
+    );
+    if (!hasSellerProduct) {
+      throw new ForbiddenException('This order does not contain your products');
+    }
+    return mapSellerOrder(order);
+  }
+
   /** Seller: get order counts by status for tab badges */
-  async getSellerOrderCounts(userId: string) {
+  async getSellerOrderCounts(userId: string, dateParam?: string) {
     const seller = await this.prisma.seller.findUnique({
       where: { userId },
     });
@@ -1293,30 +1323,35 @@ export class OrdersService {
     const baseWhere: Prisma.OrderWhereInput = {
       items: { some: { product: { sellerId: seller.id } } },
     };
-    const [all, pending, processing, packed, shipped] = await Promise.all([
-      this.prisma.order.count({ where: baseWhere }),
-      this.prisma.order.count({
-        where: { ...baseWhere, status: OrderStatus.PENDING },
-      }),
-      this.prisma.order.count({
-        where: { ...baseWhere, status: OrderStatus.PAID },
-      }),
-      this.prisma.order.count({
-        where: { ...baseWhere, status: OrderStatus.PACKED },
-      }),
-      this.prisma.order.count({
-        where: {
+    const dateRange = resolveSellerDateRange(dateParam);
+    const whereWithDate: Prisma.OrderWhereInput = dateRange
+      ? {
           ...baseWhere,
-          status: { in: [OrderStatus.SHIPPED, OrderStatus.DELIVERED] },
-        },
+          createdAt: { gte: dateRange.gte, lt: dateRange.lt },
+        }
+      : baseWhere;
+
+    const [all, newCount, packed, inTransit, delivered] = await Promise.all([
+      this.prisma.order.count({ where: whereWithDate }),
+      this.prisma.order.count({
+        where: { ...whereWithDate, status: OrderStatus.PAID },
+      }),
+      this.prisma.order.count({
+        where: { ...whereWithDate, status: OrderStatus.PACKED },
+      }),
+      this.prisma.order.count({
+        where: { ...whereWithDate, status: OrderStatus.SHIPPED },
+      }),
+      this.prisma.order.count({
+        where: { ...whereWithDate, status: OrderStatus.DELIVERED },
       }),
     ]);
     return {
       all,
-      pending,
-      processing,
+      new: newCount,
       packed,
-      shipped,
+      inTransit,
+      delivered,
     };
   }
 
@@ -1598,7 +1633,7 @@ export class OrdersService {
     await fs.writeFile(dest, file.buffer);
     const base = resolvePublicBaseUrl(this.config);
     const packingVideoUrl = `${base}/uploads/packing/${fname}`;
-    return this.prisma.order.update({
+    const updated = await this.prisma.order.update({
       where: { id: orderId },
       data: {
         packingVideoUrl,
@@ -1608,10 +1643,15 @@ export class OrdersService {
       include: {
         items: { include: { product: true } },
         buyer: {
-          include: { user: { select: { id: true, name: true, email: true } } },
+          include: {
+            user: {
+              select: { id: true, name: true, email: true, phone: true },
+            },
+          },
         },
       },
     });
+    return mapSellerOrder(updated);
   }
 
   async requestDeliveryFromPartner(orderId: string, userId: string) {
@@ -1653,7 +1693,6 @@ export class OrdersService {
         'Pickup address is missing. Please update pickup address in store profile.',
       );
     }
-    const sellerUser = await this.prisma.user.findUnique({ where: { id: userId } });
     const buyerPhone = order.buyer?.user?.phone;
     if (!buyerPhone) throw new BadRequestException('Buyer phone is missing');
     const dropAddress = order.shippingAddress?.trim();
@@ -1665,45 +1704,77 @@ export class OrdersService {
     const destPin = destPinMatch?.[1] ?? '';
     const originPin = pickup.zip?.trim() ?? '';
 
-    let shipmentData: {
-      waybill: string | null;
-      trackingUrl: string | null;
-      status: string | null;
-    } | null = null;
+    let shipmentData: Awaited<ReturnType<DelhiveryService['createShipment']>> = null;
 
-    if (this.delhivery.isConfigured() && originPin && destPin) {
-      shipmentData = await this.delhivery.createShipment({
-        orderId: orderId.replace(/-/g, '').slice(0, 32),
-        pickupLocationName: seller.businessName,
-        originPin,
-        destinationPin: destPin,
-        consigneeName: order.buyer?.user?.name ?? 'Buyer',
-        consigneePhone: normalizeInPhone(buyerPhone),
-        consigneeAddress: dropAddress,
-        weightGrams: estimateCartWeightGrams(order.items.length),
-        paymentMode: 'Pre-paid',
-      });
+    if (!originPin || originPin.length !== 6) {
+      throw new BadRequestException(
+        'Pickup pincode is missing or invalid. Update pickup address in store profile.',
+      );
+    }
+    if (!destPin || destPin.length !== 6) {
+      throw new BadRequestException(
+        'Could not find a valid 6-digit pincode in the shipping address.',
+      );
     }
 
-    return this.prisma.order.update({
+    if (!this.delhivery.isConfigured()) {
+      throw new ServiceUnavailableException(
+        'Delhivery is not configured on the server. Contact support.',
+      );
+    }
+
+    const pickupLocationName =
+      this.config.get<string>('DELHIVERY_PICKUP_LOCATION')?.trim() ||
+      seller.businessName?.trim() ||
+      '';
+
+    shipmentData = await this.delhivery.createShipment({
+      orderId: orderId.replace(/-/g, '').slice(0, 32),
+      pickupLocationName,
+      originPin,
+      destinationPin: destPin,
+      consigneeName: order.buyer?.user?.name ?? 'Buyer',
+      consigneePhone: normalizeInPhone(buyerPhone),
+      consigneeAddress: dropAddress,
+      weightGrams: estimateCartWeightGrams(order.items.length),
+      paymentMode: 'Pre-paid',
+      shippingMode: 'Express',
+    });
+
+    if (!shipmentData?.waybill) {
+      const detail =
+        typeof shipmentData?.raw === 'object' && shipmentData?.raw !== null
+          ? JSON.stringify(shipmentData.raw).slice(0, 300)
+          : 'no waybill returned';
+      throw new BadRequestException(
+        `Delhivery could not create shipment. ${detail}`,
+      );
+    }
+
+    const updated = await this.prisma.order.update({
       where: { id: orderId },
       data: {
         status: OrderStatus.SHIPPED,
         shippedAt: new Date(),
-        carrierName: shipmentData?.waybill ? 'Delhivery' : null,
-        trackingId: shipmentData?.waybill ?? null,
-        deliveryProvider: shipmentData?.waybill ? 'DELHIVERY' : null,
-        borzoTrackingUrl: shipmentData?.trackingUrl,
-        borzoOrderStatus: shipmentData?.status,
-        deliveryStatus: shipmentData?.status ?? 'REQUESTED',
+        carrierName: 'Delhivery',
+        trackingId: shipmentData.waybill,
+        deliveryProvider: 'DELHIVERY',
+        borzoTrackingUrl: shipmentData.trackingUrl,
+        borzoOrderStatus: shipmentData.status,
+        deliveryStatus: shipmentData.status ?? 'Created',
       },
       include: {
         items: { include: { product: true } },
         buyer: {
-          include: { user: { select: { id: true, name: true, email: true } } },
+          include: {
+            user: {
+              select: { id: true, name: true, email: true, phone: true },
+            },
+          },
         },
       },
     });
+    return mapSellerOrder(updated);
   }
 
   async getOrderDeliveryStatus(orderId: string, userId: string) {
@@ -1727,11 +1798,28 @@ export class OrdersService {
     if (order.deliveryProvider === 'DELHIVERY' && order.trackingId) {
       const track = await this.delhivery.trackShipment(order.trackingId);
       const status = track?.status ?? order.deliveryStatus ?? null;
+      const markDelivered = isDelhiveryDeliveredStatus(status);
       const updated = await this.prisma.order.update({
         where: { id: orderId },
         data: {
           deliveryStatus: status ?? order.deliveryStatus,
           borzoOrderStatus: status ?? order.borzoOrderStatus,
+          ...(markDelivered
+            ? {
+                status: OrderStatus.DELIVERED,
+                deliveredAt: order.deliveredAt ?? new Date(),
+              }
+            : {}),
+        },
+        include: {
+          items: { include: { product: true } },
+          buyer: {
+            include: {
+              user: {
+                select: { id: true, name: true, email: true, phone: true },
+              },
+            },
+          },
         },
       });
       return {
@@ -1739,6 +1827,7 @@ export class OrdersService {
         trackingId: updated.trackingId,
         carrierName: updated.carrierName,
         orderStatus: updated.status,
+        order: mapSellerOrder(updated),
         delhivery: {
           waybill: updated.trackingId,
           trackingUrl: updated.borzoTrackingUrl,

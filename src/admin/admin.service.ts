@@ -300,7 +300,7 @@ export class AdminService {
       const seller = o.items[0]?.product?.seller ?? null;
       return {
         orderId: o.id,
-        packedAt: o.packedAt,
+        packedAt: o.packedAt?.toISOString() ?? null,
         packingVideoUrl: o.packingVideoUrl,
         streamId: o.streamId,
         seller: seller
