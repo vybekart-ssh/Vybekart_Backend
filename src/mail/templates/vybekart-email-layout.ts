@@ -22,12 +22,32 @@ export const VYBE_THEME = {
   borderDark: '#2D3548',
 } as const;
 
-/** Inline brand mark — always loads (no external host). */
+/** Inline brand mark — always loads; immune to dark-mode PNG inversion. */
 const EMBEDDED_LOGO_DATA_URI =
   'data:image/svg+xml,' +
   encodeURIComponent(
     `<svg xmlns="http://www.w3.org/2000/svg" width="56" height="62" viewBox="0 0 200 220" fill="none"><defs><linearGradient id="g" x1="100" y1="48" x2="100" y2="172" gradientUnits="userSpaceOnUse"><stop offset="0" stop-color="#00C6FF"/><stop offset="0.55" stop-color="#0066FF"/><stop offset="1" stop-color="#003BFF"/></linearGradient></defs><ellipse cx="100" cy="182" rx="48" ry="11" fill="#000" opacity="0.2"/><path d="M66 48h68l14 102q2 18-16 22H68q-18-4-16-22Z" fill="url(#g)"/><path d="M88 92v36l36-18Z" fill="#0028A8" stroke="#FFF" stroke-width="4" stroke-linejoin="round"/></svg>`,
   );
+
+/**
+ * SVG gradient tile — Gmail Android ignores CSS linear-gradient but renders
+ * background-image URLs on table cells reliably.
+ */
+const HEADER_GRADIENT_DATA_URI =
+  'data:image/svg+xml,' +
+  encodeURIComponent(
+    `<svg xmlns="http://www.w3.org/2000/svg" width="600" height="240" preserveAspectRatio="none" viewBox="0 0 600 240"><defs><linearGradient id="vk" x1="0%" y1="0%" x2="100%" y2="100%"><stop offset="0%" stop-color="#00C6FF"/><stop offset="32%" stop-color="#1E88E5"/><stop offset="58%" stop-color="#1565C0"/><stop offset="100%" stop-color="#0B1E5B"/></linearGradient></defs><rect width="600" height="240" fill="url(#vk)"/></svg>`,
+  );
+
+function headerGradientCellStyle(): string {
+  return [
+    `background-color:${VYBE_THEME.primaryDark}`,
+    `background-image:url('${HEADER_GRADIENT_DATA_URI}')`,
+    'background-repeat:no-repeat',
+    'background-size:100% 100%',
+    'background-position:center center',
+  ].join(';');
+}
 
 export function escapeHtml(s: string): string {
   return s
@@ -110,14 +130,11 @@ export function getVybeKartMailBranding(config: ConfigService): VybeKartMailBran
 
 function headerLogoMarkHtml(b: VybeKartMailBranding): string {
   const home = escapeHtml(b.websiteUrl);
-  const src = escapeHtml(b.logoUrl || EMBEDDED_LOGO_DATA_URI);
+  const src = escapeHtml(EMBEDDED_LOGO_DATA_URI);
   const alt = escapeHtml(VYBEKART_BRAND_NAME);
-  return `<table role="presentation" cellspacing="0" cellpadding="0" border="0" style="border-collapse:collapse;">
-<tr><td class="vk-logo-wrap" bgcolor="#FFFFFF" style="padding:6px 8px;line-height:0;font-size:0;background-color:#FFFFFF;border-radius:14px;border:1px solid rgba(255,255,255,0.85);">
-<a href="${home}" target="_blank" rel="noopener noreferrer" style="text-decoration:none;border:0;display:inline-block;line-height:0;">
-<img class="vk-logo-img" src="${src}" width="56" height="62" border="0" alt="${alt}" style="display:block;width:56px;max-width:56px;height:auto;border:0;outline:none;text-decoration:none;-ms-interpolation-mode:bicubic;filter:none;-webkit-filter:none;mix-blend-mode:normal;"/>
-</a>
-</td></tr></table>`;
+  return `<a href="${home}" target="_blank" rel="noopener noreferrer" style="text-decoration:none;border:0;display:inline-block;line-height:0;">
+<img class="vk-logo-img" src="${src}" width="56" height="62" border="0" alt="${alt}" style="display:block;width:56px;max-width:56px;height:auto;border:0;outline:none;text-decoration:none;-ms-interpolation-mode:bicubic;filter:none !important;-webkit-filter:none !important;mix-blend-mode:normal;"/>
+</a>`;
 }
 
 function headerHeroVisualHtml(b: VybeKartMailBranding): string {
@@ -129,8 +146,8 @@ function headerHeroVisualHtml(b: VybeKartMailBranding): string {
 }
 
 const EMAIL_DARK_MODE_CSS = `
-  .vk-logo-wrap { color-scheme: light only; }
-  .vk-logo-img { filter: none !important; -webkit-filter: none !important; mix-blend-mode: normal !important; }
+  .vk-logo-img { filter: none !important; -webkit-filter: none !important; mix-blend-mode: normal !important; opacity: 1 !important; }
+  .vk-hero-header { color-scheme: light only; }
   @media (prefers-color-scheme: dark) {
     .vk-body { background-color: ${VYBE_THEME.bgDark} !important; }
     .vk-card { background-color: ${VYBE_THEME.surfaceDark} !important; }
@@ -141,17 +158,12 @@ const EMAIL_DARK_MODE_CSS = `
     .vk-tagline-box { background: rgba(0,198,255,0.12) !important; border-color: rgba(0,198,255,0.28) !important; color: ${VYBE_THEME.textMutedDark} !important; }
     .vk-link { color: ${VYBE_THEME.cyan} !important; }
     .vk-foot { color: ${VYBE_THEME.textMutedDark} !important; }
-    .vk-hero-header { color-scheme: light only; }
-    .vk-logo-wrap { background-color: #FFFFFF !important; border-color: #E2E8F0 !important; }
     .vk-logo-img { filter: none !important; -webkit-filter: none !important; opacity: 1 !important; }
-  }
-  [data-ogsc] .vk-logo-wrap, [data-ogsb] .vk-logo-wrap {
-    background-color: #FFFFFF !important;
-    border-color: #E2E8F0 !important;
   }
   [data-ogsc] .vk-logo-img, [data-ogsb] .vk-logo-img {
     filter: none !important;
     -webkit-filter: none !important;
+    opacity: 1 !important;
   }
 `.trim();
 
@@ -167,15 +179,17 @@ export function buildVybeKartHeroHeaderHtml(params: {
     ? `<p style="margin:10px 0 0;font-size:14px;line-height:1.45;color:#E3F2FD;font-weight:500;">${escapeHtml(params.headerSubtitle)}</p>`
     : '';
 
+  const gradientStyle = headerGradientCellStyle();
+
   return `<table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0" style="border-collapse:collapse;">
   <tr>
-    <td class="vk-hero-header" style="padding:0;background-color:${VYBE_THEME.navy};background-image:linear-gradient(135deg,${VYBE_THEME.cyan} 0%,${VYBE_THEME.primary} 32%,${VYBE_THEME.primaryDark} 58%,${VYBE_THEME.navy} 100%);">
+    <td class="vk-hero-header" style="padding:0;${gradientStyle};">
       <!--[if gte mso 9]>
       <v:rect xmlns:v="urn:schemas-microsoft-com:vml" fill="true" stroke="false" style="width:600px;height:200px;">
-        <v:fill type="gradient" color="${VYBE_THEME.primary}" color2="${VYBE_THEME.navy}" angle="135"/>
+        <v:fill type="gradient" color="${VYBE_THEME.cyan}" color2="${VYBE_THEME.navy}" angle="135"/>
         <v:textbox inset="0,0,0,0" style="mso-fit-shape-to-text:true">
       <![endif]-->
-      <table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0" style="border-collapse:collapse;background-image:url('data:image/svg+xml,%3Csvg xmlns=%22http://www.w3.org/2000/svg%22 width=%2248%22 height=%2248%22 viewBox=%220 0 48 48%22%3E%3Ccircle cx=%2224%22 cy=%2224%22 r=%222%22 fill=%22%2300C6FF%22 fill-opacity=%220.14%22/%3E%3C/svg%3E');background-repeat:repeat;">
+      <table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0" style="border-collapse:collapse;background-image:url('data:image/svg+xml,%3Csvg xmlns=%22http://www.w3.org/2000/svg%22 width=%2248%22 height=%2248%22 viewBox=%220 0 48 48%22%3E%3Ccircle cx=%2224%22 cy=%2224%22 r=%222%22 fill=%22%23FFFFFF%22 fill-opacity=%220.12%22/%3E%3C/svg%3E');background-repeat:repeat;">
         <tr>
           <td style="padding:20px 24px 0 24px;">
             <table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0">

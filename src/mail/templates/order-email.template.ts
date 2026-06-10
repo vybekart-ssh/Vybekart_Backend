@@ -22,6 +22,9 @@ export type OrderEmailPayload = {
   paymentMethod: string;
   paymentReference: string | null;
   shippingAddress: string;
+  shippingContactName: string | null;
+  shippingPhone: string | null;
+  shippingAddressLine: string;
   streamTitle: string | null;
   subtotal: number;
   deliveryFee: number;
@@ -78,6 +81,25 @@ function lineItemsHtml(items: OrderEmailLine[]): string {
   </table>`;
 }
 
+function shippingDetailRows(order: OrderEmailPayload): { label: string; value: string }[] {
+  const rows: { label: string; value: string }[] = [];
+  const recipient = order.shippingContactName?.trim();
+  const phone = order.shippingPhone?.trim();
+  const address = order.shippingAddressLine?.trim() || '—';
+
+  if (recipient) {
+    rows.push({ label: 'Recipient', value: escapeHtml(recipient) });
+  }
+  if (phone) {
+    rows.push({ label: 'Phone', value: escapeHtml(phone) });
+  }
+  rows.push({
+    label: 'Delivery address',
+    value: escapeHtml(address).replace(/\n/g, '<br/>'),
+  });
+  return rows;
+}
+
 function totalsBlock(
   subtotal: number,
   deliveryFee: number,
@@ -120,10 +142,7 @@ export function buildBuyerOrderConfirmationEmail(
       ...(order.streamTitle
         ? [{ label: 'Live show', value: escapeHtml(order.streamTitle) }]
         : []),
-      {
-        label: 'Delivery to',
-        value: escapeHtml(order.shippingAddress).replace(/\n/g, '<br/>'),
-      },
+      ...shippingDetailRows(order),
     ])}
     ${lineItemsHtml(order.items)}
     ${totalsBlock(order.subtotal, order.deliveryFee, order.totalAmount)}
@@ -150,7 +169,9 @@ export function buildBuyerOrderConfirmationEmail(
     `Payment: ${order.paymentMethod}`,
     order.paymentReference ? `Reference: ${order.paymentReference}` : '',
     '',
-    `Ship to: ${order.shippingAddress}`,
+    order.shippingContactName ? `Recipient: ${order.shippingContactName}` : '',
+    order.shippingPhone ? `Phone: ${order.shippingPhone}` : '',
+    `Delivery address: ${order.shippingAddressLine}`,
     '',
     'Items:',
     ...order.items.map(
@@ -195,10 +216,7 @@ export function buildSellerNewOrderEmail(
       ...(order.streamTitle
         ? [{ label: 'Live show', value: escapeHtml(order.streamTitle) }]
         : []),
-      {
-        label: 'Ship to',
-        value: escapeHtml(order.shippingAddress).replace(/\n/g, '<br/>'),
-      },
+      ...shippingDetailRows(order),
       ...(order.deliveryProvider
         ? [{ label: 'Delivery partner', value: escapeHtml(order.deliveryProvider) }]
         : []),
@@ -224,7 +242,9 @@ export function buildSellerNewOrderEmail(
     '',
     `New paid order #${order.orderShortId} from ${order.buyerName}.`,
     `Placed: ${order.placedAt}`,
-    `Ship to: ${order.shippingAddress}`,
+    order.shippingContactName ? `Recipient: ${order.shippingContactName}` : '',
+    order.shippingPhone ? `Phone: ${order.shippingPhone}` : '',
+    `Delivery address: ${order.shippingAddressLine}`,
     '',
     'Items:',
     ...order.items.map(

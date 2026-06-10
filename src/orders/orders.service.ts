@@ -1782,10 +1782,27 @@ function estimateCartWeightGrams(itemCount: number): number {
 }
 
 function formatAddressLine(
-  a: Pick<Address, 'line1' | 'line2' | 'city' | 'state' | 'zip' | 'country'>,
+  a: Pick<
+    Address,
+    | 'line1'
+    | 'line2'
+    | 'city'
+    | 'state'
+    | 'zip'
+    | 'country'
+    | 'contactName'
+    | 'phone'
+  >,
 ): string {
-  const parts = [a.line1, a.line2, a.city, a.state, a.zip, a.country]
+  const streetParts = [a.line1, a.line2, a.city, a.state, a.zip, a.country]
     .map((s) => (s ?? '').toString().trim())
     .filter(Boolean);
-  return parts.join(', ');
+  const street = streetParts.join(', ');
+  const name = (a.contactName ?? '').trim();
+  const phone = (a.phone ?? '').trim();
+  const lines: string[] = [];
+  if (name) lines.push(name);
+  if (phone) lines.push(phone);
+  if (street) lines.push(street);
+  return lines.length ? lines.join('\n') : '—';
 }

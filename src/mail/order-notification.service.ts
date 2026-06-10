@@ -9,6 +9,7 @@ import {
   buildSellerNewOrderEmail,
   OrderEmailPayload,
 } from './templates/order-email.template';
+import { parseShippingAddressSnapshot } from './templates/shipping-address.util';
 
 @Injectable()
 export class OrderNotificationService {
@@ -128,6 +129,8 @@ export class OrderNotificationService {
       0,
     );
     const deliveryFee = order.deliveryFee ?? 0;
+    const shippingSnapshot = order.shippingAddress?.trim() || '—';
+    const shippingParts = parseShippingAddressSnapshot(shippingSnapshot);
 
     return {
       orderId: order.id,
@@ -140,7 +143,10 @@ export class OrderNotificationService {
       }),
       paymentMethod: order.razorpayPaymentId ? 'Razorpay' : 'Online',
       paymentReference: order.razorpayPaymentId,
-      shippingAddress: order.shippingAddress?.trim() || '—',
+      shippingAddress: shippingSnapshot,
+      shippingContactName: shippingParts.shippingContactName,
+      shippingPhone: shippingParts.shippingPhone,
+      shippingAddressLine: shippingParts.shippingAddressLine,
       streamTitle: order.stream?.title ?? null,
       subtotal: itemsSubtotal,
       deliveryFee,
