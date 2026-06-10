@@ -57,7 +57,6 @@ export class PaymentsService {
   }
 
   isDirectCheckoutAllowed(): boolean {
-    if (!this.isRazorpayConfigured()) return true;
     const flag = this.config.get<string>('PAYMENTS_ALLOW_DIRECT_CHECKOUT');
     return flag === 'true' || flag === '1';
   }

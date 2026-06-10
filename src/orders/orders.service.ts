@@ -772,8 +772,6 @@ export class OrdersService {
   }
 
   private assertDirectCheckoutAllowed() {
-    const keySecret = this.config.get<string>('RAZORPAY_KEY_SECRET')?.trim();
-    if (!keySecret) return;
     const flag = this.config.get<string>('PAYMENTS_ALLOW_DIRECT_CHECKOUT');
     if (flag === 'true' || flag === '1') return;
     throw new BadRequestException(
