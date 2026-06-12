@@ -8,9 +8,12 @@ export class CreateReplacementDto {
   @IsString()
   description?: string;
 
-  @IsOptional()
   @IsUUID()
-  orderItemId?: string;
+  orderItemId!: string;
+
+  @IsOptional()
+  @IsString()
+  replacementVariantId?: string;
 
   @IsOptional()
   @IsArray()

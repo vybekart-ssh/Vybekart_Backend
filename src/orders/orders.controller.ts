@@ -111,6 +111,18 @@ export class OrdersController {
     return this.ordersService.findMyOrders(req.user.id, query);
   }
 
+  @Get('recent')
+  @UseGuards(JwtAuthGuard, BuyerAccessGuard)
+  recentOrders(
+    @Request() req: { user: { id: string } },
+    @Query('limit') limit?: string,
+  ) {
+    return this.ordersService.getRecentBuyerOrders(
+      req.user.id,
+      limit ? parseInt(limit, 10) : 10,
+    );
+  }
+
   @Get('seller')
   @UseGuards(JwtAuthGuard, RolesGuard, SellerVerifiedGuard)
   @Roles(Role.SELLER)
@@ -140,6 +152,15 @@ export class OrdersController {
     @Param('id') id: string,
   ) {
     return this.ordersService.getSellerOrderDetail(id, req.user.id);
+  }
+
+  @Get(':id/buyer-detail')
+  @UseGuards(JwtAuthGuard, BuyerAccessGuard)
+  getBuyerOrderDetail(
+    @Request() req: { user: { id: string } },
+    @Param('id') id: string,
+  ) {
+    return this.ordersService.getBuyerOrderDetail(id, req.user.id);
   }
 
   @Get(':id/help')

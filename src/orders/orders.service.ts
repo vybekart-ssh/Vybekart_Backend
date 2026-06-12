@@ -37,6 +37,10 @@ import {
   mapSellerOrder,
   resolveSellerDateRange,
 } from './seller-order.mapper';
+import {
+  mapBuyerOrderDetail,
+  mapBuyerOrderListItem,
+} from './buyer-order.mapper';
 
 const POST_LIVE_CART_HOURS = 24;
 
@@ -1099,9 +1103,11 @@ export class OrdersService {
     }
 
     const skip = (page - 1) * limit;
+    const dateRange = resolveSellerDateRange(query.date);
     const where: Prisma.OrderWhereInput = {
       buyerId: buyer.id,
       ...(status ? { status: status as OrderStatus } : {}),
+      ...(dateRange ? { createdAt: dateRange } : {}),
       ...(search
         ? {
             OR: [
@@ -1120,7 +1126,18 @@ export class OrdersService {
     const [data, total] = await Promise.all([
       this.prisma.order.findMany({
         where,
-        include: { items: { include: { product: true } } },
+        include: {
+          items: {
+            include: {
+              product: {
+                include: {
+                  seller: { select: { businessName: true, logoUrl: true } },
+                },
+              },
+            },
+          },
+          replacementRequests: { select: { id: true, status: true } },
+        },
         skip,
         take: limit,
         orderBy: { createdAt: 'desc' },
@@ -1129,7 +1146,7 @@ export class OrdersService {
     ]);
     const totalPages = Math.ceil(total / limit);
     return {
-      data,
+      data: data.map(mapBuyerOrderListItem),
       meta: {
         total,
         page,
@@ -1139,6 +1156,53 @@ export class OrdersService {
         hasPrev: page > 1,
       },
     };
+  }
+
+  async getRecentBuyerOrders(userId: string, limit = 10) {
+    const buyer = await this.prisma.buyer.findUnique({ where: { userId } });
+    if (!buyer) return [];
+
+    const orders = await this.prisma.order.findMany({
+      where: { buyerId: buyer.id },
+      include: {
+        items: {
+          include: {
+            product: {
+              include: {
+                seller: { select: { businessName: true, logoUrl: true } },
+              },
+            },
+          },
+        },
+        replacementRequests: { select: { id: true, status: true } },
+      },
+      orderBy: { createdAt: 'desc' },
+      take: Math.min(limit, 20),
+    });
+    return orders.map(mapBuyerOrderListItem);
+  }
+
+  async getBuyerOrderDetail(orderId: string, userId: string) {
+    const buyer = await this.prisma.buyer.findUnique({ where: { userId } });
+    if (!buyer) throw new ForbiddenException('User is not a registered buyer');
+
+    const order = await this.prisma.order.findFirst({
+      where: { id: orderId, buyerId: buyer.id },
+      include: {
+        items: {
+          include: {
+            product: {
+              include: {
+                seller: { select: { businessName: true, logoUrl: true } },
+              },
+            },
+          },
+        },
+        replacementRequests: { select: { id: true, status: true } },
+      },
+    });
+    if (!order) throw new NotFoundException('Order not found');
+    return mapBuyerOrderDetail(order);
   }
 
   async getOrderHelp(orderId: string, userId: string) {

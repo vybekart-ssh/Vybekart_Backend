@@ -72,6 +72,40 @@ Set these in Render Dashboard → Environment, then redeploy.
 
 ---
 
+## Replacement fulfillment (seller)
+
+Same Delhivery env vars apply. Flow mirrors primary orders after buyer approval (and balance payment if due).
+
+| Step | Replacement status | Seller action |
+|------|-------------------|---------------|
+| 1 | `APPROVED` | Buyer paid any balance; ready to pack |
+| 2 | `APPROVED` | Upload packing video → `PACKED` |
+| 3 | `PACKED` | Request Delhivery pickup → `SHIPPED` |
+| 4 | `SHIPPED` | Poll delivery status → `DELIVERED` |
+
+### Replacement API endpoints
+
+| Method | Endpoint | Purpose |
+|--------|----------|---------|
+| `GET` | `/replacements/seller?date=today` | List replacement requests |
+| `GET` | `/replacements/seller/:id` | Detail + timeline + next action |
+| `POST` | `/replacements/:id/packing-video` | Upload pack video → `PACKED` |
+| `PATCH` | `/replacements/:id/request-delivery` | Delhivery shipment → `SHIPPED` |
+| `GET` | `/replacements/:id/delivery-status` | Poll tracking |
+
+### Buyer balance payment (Razorpay)
+
+When replacement variant costs more than original, status is `AWAITING_PAYMENT` until paid:
+
+| Method | Endpoint |
+|--------|----------|
+| `POST` | `/payments/razorpay/replacement-balance/:replacementId/create-order` |
+| `POST` | `/payments/razorpay/replacement-balance/verify` |
+
+Seller fulfillment is blocked until `balancePaymentStatus` is `PAID` (or `balanceDue` is 0).
+
+---
+
 ## Staging URLs
 
 - API base: `https://staging-express.delhivery.com`

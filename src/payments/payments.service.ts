@@ -11,8 +11,13 @@ import * as crypto from 'crypto';
 import { RedisService } from '../redis/redis.service';
 import { OrdersService } from '../orders/orders.service';
 import { PrismaService } from '../prisma/prisma.service';
+import {
+  BalancePaymentStatus,
+  ReplacementStatus,
+} from '@prisma/client';
 import { CreateRazorpayOrderDto } from './dto/create-razorpay-order.dto';
 import { VerifyRazorpayPaymentDto } from './dto/verify-razorpay-payment.dto';
+import { ReplacementBalancePaymentDto } from './dto/replacement-balance-payment.dto';
 
 const PENDING_TTL_SECONDS = 30 * 60;
 
@@ -63,6 +68,10 @@ export class PaymentsService {
 
   private pendingKey(razorpayOrderId: string): string {
     return `payments:razorpay:pending:${razorpayOrderId}`;
+  }
+
+  private replacementPendingKey(razorpayOrderId: string): string {
+    return `payments:razorpay:replacement:${razorpayOrderId}`;
   }
 
   private verifySignature(
@@ -327,5 +336,173 @@ export class PaymentsService {
         `Payment received but we could not place your order. Our team will process a refund shortly — contact support with payment ID: ${dto.razorpayPaymentId}`,
       );
     }
+  }
+
+  async createReplacementBalanceOrder(userId: string, replacementId: string) {
+    if (!this.razorpay) {
+      throw new ServiceUnavailableException(
+        'Razorpay is not configured on the server',
+      );
+    }
+
+    const buyer = await this.prisma.buyer.findUnique({ where: { userId } });
+    if (!buyer) throw new ForbiddenException('Buyer not found');
+
+    const replacement = await this.prisma.replacementRequest.findFirst({
+      where: { id: replacementId, buyerId: buyer.id },
+    });
+    if (!replacement) throw new BadRequestException('Replacement not found');
+    if (replacement.status !== ReplacementStatus.AWAITING_PAYMENT) {
+      throw new BadRequestException('No balance payment is due');
+    }
+    if (replacement.balanceDue <= 0) {
+      throw new BadRequestException('No balance payment is due');
+    }
+    if (replacement.balancePaymentStatus === BalancePaymentStatus.PAID) {
+      throw new BadRequestException('Balance already paid');
+    }
+
+    if (replacement.razorpayOrderId) {
+      const user = await this.prisma.user.findUnique({
+        where: { id: userId },
+        select: { name: true, email: true, phone: true },
+      });
+      return {
+        razorpayOrderId: replacement.razorpayOrderId,
+        amount: Math.round(replacement.balanceDue * 100),
+        currency: 'INR',
+        keyId: this.config.get<string>('RAZORPAY_KEY_ID'),
+        replacementId: replacement.id,
+        balanceDue: replacement.balanceDue,
+        prefill: {
+          name: user?.name ?? '',
+          email: user?.email ?? '',
+          contact: user?.phone ?? '',
+        },
+      };
+    }
+
+    const amountPaise = Math.round(replacement.balanceDue * 100);
+    if (amountPaise < 100) {
+      throw new BadRequestException('Minimum payable amount is ₹1');
+    }
+
+    const receipt = `vk_repl_${replacementId.slice(0, 8)}_${Date.now()}`;
+    const rzOrder = await this.razorpay.orders.create({
+      amount: amountPaise,
+      currency: 'INR',
+      receipt,
+      notes: {
+        userId,
+        replacementId,
+        type: 'replacement_balance',
+      },
+    });
+
+    await this.prisma.replacementRequest.update({
+      where: { id: replacementId },
+      data: { razorpayOrderId: rzOrder.id },
+    });
+
+    await this.redis.set(
+      this.replacementPendingKey(rzOrder.id),
+      JSON.stringify({ userId, replacementId, amountPaise }),
+      PENDING_TTL_SECONDS,
+    );
+
+    const user = await this.prisma.user.findUnique({
+      where: { id: userId },
+      select: { name: true, email: true, phone: true },
+    });
+
+    return {
+      razorpayOrderId: rzOrder.id,
+      amount: amountPaise,
+      currency: 'INR',
+      keyId: this.config.get<string>('RAZORPAY_KEY_ID'),
+      replacementId: replacement.id,
+      balanceDue: replacement.balanceDue,
+      prefill: {
+        name: user?.name ?? '',
+        email: user?.email ?? '',
+        contact: user?.phone ?? '',
+      },
+    };
+  }
+
+  async verifyReplacementBalancePayment(
+    userId: string,
+    dto: ReplacementBalancePaymentDto,
+  ) {
+    if (!this.razorpay) {
+      throw new ServiceUnavailableException(
+        'Razorpay is not configured on the server',
+      );
+    }
+
+    this.verifySignature(
+      dto.razorpayOrderId,
+      dto.razorpayPaymentId,
+      dto.razorpaySignature,
+    );
+
+    const buyer = await this.prisma.buyer.findUnique({ where: { userId } });
+    if (!buyer) throw new ForbiddenException('Buyer not found');
+
+    const replacement = await this.prisma.replacementRequest.findFirst({
+      where: {
+        id: dto.replacementId,
+        buyerId: buyer.id,
+        razorpayOrderId: dto.razorpayOrderId,
+      },
+    });
+    if (!replacement) {
+      throw new BadRequestException('Replacement payment not found');
+    }
+
+    if (replacement.balancePaymentStatus === BalancePaymentStatus.PAID) {
+      return {
+        success: true,
+        replacementId: replacement.id,
+        status: replacement.status,
+      };
+    }
+
+    const raw = await this.redis.get(
+      this.replacementPendingKey(dto.razorpayOrderId),
+    );
+    if (!raw) {
+      throw new BadRequestException('Payment session expired. Please try again.');
+    }
+
+    const pending = JSON.parse(raw) as {
+      userId: string;
+      replacementId: string;
+      amountPaise: number;
+    };
+    if (pending.userId !== userId || pending.replacementId !== dto.replacementId) {
+      throw new ForbiddenException('Payment does not belong to this user');
+    }
+
+    const updated = await this.prisma.replacementRequest.update({
+      where: { id: dto.replacementId },
+      data: {
+        status: ReplacementStatus.APPROVED,
+        balancePaymentStatus: BalancePaymentStatus.PAID,
+        razorpayPaymentId: dto.razorpayPaymentId,
+      },
+    });
+
+    await this.redis.del(this.replacementPendingKey(dto.razorpayOrderId));
+
+    this.logger.log(
+      `Replacement balance paid user=${userId} replacement=${dto.replacementId} payment=${dto.razorpayPaymentId}`,
+    );
+
+    return {
+      success: true,
+      replacementId: updated.id,
+      status: updated.status,
+    };
   }
 }
