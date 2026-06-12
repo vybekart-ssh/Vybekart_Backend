@@ -8,7 +8,7 @@ import {
 import { ConfigService } from '@nestjs/config';
 import { AddressType, OrderStatus, ReplacementStatus } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
-import { getVybeKartMailBranding } from '../mail/templates/vybekart-email-layout';
+import { buildInvoiceBranding } from './invoice-branding.util';
 import { parseShippingAddressSnapshot } from '../mail/templates/shipping-address.util';
 import {
   InvoiceAddressBlock,
@@ -29,6 +29,7 @@ import {
   stateNameFromCode,
 } from './invoice-tax.util';
 import { buildInvoicePdf } from './invoice-pdf.builder';
+import { buildSampleInvoiceDocument } from './invoice-sample.util';
 
 type OrderItemRow = {
   id: string;
@@ -57,6 +58,12 @@ export class InvoicesService {
     private readonly prisma: PrismaService,
     private readonly config: ConfigService,
   ) {}
+
+  async generateSampleInvoicePdf() {
+    const doc = buildSampleInvoiceDocument();
+    const buffer = await buildInvoicePdf(doc);
+    return { buffer, filename: doc.filename };
+  }
 
   async generateOrderInvoicePdf(orderId: string, userId: string) {
     const buyer = await this.prisma.buyer.findUnique({ where: { userId } });
@@ -257,18 +264,7 @@ export class InvoicesService {
   }
 
   private buildBranding() {
-    const mail = getVybeKartMailBranding(this.config);
-    return {
-      logoUrl: mail.logoUrl,
-      companyLegalName: mail.companyLegalName,
-      registeredOffice:
-        this.config.get<string>('VYBEKART_REGISTERED_OFFICE')?.trim() ||
-        'India',
-      supportEmail: mail.supportEmail,
-      websiteUrl: mail.websiteUrl,
-      platformGstin:
-        this.config.get<string>('VYBEKART_PLATFORM_GSTIN')?.trim() || null,
-    };
+    return buildInvoiceBranding(this.config);
   }
 
   private buildAddressBlocks(

@@ -12,11 +12,23 @@ import { BuyerAccessGuard } from '../auth/buyer-access.guard';
 import { InvoicesService } from './invoices.service';
 
 @Controller()
-@UseGuards(JwtAuthGuard, BuyerAccessGuard)
 export class InvoicesController {
   constructor(private readonly invoices: InvoicesService) {}
 
+  /** Public sample PDF for layout review — no auth required. */
+  @Get('invoices/sample')
+  async sampleInvoice(@Res() res: Response) {
+    const { buffer, filename } = await this.invoices.generateSampleInvoicePdf();
+    res.setHeader('Content-Type', 'application/pdf');
+    res.setHeader(
+      'Content-Disposition',
+      `inline; filename="${filename}"`,
+    );
+    res.send(buffer);
+  }
+
   @Get('orders/:id/invoice')
+  @UseGuards(JwtAuthGuard, BuyerAccessGuard)
   async orderInvoice(
     @Request() req: { user: { id: string } },
     @Param('id') id: string,
@@ -35,6 +47,7 @@ export class InvoicesController {
   }
 
   @Get('replacements/:id/invoice')
+  @UseGuards(JwtAuthGuard, BuyerAccessGuard)
   async replacementInvoice(
     @Request() req: { user: { id: string } },
     @Param('id') id: string,

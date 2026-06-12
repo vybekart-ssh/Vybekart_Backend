@@ -1,3 +1,5 @@
+import type { InvoiceBranding } from './invoice-branding.types';
+
 export type InvoiceTaxLine = {
   ratePercent: number;
   type: 'CGST' | 'SGST' | 'IGST';
@@ -52,14 +54,7 @@ export type InvoicePagePayload = {
   paymentTransactionId: string | null;
   paymentDateTime: Date | null;
   paymentMode: string;
-  branding: {
-    logoUrl: string | null;
-    companyLegalName: string;
-    registeredOffice: string;
-    supportEmail: string;
-    websiteUrl: string;
-    platformGstin: string | null;
-  };
+  branding: InvoiceBranding;
   isReplacement?: boolean;
   originalOrderRef?: string;
 };
