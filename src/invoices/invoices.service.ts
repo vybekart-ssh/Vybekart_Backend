@@ -101,7 +101,7 @@ export class InvoicesService {
       pageNo += 1;
       const seller = items[0].product.seller;
       const sellerAddress = await this.resolveSellerAddress(seller);
-      this.assertSellerInvoiceReady(seller.businessName, sellerAddress, seller.gstNumber);
+      this.assertSellerInvoiceReady(seller.businessName, sellerAddress);
 
       const deliveryShare =
         grouped.size === 1
@@ -175,11 +175,7 @@ export class InvoicesService {
     }
 
     const sellerAddress = await this.resolveSellerAddress(repl.seller);
-    this.assertSellerInvoiceReady(
-      repl.seller.businessName,
-      sellerAddress,
-      repl.seller.gstNumber,
-    );
+    this.assertSellerInvoiceReady(repl.seller.businessName, sellerAddress);
 
     const invoiceNumber =
       repl.invoiceNumber ??
@@ -246,19 +242,10 @@ export class InvoicesService {
       .join('\n');
   }
 
-  private assertSellerInvoiceReady(
-    name: string,
-    address: string,
-    gstin: string | null,
-  ) {
+  private assertSellerInvoiceReady(name: string, address: string) {
     if (!name?.trim() || !address?.trim()) {
       throw new UnprocessableEntityException(
         'Seller business details are incomplete for tax invoice. Please contact support.',
-      );
-    }
-    if (!gstin?.trim()) {
-      throw new UnprocessableEntityException(
-        'Seller GST registration is required for tax invoice. Please contact support.',
       );
     }
   }

@@ -39,8 +39,8 @@ Opens `Testing/sample-tax-invoice.pdf`. Or hit `GET /invoices/sample` in the bro
 
 ## Seller prerequisites
 
-- Valid **GSTIN** on seller profile
-- **Business address** or pickup address on file
+- **Business name** and **address** (or pickup address) on file
+- **GSTIN** is optional — omitted on the invoice when not set
 
 ## Test checklist
 
