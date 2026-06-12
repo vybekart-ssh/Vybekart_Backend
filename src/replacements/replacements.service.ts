@@ -193,12 +193,14 @@ export class ReplacementsService {
     const existing = await this.prisma.replacementRequest.findFirst({
       where: {
         orderId,
-        status: { in: BLOCKING_STATUSES },
+        status: { not: ReplacementStatus.REJECTED },
       },
     });
     if (existing) {
       throw new BadRequestException(
-        'A replacement request already exists for this order',
+        existing.status === ReplacementStatus.DELIVERED
+          ? 'A replacement has already been completed for this order'
+          : 'A replacement request already exists for this order',
       );
     }
 
@@ -340,10 +342,10 @@ export class ReplacementsService {
       deadline.setDate(deadline.getDate() + SUBMIT_DAYS);
       if (new Date() > deadline) continue;
 
-      const blocking = o.replacementRequests.filter((r) =>
-        BLOCKING_STATUSES.includes(r.status),
+      const blocking = o.replacementRequests.some(
+        (r) => r.status !== ReplacementStatus.REJECTED,
       );
-      if (blocking.length > 0) continue;
+      if (blocking) continue;
 
       const daysLeft = Math.max(
         0,

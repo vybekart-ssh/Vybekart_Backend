@@ -130,6 +130,8 @@ export function mapBuyerOrderListItem(order: BuyerOrderRow) {
   const hasOpenReplacement =
     order.replacementRequests?.some((r) => r.status !== 'REJECTED' && r.status !== 'DELIVERED') ??
     false;
+  const hasFulfilledReplacement =
+    order.replacementRequests?.some((r) => r.status === 'DELIVERED') ?? false;
 
   return {
     id: order.id,
@@ -143,6 +145,7 @@ export function mapBuyerOrderListItem(order: BuyerOrderRow) {
     primaryProductImage: first?.product.images?.[0] ?? null,
     sellerName: first?.product.seller?.businessName ?? null,
     hasOpenReplacement,
+    hasFulfilledReplacement,
     items: order.items.map((i) => ({
       id: i.id,
       quantity: i.quantity,
@@ -162,10 +165,13 @@ export function mapBuyerOrderDetail(order: BuyerOrderRow) {
   const openReplacement = order.replacementRequests?.find(
     (r) => r.status !== 'REJECTED' && r.status !== 'DELIVERED',
   );
+  const hasUsedReplacement =
+    order.replacementRequests?.some((r) => r.status !== 'REJECTED') ?? false;
   const canRequestReplacement =
     order.status === OrderStatus.DELIVERED &&
     !!order.deliveredAt &&
-    !openReplacement;
+    !openReplacement &&
+    !hasUsedReplacement;
 
   return {
     ...mapBuyerOrderListItem(order),
