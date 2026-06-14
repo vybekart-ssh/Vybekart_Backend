@@ -116,7 +116,7 @@ services:
 
       # OTP / SMS (DLT via Fast2SMS — set message_ids in Dashboard after template approval)
       - key: OTP_ENV
-        value: "production"
+        value: "testing"
       - key: ANDROID_SMS_APP_HASH
         sync: false
       - key: FAST2SMS_API_KEY

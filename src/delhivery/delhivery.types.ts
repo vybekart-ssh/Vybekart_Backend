@@ -17,6 +17,8 @@ export interface DelhiveryCreateShipmentParams {
   consigneeAddress: string;
   weightGrams: number;
   paymentMode?: 'Pre-paid' | 'COD';
+  /** Express / same-day when supported by account */
+  shippingMode?: 'Express' | 'Surface';
 }
 
 export interface DelhiveryShippingCostResult {

@@ -488,6 +488,8 @@ model Order {
   razorpayOrderId   String? @unique
   razorpayPaymentId String? @unique
 
+  invoiceNumber String? @unique
+
   items OrderItem[]
 
   replacementRequests ReplacementRequest[]
@@ -564,10 +566,18 @@ model OrderItem {
 enum ReplacementStatus {
   REQUESTED
   PENDING_ADMIN_REVIEW
+  AWAITING_PAYMENT
   APPROVED
   REJECTED
+  PACKED
   SHIPPED
   DELIVERED
+}
+
+enum BalancePaymentStatus {
+  NONE
+  PENDING
+  PAID
 }
 
 enum RatingEntityType {
@@ -631,8 +641,30 @@ model ReplacementRequest {
   autoApproved     Boolean           @default(false)
   decidedAt        DateTime?
   decidedByAdminId String?
-  createdAt        DateTime          @default(now())
-  updatedAt        DateTime          @updatedAt
+
+  replacementVariantId    String?
+  replacementVariantLabel String?
+  originalUnitPrice       Float               @default(0)
+  replacementUnitPrice    Float               @default(0)
+  balanceDue              Float               @default(0)
+  balancePaymentStatus    BalancePaymentStatus @default(NONE)
+  razorpayOrderId         String?             @unique
+  razorpayPaymentId       String?             @unique
+
+  invoiceNumber String? @unique
+
+  packingVideoUrl  String?
+  packedAt         DateTime?
+  shippedAt        DateTime?
+  deliveredAt      DateTime?
+  trackingId       String?
+  carrierName      String?
+  deliveryProvider String?
+  deliveryStatus   String?
+  borzoTrackingUrl String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 
   @@index([sellerId, createdAt])
   @@index([buyerId, createdAt])

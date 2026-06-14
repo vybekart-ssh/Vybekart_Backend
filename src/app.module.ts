@@ -35,6 +35,7 @@ import { MailModule } from './mail/mail.module';
 import { RatingsModule } from './ratings/ratings.module';
 import { ReplacementsModule } from './replacements/replacements.module';
 import { PaymentsModule } from './payments/payments.module';
+import { InvoicesModule } from './invoices/invoices.module';
 
 @Module({
   imports: [
@@ -58,6 +59,7 @@ import { PaymentsModule } from './payments/payments.module';
     RatingsModule,
     ReplacementsModule,
     PaymentsModule,
+    InvoicesModule,
     LiveKitModule,
     WebhooksModule,
     AppConfigModule,

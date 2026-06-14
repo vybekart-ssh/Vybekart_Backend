@@ -1,0 +1,23 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- VybeKart mark  brand colors: cyan #00C6FF ’ royal #003BFF, navy #0B1E5B. For web/design; app uses ic_vybekart_logo_mark.xml. -->
+<svg xmlns="http://www.w3.org/2000/svg" width="200" height="220" viewBox="0 0 200 220" fill="none">
+  <defs>
+    <linearGradient id="bagGrad" x1="100" y1="48" x2="100" y2="172" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#00C6FF"/>
+      <stop offset="0.55" stop-color="#0066FF"/>
+      <stop offset="1" stop-color="#003BFF"/>
+    </linearGradient>
+    <linearGradient id="gloss" x1="62" y1="52" x2="128" y2="108" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#FFFFFF" stop-opacity="0.35"/>
+      <stop offset="1" stop-color="#FFFFFF" stop-opacity="0"/>
+    </linearGradient>
+  </defs>
+  <ellipse cx="100" cy="182" rx="48" ry="11" fill="#000000" opacity="0.2"/>
+  <path d="M66 48h68l14 102q2 18-16 22H68q-18-4-16-22Z" fill="url(#bagGrad)"/>
+  <path d="M58 130h84l4 22q1 13-14 16H68q-15-3-14-16Z" fill="#001060" opacity="0.22"/>
+  <path d="M70 52h58l-10 56-56-12Z" fill="url(#gloss)"/>
+  <path d="M78 48c0-16 8-22 16-18 4 2 6 8 6 14" stroke="#FFFFFF" stroke-width="5" stroke-linecap="round" fill="none" opacity="0.85"/>
+  <path d="M122 48c0-16-8-22-16-18-4 2-6 8-6 14" stroke="#FFFFFF" stroke-width="5" stroke-linecap="round" fill="none" opacity="0.85"/>
+  <path d="M88 92v36l36-18Z" fill="#0028A8"/>
+  <path d="M88 92v36l36-18Z" stroke="#FFFFFF" stroke-width="4" stroke-linejoin="round" fill="none"/>
+</svg>

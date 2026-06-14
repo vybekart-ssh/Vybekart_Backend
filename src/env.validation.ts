@@ -97,6 +97,14 @@ export const envValidationSchema = Joi.object({
   /** Public logo URL for HTML emails (optional). */
   ALPHA_LOGO_URL: Joi.string().uri().optional(),
   ALPHA_WEBSITE_URL: Joi.string().uri().optional(),
+  ALPHA_COMPANY_LEGAL_NAME: Joi.string().optional(),
+  VYBEKART_TRADE_NAME: Joi.string().optional(),
+  VYBEKART_LEGAL_NAME: Joi.string().optional(),
+  VYBEKART_PLATFORM_BRAND: Joi.string().optional(),
+  VYBEKART_PAN: Joi.string().optional(),
+  VYBEKART_CONTACT_EMAIL: Joi.string().optional(),
+  VYBEKART_REGISTERED_OFFICE: Joi.string().optional(),
+  VYBEKART_PLATFORM_GSTIN: Joi.string().optional(),
   /** JSON string of Firebase service account (FCM server). Optional — push disabled if unset. */
   FIREBASE_SERVICE_ACCOUNT_JSON: Joi.string().optional(),
 

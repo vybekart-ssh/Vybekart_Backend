@@ -128,19 +128,22 @@ export class DelhiveryService {
       return null;
     }
 
+    const shipment: Record<string, unknown> = {
+      name: params.consigneeName,
+      add: params.consigneeAddress,
+      pin: params.destinationPin,
+      phone: params.consigneePhone,
+      order: params.orderId,
+      payment_mode: params.paymentMode ?? 'Pre-paid',
+      weight: String(Math.max(0.05, params.weightGrams / 1000)),
+      quantity: 1,
+    };
+    if (params.shippingMode === 'Express') {
+      shipment.shipping_mode = 'Express';
+      shipment.pt = 'Pre-paid';
+    }
     const payload = {
-      shipments: [
-        {
-          name: params.consigneeName,
-          add: params.consigneeAddress,
-          pin: params.destinationPin,
-          phone: params.consigneePhone,
-          order: params.orderId,
-          payment_mode: params.paymentMode ?? 'Pre-paid',
-          weight: String(Math.max(0.05, params.weightGrams / 1000)),
-          quantity: 1,
-        },
-      ],
+      shipments: [shipment],
       pickup_location: { name: pickup },
     };
 
@@ -174,7 +177,7 @@ export class DelhiveryService {
     } catch (e: unknown) {
       const msg = e instanceof Error ? e.message : String(e);
       this.logger.warn(`Delhivery createShipment failed: ${msg}`);
-      return null;
+      return { waybill: null, trackingUrl: null, status: null, raw: { error: msg } };
     }
   }
 

@@ -1,4 +1,4 @@
-import { IsOptional, IsIn, IsInt, Min, Max, IsString } from 'class-validator';
+import { IsOptional, IsInt, Min, Max, IsString, Matches } from 'class-validator';
 import { Type } from 'class-transformer';
 
 export class SellerOrdersQueryDto {
@@ -20,7 +20,11 @@ export class SellerOrdersQueryDto {
   @IsString()
   status?: string;
 
+  /** `today` or `YYYY-MM-DD` — omit for all dates */
   @IsOptional()
-  @IsIn(['today'])
+  @IsString()
+  @Matches(/^(today|\d{4}-\d{2}-\d{2})$/, {
+    message: 'date must be today or YYYY-MM-DD',
+  })
   date?: string;
 }

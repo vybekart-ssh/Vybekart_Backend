@@ -7,8 +7,11 @@ import {
   Post,
   Query,
   Request,
+  UploadedFile,
   UseGuards,
+  UseInterceptors,
 } from '@nestjs/common';
+import { FileInterceptor } from '@nestjs/platform-express';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
 import { BuyerAccessGuard } from '../auth/buyer-access.guard';
 import { RolesGuard } from '../auth/roles.guard';
@@ -18,6 +21,7 @@ import { ReplacementsService } from './replacements.service';
 import { CreateReplacementDto } from './dto/create-replacement.dto';
 import { DecideReplacementDto } from './dto/decide-replacement.dto';
 import { SellerVerifiedGuard } from '../auth/seller-verified.guard';
+import { ReplacementVariantOptionsQueryDto } from './dto/replacement-variant-options-query.dto';
 
 @Controller()
 @UseGuards(JwtAuthGuard)
@@ -34,6 +38,20 @@ export class ReplacementsController {
     return this.replacements.createForOrder(req.user.id, orderId, dto);
   }
 
+  @Get('orders/:orderId/replacement/variant-options')
+  @UseGuards(BuyerAccessGuard)
+  variantOptions(
+    @Request() req: { user: { id: string } },
+    @Param('orderId') orderId: string,
+    @Query() query: ReplacementVariantOptionsQueryDto,
+  ) {
+    return this.replacements.getVariantOptionsForOrder(
+      req.user.id,
+      orderId,
+      query.orderItemId,
+    );
+  }
+
   @Get('buyers/replacements/eligible')
   @UseGuards(BuyerAccessGuard)
   listEligible(@Request() req: { user: { id: string } }) {
@@ -44,6 +62,15 @@ export class ReplacementsController {
   @UseGuards(BuyerAccessGuard)
   listMine(@Request() req: { user: { id: string } }) {
     return this.replacements.listForBuyer(req.user.id);
+  }
+
+  @Get('buyers/replacements/:id')
+  @UseGuards(BuyerAccessGuard)
+  buyerDetail(
+    @Request() req: { user: { id: string } },
+    @Param('id') id: string,
+  ) {
+    return this.replacements.getBuyerDetail(req.user.id, id);
   }
 
   @Get('orders/:orderId/replacement')
@@ -65,12 +92,58 @@ export class ReplacementsController {
     @Request() req: { user: { id: string } },
     @Query('page') page?: string,
     @Query('limit') limit?: string,
+    @Query('status') status?: ReplacementStatus,
+    @Query('date') date?: string,
   ) {
     return this.replacements.listForSeller(
       req.user.id,
       page ? parseInt(page, 10) : 1,
       limit ? parseInt(limit, 10) : 20,
+      status,
+      date,
     );
+  }
+
+  @Get('replacements/seller/:id')
+  @UseGuards(RolesGuard, SellerVerifiedGuard)
+  @Roles(Role.SELLER)
+  sellerDetail(
+    @Request() req: { user: { id: string } },
+    @Param('id') id: string,
+  ) {
+    return this.replacements.getSellerDetail(req.user.id, id);
+  }
+
+  @Post('replacements/:id/packing-video')
+  @UseGuards(RolesGuard, SellerVerifiedGuard)
+  @Roles(Role.SELLER)
+  @UseInterceptors(FileInterceptor('video'))
+  packingVideo(
+    @Request() req: { user: { id: string } },
+    @Param('id') id: string,
+    @UploadedFile() file: Express.Multer.File,
+  ) {
+    return this.replacements.uploadPackingVideo(id, req.user.id, file);
+  }
+
+  @Patch('replacements/:id/request-delivery')
+  @UseGuards(RolesGuard, SellerVerifiedGuard)
+  @Roles(Role.SELLER)
+  requestDelivery(
+    @Request() req: { user: { id: string } },
+    @Param('id') id: string,
+  ) {
+    return this.replacements.requestDeliveryFromPartner(id, req.user.id);
+  }
+
+  @Get('replacements/:id/delivery-status')
+  @UseGuards(RolesGuard, SellerVerifiedGuard)
+  @Roles(Role.SELLER)
+  deliveryStatus(
+    @Request() req: { user: { id: string } },
+    @Param('id') id: string,
+  ) {
+    return this.replacements.getDeliveryStatus(id, req.user.id);
   }
 
   @Patch('replacements/:id/ship')

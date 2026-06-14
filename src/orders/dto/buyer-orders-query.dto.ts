@@ -11,5 +11,10 @@ export class BuyerOrdersQueryDto extends PaginationQueryDto {
   @IsOptional()
   @IsIn(['PENDING', 'PAID', 'SHIPPED', 'DELIVERED', 'CANCELLED', 'RETURNED'])
   status?: string;
+
+  /** IST calendar day: `today` or `YYYY-MM-DD` */
+  @IsOptional()
+  @IsString()
+  date?: string;
 }
 
