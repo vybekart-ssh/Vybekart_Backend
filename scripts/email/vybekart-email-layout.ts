@@ -116,19 +116,20 @@ function headerHeroVisualHtml(b: VybeKartMailBranding): string {
   return `<div style="width:108px;height:108px;border-radius:50%;background:rgba(0,198,255,0.15);border:2px solid rgba(0,198,255,0.45);text-align:center;line-height:108px;font-size:52px;margin:0 0 0 auto;" aria-hidden="true">🛍️</div>`;
 }
 
-const EMAIL_DARK_MODE_CSS = `
+/** Branded emails always render in light mode — body copy uses inline colors. */
+const EMAIL_CLIENT_CSS = `
+  html, body { color-scheme: light only; }
   .vk-logo-wrap { color-scheme: light only; }
   .vk-logo-img { filter: none !important; -webkit-filter: none !important; mix-blend-mode: normal !important; }
   @media (prefers-color-scheme: dark) {
-    .vk-body { background-color: ${VYBE_THEME.bgDark} !important; }
-    .vk-card { background-color: ${VYBE_THEME.surfaceDark} !important; }
-    .vk-content { color: ${VYBE_THEME.textDark} !important; }
-    .vk-muted { color: ${VYBE_THEME.textMutedDark} !important; }
-    .vk-strong { color: ${VYBE_THEME.textDark} !important; }
-    .vk-hr { border-top-color: ${VYBE_THEME.borderDark} !important; }
-    .vk-tagline-box { background: rgba(0,198,255,0.12) !important; border-color: rgba(0,198,255,0.28) !important; }
-    .vk-link { color: ${VYBE_THEME.cyan} !important; }
-    .vk-foot { color: ${VYBE_THEME.textMutedDark} !important; }
+    .vk-body { background-color: ${VYBE_THEME.bgLight} !important; }
+    .vk-card { background-color: ${VYBE_THEME.surfaceLight} !important; }
+    .vk-content { background-color: ${VYBE_THEME.surfaceLight} !important; color: ${VYBE_THEME.textLight} !important; }
+    .vk-muted { color: ${VYBE_THEME.textMutedLight} !important; }
+    .vk-strong { color: ${VYBE_THEME.navy} !important; }
+    .vk-hr { border-top-color: ${VYBE_THEME.borderLight} !important; }
+    .vk-link { color: ${VYBE_THEME.primaryDark} !important; }
+    .vk-foot { color: ${VYBE_THEME.textMutedLight} !important; }
     .vk-hero-header { color-scheme: light only; }
     .vk-logo-wrap { background-color: #FFFFFF !important; border-color: #E2E8F0 !important; }
     .vk-logo-img { filter: none !important; -webkit-filter: none !important; opacity: 1 !important; }
@@ -218,14 +219,14 @@ export function buildVybeKartMailShellHtml(o: VybeKartMailShellOptions): string 
 <html lang="en">
 <head>
   <meta charset="utf-8"/><meta name="viewport" content="width=device-width,initial-scale=1"/>
-  <meta name="color-scheme" content="light dark"/><meta name="supported-color-schemes" content="light dark"/>
-  <style type="text/css">${EMAIL_DARK_MODE_CSS}</style>
+  <meta name="color-scheme" content="light"/><meta name="supported-color-schemes" content="light"/>
+  <style type="text/css">${EMAIL_CLIENT_CSS}</style>
 </head>
-<body class="vk-body" style="margin:0;padding:0;background-color:${VYBE_THEME.bgLight};font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;">
-  <table role="presentation" class="vk-body" width="100%" style="background-color:${VYBE_THEME.bgLight};padding:28px 12px;"><tr><td align="center">
-    <table role="presentation" class="vk-card" width="600" style="max-width:600px;background-color:${VYBE_THEME.surfaceLight};border-radius:16px;overflow:hidden;box-shadow:0 8px 32px rgba(11,30,91,0.12);">
+<body class="vk-body" style="margin:0;padding:0;background-color:${VYBE_THEME.bgLight};color-scheme:light only;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;">
+  <table role="presentation" class="vk-body" width="100%" bgcolor="${VYBE_THEME.bgLight}" style="background-color:${VYBE_THEME.bgLight};padding:28px 12px;"><tr><td align="center">
+    <table role="presentation" class="vk-card" width="600" bgcolor="${VYBE_THEME.surfaceLight}" style="max-width:600px;background-color:${VYBE_THEME.surfaceLight};border-radius:16px;overflow:hidden;box-shadow:0 8px 32px rgba(11,30,91,0.12);">
       <tr><td>${hero}</td></tr>
-      <tr><td class="vk-content" style="padding:32px 28px;color:${VYBE_THEME.textLight};">
+      <tr><td class="vk-content" bgcolor="${VYBE_THEME.surfaceLight}" style="padding:32px 28px;background-color:${VYBE_THEME.surfaceLight};color:${VYBE_THEME.textLight};">
         ${o.bodyHtml}
         <hr class="vk-hr" style="border:none;border-top:1px solid ${VYBE_THEME.borderLight};margin:28px 0 24px;"/>
         <p class="vk-muted" style="margin:0 0 10px;font-size:13px;color:${VYBE_THEME.textMutedLight};"><strong class="vk-strong" style="color:${VYBE_THEME.navy};">Why you received this</strong><br/>${o.whyReceivedHtml}</p>
