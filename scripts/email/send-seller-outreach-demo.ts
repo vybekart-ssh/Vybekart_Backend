@@ -20,6 +20,8 @@ import {
   resolveCeoDefaults,
   resolveSellerEmailImage,
   resolveSellerOutreachFrom,
+  resolveSellerInterestUrl,
+  sellerInterestButtonHtml,
   SELLER_EMAIL_ASSET_FILES,
   sendViaResend,
   VYBEKART_PLAY_STORE_URL,
@@ -33,6 +35,7 @@ export interface SellerOutreachParams {
   contactName: string;
   appDownloadUrl: string;
   stepsImageSrc: string;
+  interestUrl: string;
   ceoName?: string;
   ceoEmail?: string;
   ceoPhone?: string;
@@ -67,8 +70,9 @@ function bodyInnerHtml(p: SellerOutreachParams): string {
     <table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="background:#F0F8FF;border:1px solid #CFE8FF;border-radius:12px;margin:0 0 24px;">
       <tr><td style="padding:20px 22px;">
         <p style="margin:0 0 12px;font-size:15px;font-weight:700;color:#1565C0;">If you’d like to be considered, please:</p>
-        <p style="margin:0 0 10px;font-size:15px;line-height:1.6;color:#1A1D24;">1. Download the Vybekart app using the button below</p>
-        <p style="margin:0 0 10px;font-size:15px;line-height:1.6;color:#1A1D24;">2. Share the following details with us:</p>
+        <p style="margin:0 0 10px;font-size:15px;line-height:1.6;color:#1A1D24;">1. Tap <strong>I&rsquo;m Interested</strong> below so we know you&rsquo;d like to join</p>
+        <p style="margin:0 0 10px;font-size:15px;line-height:1.6;color:#1A1D24;">2. Download the Vybekart app using the button below</p>
+        <p style="margin:0 0 10px;font-size:15px;line-height:1.6;color:#1A1D24;">3. Share the following details with us:</p>
         <ul style="margin:0;padding-left:20px;font-size:15px;line-height:1.7;color:#1A1D24;">
           <li>Store name</li>
           <li>Store address</li>
@@ -76,6 +80,8 @@ function bodyInnerHtml(p: SellerOutreachParams): string {
         </ul>
       </td></tr>
     </table>
+
+    ${sellerInterestButtonHtml(p.interestUrl)}
 
     <table role="presentation" cellspacing="0" cellpadding="0" style="margin:0 auto 28px;">
       <tr>
@@ -129,8 +135,9 @@ export function buildSellerOutreachText(p: SellerOutreachParams): string {
     '5 simple steps to go live and sell on Vybekart — see the infographic in the HTML version of this email.',
     '',
     'If you’d like to be considered:',
-    `1. Download the Vybekart app: ${p.appDownloadUrl}`,
-    '2. Share your store name, store address, and contact number',
+    '1. Tap I\'m Interested in the email (we\'ll get an instant notification)',
+    `2. Download the Vybekart app: ${p.appDownloadUrl}`,
+    '3. Share your store name, store address, and contact number',
     '',
     'Have questions?',
     `Call us at ${phone}`,
@@ -160,6 +167,10 @@ async function main(): Promise<void> {
   const { ceoName, ceoEmail, ceoPhone } = resolveCeoDefaults();
   const appDownloadUrl =
     process.env.APP_DOWNLOAD_URL?.trim() || VYBEKART_PLAY_STORE_URL;
+  const apiBaseUrl =
+    process.env.API_PUBLIC_URL?.trim() ||
+    process.env.RENDER_EXTERNAL_URL?.trim() ||
+    'http://localhost:3000';
 
   const stepsImage = resolveSellerEmailImage({
     envUrlKey: 'SELLER_STEPS_IMAGE_URL',
@@ -169,12 +180,20 @@ async function main(): Promise<void> {
     forPreview: preview,
   });
 
+  const interestUrl = resolveSellerInterestUrl({
+    apiBaseUrl,
+    recipientEmail: to || 'demo@example.com',
+    storeName,
+    contactName,
+  });
+
   const params: SellerOutreachParams = {
     recipientEmail: to || 'demo@example.com',
     storeName,
     contactName,
     appDownloadUrl,
     stepsImageSrc: stepsImage.src,
+    interestUrl,
     ceoName,
     ceoEmail,
     ceoPhone,
@@ -189,6 +208,7 @@ async function main(): Promise<void> {
     const out = path.join(__dirname, 'seller-outreach-preview.html');
     fs.writeFileSync(out, html, 'utf8');
     console.log('Preview saved:', out);
+    console.log('Interest URL (test in browser after deploy):', interestUrl);
     return;
   }
 
@@ -204,6 +224,7 @@ async function main(): Promise<void> {
   console.log('From:', from);
   console.log('Subject:', subject);
   console.log('Store:', storeName);
+  console.log('Interest URL:', interestUrl);
   console.log(
     'Image:',
     stepsImage.attachment

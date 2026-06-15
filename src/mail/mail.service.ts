@@ -1,4 +1,5 @@
 import { Injectable, Logger } from '@nestjs/common';
+import { resendFetch } from '../common/utils/resend-fetch';
 import { ConfigService } from '@nestjs/config';
 import * as nodemailer from 'nodemailer';
 
@@ -114,7 +115,7 @@ export class MailService {
     resendKey: string,
     input: SendEmailInput & { from: string },
   ): Promise<void> {
-    const res = await fetch('https://api.resend.com/emails', {
+    const res = await resendFetch('https://api.resend.com/emails', {
       method: 'POST',
       headers: {
         Authorization: `Bearer ${resendKey}`,

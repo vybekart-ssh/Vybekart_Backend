@@ -105,6 +105,9 @@ export const envValidationSchema = Joi.object({
   VYBEKART_CONTACT_EMAIL: Joi.string().optional(),
   VYBEKART_REGISTERED_OFFICE: Joi.string().optional(),
   VYBEKART_PLATFORM_GSTIN: Joi.string().optional(),
+  RESEND_INSECURE_TLS: Joi.string().valid('true', 'false', '1', '0').optional(),
+  SELLER_OUTREACH_INTEREST_SECRET: Joi.string().optional(),
+  CEO_EMAIL: Joi.string().email().optional(),
   /** JSON string of Firebase service account (FCM server). Optional — push disabled if unset. */
   FIREBASE_SERVICE_ACCOUNT_JSON: Joi.string().optional(),
 

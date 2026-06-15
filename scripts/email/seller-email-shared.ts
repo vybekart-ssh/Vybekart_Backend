@@ -5,6 +5,8 @@
 import * as fs from 'fs';
 import * as path from 'path';
 import { escapeHtml } from './vybekart-email-layout';
+import { buildSellerInterestUrl } from '../../src/seller-outreach/seller-outreach-interest.util';
+import { resendFetch } from '../../src/common/utils/resend-fetch';
 
 export const VYBEKART_PLAY_STORE_URL =
   'https://play.google.com/store/apps/details?id=com.vybekart.app';
@@ -183,7 +185,7 @@ export async function sendViaResend(opts: {
     body.attachments = opts.attachments;
   }
 
-  const res = await fetch('https://api.resend.com/emails', {
+  const res = await resendFetch('https://api.resend.com/emails', {
     method: 'POST',
     headers: {
       Authorization: `Bearer ${opts.apiKey}`,
@@ -209,4 +211,40 @@ export function collectAttachments(
     if (img.attachment) out.push(img.attachment);
   }
   return out;
+}
+
+export function resolveSellerInterestUrl(opts: {
+  apiBaseUrl: string;
+  recipientEmail: string;
+  storeName: string;
+  contactName: string;
+}): string {
+  const secret =
+    process.env.SELLER_OUTREACH_INTEREST_SECRET?.trim() ||
+    process.env.JWT_SECRET?.trim() ||
+    '';
+  if (!secret) {
+    throw new Error(
+      'Set JWT_SECRET or SELLER_OUTREACH_INTEREST_SECRET to build interest links',
+    );
+  }
+  return buildSellerInterestUrl(opts.apiBaseUrl, {
+    email: opts.recipientEmail,
+    store: opts.storeName,
+    contact: opts.contactName,
+  }, secret);
+}
+
+export function sellerInterestButtonHtml(interestUrl: string): string {
+  const href = escapeHtml(interestUrl);
+  return `
+    <table role="presentation" cellspacing="0" cellpadding="0" style="margin:0 auto 24px;">
+      <tr>
+        <td style="border-radius:999px;background:#0B1E5B;">
+          <a href="${href}" target="_blank" style="display:inline-block;padding:14px 36px;font-size:15px;font-weight:700;color:#FFFFFF;text-decoration:none;letter-spacing:0.02em;">
+            I&rsquo;m Interested
+          </a>
+        </td>
+      </tr>
+    </table>`.trim();
 }

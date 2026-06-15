@@ -36,6 +36,7 @@ import { RatingsModule } from './ratings/ratings.module';
 import { ReplacementsModule } from './replacements/replacements.module';
 import { PaymentsModule } from './payments/payments.module';
 import { InvoicesModule } from './invoices/invoices.module';
+import { SellerOutreachModule } from './seller-outreach/seller-outreach.module';
 
 @Module({
   imports: [
@@ -60,6 +61,7 @@ import { InvoicesModule } from './invoices/invoices.module';
     ReplacementsModule,
     PaymentsModule,
     InvoicesModule,
+    SellerOutreachModule,
     LiveKitModule,
     WebhooksModule,
     AppConfigModule,

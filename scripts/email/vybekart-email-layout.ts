@@ -121,11 +121,11 @@ function headerLogoMarkHtml(b: VybeKartMailBranding): string {
   );
   const alt = escapeHtml(VYBEKART_BRAND_NAME);
   if (!src) {
-    return `<a href="${home}" target="_blank" rel="noopener noreferrer" style="text-decoration:none;font-size:24px;font-weight:800;color:#FFF;">${alt}</a>`;
+    return `<a href="${home}" target="_blank" rel="noopener noreferrer" style="text-decoration:none;font-size:24px;font-weight:800;color:#FFFFFF;letter-spacing:-0.02em;line-height:1.1;">${alt}</a>`;
   }
   return `<span class="vk-logo-shield" style="display:inline-block;line-height:0;color-scheme:light only;">
 <a href="${home}" target="_blank" rel="noopener noreferrer" style="text-decoration:none;border:0;display:inline-block;line-height:0;">
-<img class="vk-logo-img" src="${src}" width="56" height="56" border="0" alt="${alt}" style="display:block;width:56px;max-width:56px;height:auto;border:0;outline:none;-ms-interpolation-mode:bicubic;"/>
+<img class="vk-logo-img" src="${src}" width="56" height="56" border="0" alt="${alt}" style="display:block;width:56px;max-width:56px;height:auto;border:0;outline:none;text-decoration:none;-ms-interpolation-mode:bicubic;"/>
 </a>
 </span>`;
 }
@@ -185,32 +185,60 @@ export function buildVybeKartHeroHeaderHtml(params: {
   const b = params.branding;
   const home = escapeHtml(b.websiteUrl);
   const subtitle = params.headerSubtitle
-    ? `<p style="margin:10px 0 0;font-size:14px;line-height:1.45;color:#E3F2FD;">${escapeHtml(params.headerSubtitle)}</p>`
+    ? `<p style="margin:10px 0 0;font-size:14px;line-height:1.45;color:#E3F2FD;font-weight:500;">${escapeHtml(params.headerSubtitle)}</p>`
     : '';
 
   const gradientStyle = headerGradientCellStyle();
 
-  return `<table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0">
-  <tr><td class="vk-hero-header" style="padding:0;${gradientStyle};">
-      <table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0" style="background-image:url('data:image/svg+xml,%3Csvg xmlns=%22http://www.w3.org/2000/svg%22 width=%2248%22 height=%2248%22%3E%3Ccircle cx=%2224%22 cy=%2224%22 r=%222%22 fill=%22%23FFFFFF%22 fill-opacity=%220.12%22/%3E%3C/svg%3E');background-repeat:repeat;">
-        <tr><td style="padding:20px 24px 0;">
-          <table role="presentation" width="100%"><tr>
-            <td align="left">${headerLogoMarkHtml(b)}&nbsp;<a href="${home}" style="text-decoration:none;font-size:24px;font-weight:800;color:#FFF;vertical-align:middle;">${escapeHtml(b.companyLegalName)}</a></td>
-            <td align="right"><span style="display:inline-block;padding:8px 14px;border-radius:999px;background:rgba(0,198,255,0.22);border:1px solid rgba(0,198,255,0.55);font-size:13px;font-weight:700;color:#FFF;font-style:italic;">Just Vybe It!</span></td>
-          </tr></table>
-        </td></tr>
-        <tr><td style="padding:18px 24px 28px;">
-          <table role="presentation" width="100%"><tr>
-            <td width="58%" valign="bottom" style="padding-right:12px;">
-              <p style="margin:0 0 8px;font-size:11px;font-weight:700;letter-spacing:0.14em;text-transform:uppercase;color:rgba(255,255,255,0.9);">${escapeHtml(params.headerBadge)}</p>
-              <h1 style="margin:0;font-size:28px;line-height:1.15;font-weight:800;color:#FFF;">${escapeHtml(params.headerTitle)}</h1>
-              ${subtitle}
-            </td>
-            <td width="42%" align="right" valign="bottom">${headerHeroVisualHtml(b)}</td>
-          </tr></table>
-        </td></tr>
+  return `<table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0" style="border-collapse:collapse;">
+  <tr>
+    <td class="vk-hero-header" style="padding:0;${gradientStyle};">
+      <!--[if gte mso 9]>
+      <v:rect xmlns:v="urn:schemas-microsoft-com:vml" fill="true" stroke="false" style="width:600px;height:200px;">
+        <v:fill type="gradient" color="${VYBE_THEME.cyan}" color2="${VYBE_THEME.navy}" angle="135"/>
+        <v:textbox inset="0,0,0,0" style="mso-fit-shape-to-text:true">
+      <![endif]-->
+      <table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0" style="border-collapse:collapse;background-image:url('data:image/svg+xml,%3Csvg xmlns=%22http://www.w3.org/2000/svg%22 width=%2248%22 height=%2248%22 viewBox=%220 0 48 48%22%3E%3Ccircle cx=%2224%22 cy=%2224%22 r=%222%22 fill=%22%23FFFFFF%22 fill-opacity=%220.12%22/%3E%3C/svg%3E');background-repeat:repeat;">
+        <tr>
+          <td style="padding:20px 24px 0 24px;">
+            <table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0">
+              <tr>
+                <td align="left" valign="middle">
+                  <table role="presentation" cellspacing="0" cellpadding="0" border="0">
+                    <tr>
+                      <td valign="middle" style="padding:0 12px 0 0;">${headerLogoMarkHtml(b)}</td>
+                      <td valign="middle">
+                        <a href="${home}" style="text-decoration:none;font-size:24px;font-weight:800;color:#FFFFFF;letter-spacing:-0.02em;line-height:1.1;">${escapeHtml(b.companyLegalName)}</a>
+                      </td>
+                    </tr>
+                  </table>
+                </td>
+                <td align="right" valign="middle">
+                  <span style="display:inline-block;padding:8px 14px;border-radius:999px;background:rgba(0,198,255,0.22);border:1px solid rgba(0,198,255,0.55);font-size:13px;font-weight:700;color:#FFFFFF;font-style:italic;white-space:nowrap;">Just Vybe It!</span>
+                </td>
+              </tr>
+            </table>
+          </td>
+        </tr>
+        <tr>
+          <td style="padding:18px 24px 28px 24px;">
+            <table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0">
+              <tr>
+                <td width="58%" valign="bottom" style="padding-right:12px;">
+                  <p style="margin:0 0 8px;font-size:11px;font-weight:700;letter-spacing:0.14em;text-transform:uppercase;color:rgba(255,255,255,0.9);">${escapeHtml(params.headerBadge)}</p>
+                  <h1 style="margin:0;font-size:28px;line-height:1.15;font-weight:800;color:#FFFFFF;letter-spacing:-0.03em;">${escapeHtml(params.headerTitle)}</h1>
+                  ${subtitle}
+                </td>
+                <td width="42%" align="right" valign="bottom">${headerHeroVisualHtml(b)}</td>
+              </tr>
+            </table>
+          </td>
+        </tr>
       </table>
-  </td></tr></table>`;
+      <!--[if gte mso 9]></v:textbox></v:rect><![endif]-->
+    </td>
+  </tr>
+</table>`;
 }
 
 export interface VybeKartMailShellOptions {
