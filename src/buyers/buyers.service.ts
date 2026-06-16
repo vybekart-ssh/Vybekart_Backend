@@ -1,5 +1,5 @@
 import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
-import { StreamVisibility } from '@prisma/client';
+import { StreamReplayStatus, StreamVisibility } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { UpdateBuyerProfileDto } from './dto/update-buyer-profile.dto';
 import { CreateAddressDto } from './dto/create-address.dto';
@@ -82,6 +82,7 @@ export class BuyersService {
             isLive: false,
             endedAt: { not: null },
             replayUrl: { not: null },
+            replayStatus: StreamReplayStatus.READY,
             visibility: StreamVisibility.PUBLIC,
           },
           orderBy: { endedAt: 'desc' },

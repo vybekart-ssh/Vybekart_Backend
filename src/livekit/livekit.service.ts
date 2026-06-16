@@ -219,7 +219,8 @@ export class LiveKitService {
     const base = this.config.get<string>('SUPABASE_URL')?.trim()?.replace(/\/$/, '');
     const bucket = this.config.get<string>('LIVEKIT_RECORDING_S3_BUCKET')?.trim();
     if (!base || !bucket) return null;
-    return `${base}/storage/v1/object/public/${encodeURIComponent(bucket)}/${key}`;
+    // Bucket name is a path segment; object key may contain slashes — do not encode the key.
+    return `${base}/storage/v1/object/public/${bucket}/${key}`;
   }
 
   private supabasePublicReplayUrl(objectPath: string): string | null {
@@ -243,18 +244,24 @@ export class LiveKitService {
     durationSec?: number;
   } {
     const f = info.fileResults?.[0];
-    if (!f?.location) return {};
-    let replayUrl = f.location;
-    if (this.recordingUsesSupabase() && !replayUrl.includes('/object/public/')) {
-      const fn = f.filename?.trim();
-      if (fn) {
-        const pub = this.supabasePublicReplayUrl(fn);
-        if (pub) replayUrl = pub;
-      }
+    const durationSec = f ? durationSecondsFromFileInfo(f.duration) : undefined;
+
+    // Always emit a browser-playable public URL for Supabase — never store internal S3 endpoints.
+    if (this.recordingUsesSupabase()) {
+      const roomName = info.roomName?.trim();
+      const fn = f?.filename?.trim();
+      const objectKey =
+        fn ||
+        (roomName ? `vybekart-replays/${roomName}.mp4` : null);
+      const pub = objectKey ? this.supabasePublicReplayUrl(objectKey) : null;
+      if (pub) return { replayUrl: pub, durationSec };
+      return { durationSec };
     }
+
+    if (!f?.location) return { durationSec };
     return {
-      replayUrl,
-      durationSec: durationSecondsFromFileInfo(f.duration),
+      replayUrl: f.location,
+      durationSec,
     };
   }
 
