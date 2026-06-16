@@ -107,7 +107,15 @@ export const envValidationSchema = Joi.object({
   VYBEKART_PLATFORM_GSTIN: Joi.string().optional(),
   RESEND_INSECURE_TLS: Joi.string().valid('true', 'false', '1', '0').optional(),
   SELLER_OUTREACH_INTEREST_SECRET: Joi.string().optional(),
+  CEO_NAME: Joi.string().optional(),
   CEO_EMAIL: Joi.string().email().optional(),
+  CEO_PHONE: Joi.string().optional(),
+  SELLER_OUTREACH_FROM: Joi.string().optional(),
+  SELLER_OUTREACH_INTEREST_TO: Joi.string().email().optional(),
+  APP_DOWNLOAD_URL: Joi.string().uri().optional(),
+  SELLER_EMAIL_SEND_DELAY_MS: Joi.string().optional(),
+  SELLER_INTRO_IMAGE_URL: Joi.string().uri().optional(),
+  SELLER_STEPS_IMAGE_URL: Joi.string().uri().optional(),
   /** JSON string of Firebase service account (FCM server). Optional — push disabled if unset. */
   FIREBASE_SERVICE_ACCOUNT_JSON: Joi.string().optional(),
 

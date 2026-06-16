@@ -114,6 +114,26 @@ services:
       - key: RESEND_API_KEY
         sync: false
 
+      # ------------------------------------------------------------------
+      # Seller Email 1 / 2 (admin UI: /admin/seller-emails)
+      # ------------------------------------------------------------------
+      - key: CEO_NAME
+        value: "Hiren Prajapati"
+      - key: CEO_EMAIL
+        value: "ceo@vybekart.co.in"
+      - key: CEO_PHONE
+        value: "+91-8169139848"
+      - key: SELLER_OUTREACH_FROM
+        value: "Hiren Prajapati <ceo@vybekart.co.in>"
+      - key: SELLER_OUTREACH_INTEREST_TO
+        value: "ceo@vybekart.co.in"
+      - key: APP_DOWNLOAD_URL
+        value: "https://play.google.com/store/apps/details?id=com.vybekart.app"
+      - key: ALPHA_WEBSITE_URL
+        value: "https://www.vybekart.co.in"
+      - key: SELLER_EMAIL_SEND_DELAY_MS
+        value: "600"
+
       # OTP / SMS (DLT via Fast2SMS — set message_ids in Dashboard after template approval)
       - key: OTP_ENV
         value: "testing"

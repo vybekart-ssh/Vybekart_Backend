@@ -46,12 +46,14 @@ All routes require `Authorization: Bearer <admin JWT>`.
 
 | Variable | Purpose |
 |----------|---------|
-| `RESEND_API_KEY` | Required to send |
-| `SELLER_OUTREACH_FROM` | From address (defaults to CEO) |
-| `CEO_NAME`, `CEO_EMAIL`, `CEO_PHONE` | Signature block |
+| `RESEND_API_KEY` | Required to send — set in **Render Dashboard** (secret) |
+| `SELLER_OUTREACH_FROM` | From address (in `render.yaml`) |
+| `CEO_NAME`, `CEO_EMAIL`, `CEO_PHONE` | Signature block (in `render.yaml`) |
+| `SELLER_OUTREACH_INTEREST_TO` | Inbox when seller clicks I'm Interested |
 | `API_PUBLIC_URL` | Email 2 interest button links |
 | `JWT_SECRET` or `SELLER_OUTREACH_INTEREST_SECRET` | Sign interest URLs |
 | `SELLER_EMAIL_SEND_DELAY_MS` | Pause between sends (default 600ms) |
+| `APP_DOWNLOAD_URL` | Play Store link in Email 2 |
 
 ## CLI (developers only)
 
