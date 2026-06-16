@@ -169,11 +169,11 @@ services:
       - key: DELHIVERY_ENV
         value: "prod"
       - key: DELHIVERY_API_TOKEN_PROD
-        sync: false
+        value: "d253a217ea952c7e3ccc92f1c4cafabc42ca9ce2"
       - key: DELHIVERY_CLIENT_NAME
-        sync: false
+        value: ""
       - key: DELHIVERY_PICKUP_LOCATION
-        sync: false
+        value: ""
       - key: DELHIVERY_AUTO_PICKUP_REQUEST
         value: "true"
       - key: DELHIVERY_PICKUP_TIME
