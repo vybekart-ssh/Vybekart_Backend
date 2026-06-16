@@ -10,6 +10,7 @@ import type {
   DelhiveryCreateShipmentParams,
   DelhiveryCreateShipmentResult,
   DelhiveryEnv,
+  DelhiveryPickupRequestResult,
   DelhiveryShippingCostParams,
   DelhiveryShippingCostResult,
 } from './delhivery.types';
@@ -114,6 +115,73 @@ export class DelhiveryService {
     }
   }
 
+  /** Next pickup slot date/time in IST (Delhivery expects YYYY-MM-DD + hh:mm:ss). */
+  private defaultPickupSchedule(): { pickupDate: string; pickupTime: string } {
+    const pickupTime =
+      this.config.get<string>('DELHIVERY_PICKUP_TIME')?.trim() || '15:00:00';
+    const pickupDate = new Intl.DateTimeFormat('en-CA', {
+      timeZone: 'Asia/Kolkata',
+    }).format(new Date());
+    return { pickupDate, pickupTime };
+  }
+
+  private autoPickupRequestEnabled(): boolean {
+    const raw = this.config.get<string>('DELHIVERY_AUTO_PICKUP_REQUEST');
+    if (raw === undefined || raw === '') return true;
+    return ['true', '1', 'yes'].includes(raw.trim().toLowerCase());
+  }
+
+  /**
+   * Schedules warehouse pickup after shipment manifestation (Delhivery step 6).
+   * Optional in Delhivery docs but required for many accounts to dispatch FE.
+   */
+  async createPickupRequest(opts: {
+    pickupLocationName: string;
+    expectedPackageCount?: number;
+    pickupDate?: string;
+    pickupTime?: string;
+  }): Promise<DelhiveryPickupRequestResult | null> {
+    if (!this.isConfigured()) return null;
+
+    const location = opts.pickupLocationName || this.pickupLocationName();
+    if (!location) {
+      this.logger.warn('Delhivery pickup skipped: no pickup location name');
+      return null;
+    }
+
+    const schedule = this.defaultPickupSchedule();
+    const body = {
+      pickup_location: location,
+      pickup_date: opts.pickupDate ?? schedule.pickupDate,
+      pickup_time: opts.pickupTime ?? schedule.pickupTime,
+      expected_package_count: Math.max(1, opts.expectedPackageCount ?? 1),
+    };
+
+    const url = `${this.baseUrl()}/fm/request/new/`;
+    try {
+      const res = await firstValueFrom(
+        this.http.post(url, body, {
+          headers: {
+            ...this.authHeaders(),
+            'Content-Type': 'application/json',
+            Accept: 'application/json',
+          },
+        }),
+      );
+      const data = res.data as Record<string, unknown>;
+      const pickupId =
+        (data?.pickup_id as string) ??
+        (data?.pickupId as string) ??
+        (data?.id as string) ??
+        null;
+      return { pickupId: pickupId ? String(pickupId) : null, raw: data };
+    } catch (e: unknown) {
+      const msg = e instanceof Error ? e.message : String(e);
+      this.logger.warn(`Delhivery createPickupRequest failed: ${msg}`);
+      return { pickupId: null, raw: { error: msg } };
+    }
+  }
+
   async createShipment(
     params: DelhiveryCreateShipmentParams,
   ): Promise<DelhiveryCreateShipmentResult | null> {
@@ -166,7 +234,7 @@ export class DelhiveryService {
         (first?.waybill as string) ??
         (data?.waybill as string) ??
         null;
-      return {
+      const result: DelhiveryCreateShipmentResult = {
         waybill: waybill ? String(waybill) : null,
         trackingUrl: waybill
           ? `https://www.delhivery.com/track/package/${waybill}`
@@ -174,11 +242,66 @@ export class DelhiveryService {
         status: (first?.status as string) ?? 'Created',
         raw: data,
       };
+
+      if (result.waybill && this.autoPickupRequestEnabled()) {
+        const pickupReq = await this.createPickupRequest({
+          pickupLocationName: pickup,
+          expectedPackageCount: 1,
+        });
+        result.pickupRequestId = pickupReq?.pickupId ?? null;
+        if (!pickupReq?.pickupId) {
+          this.logger.warn(
+            `Shipment ${result.waybill} created but pickup request did not return an id`,
+          );
+        }
+      }
+
+      return result;
     } catch (e: unknown) {
       const msg = e instanceof Error ? e.message : String(e);
       this.logger.warn(`Delhivery createShipment failed: ${msg}`);
       return { waybill: null, trackingUrl: null, status: null, raw: { error: msg } };
     }
+  }
+
+  /** Admin / health: verify token + optional pincode without creating shipments. */
+  async getIntegrationStatus(testPin?: string): Promise<{
+    configured: boolean;
+    env: DelhiveryEnv;
+    baseUrl: string;
+    hasClientName: boolean;
+    hasPickupLocation: boolean;
+    autoPickupRequest: boolean;
+    pincodeTest?: { pin: string; serviceable: boolean | null };
+    quoteTest?: DelhiveryShippingCostResult | null;
+  }> {
+    const env = this.env();
+    const status = {
+      configured: this.isConfigured(),
+      env,
+      baseUrl: this.baseUrl(),
+      hasClientName: !!this.clientName(),
+      hasPickupLocation: !!this.pickupLocationName(),
+      autoPickupRequest: this.autoPickupRequestEnabled(),
+    };
+
+    const pin = testPin?.trim();
+    if (!pin || pin.length !== 6) {
+      return status;
+    }
+
+    const serviceable = await this.checkPincodeServiceable(pin);
+    const quote = await this.calculateShippingCost({
+      originPin: pin,
+      destinationPin: pin,
+      weightGrams: 500,
+    });
+
+    return {
+      ...status,
+      pincodeTest: { pin, serviceable },
+      quoteTest: quote,
+    };
   }
 
   async trackShipment(waybill: string): Promise<{ status: string | null; raw: unknown } | null> {

@@ -138,6 +138,9 @@ export const envValidationSchema = Joi.object({
   DELHIVERY_CLIENT_NAME: Joi.string().optional(),
   /** Registered warehouse / pickup location name in Delhivery */
   DELHIVERY_PICKUP_LOCATION: Joi.string().optional(),
+  DELHIVERY_AUTO_PICKUP_REQUEST: Joi.string().valid('true', 'false', '1', '0', 'yes', 'no').optional(),
+  /** IST time hh:mm:ss for auto pickup after shipment create (default 15:00:00) */
+  DELHIVERY_PICKUP_TIME: Joi.string().optional(),
 
   // Razorpay (buyer checkout)
   RAZORPAY_KEY_ID: Joi.string().optional(),

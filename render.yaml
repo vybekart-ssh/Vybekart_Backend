@@ -164,16 +164,22 @@ services:
       - key: RUN_DUMMY_SEED_ON_DEPLOY
         value: "false"
 
-      # Delhivery (same-day / express) — set tokens in Render Dashboard when ready
+      # Delhivery express (production — live API token)
+      # Get client name + warehouse name from Delhivery One / your BD manager.
       - key: DELHIVERY_ENV
-        value: "staging"
-      - key: DELHIVERY_API_TOKEN_STAGING
-        sync: false
+        value: "prod"
       - key: DELHIVERY_API_TOKEN_PROD
         sync: false
       - key: DELHIVERY_CLIENT_NAME
         sync: false
       - key: DELHIVERY_PICKUP_LOCATION
+        sync: false
+      - key: DELHIVERY_AUTO_PICKUP_REQUEST
+        value: "true"
+      - key: DELHIVERY_PICKUP_TIME
+        value: "15:00:00"
+      # Staging token only if Delhivery provides one (optional)
+      - key: DELHIVERY_API_TOKEN_STAGING
         sync: false
 
       # Razorpay Standard Checkout (buyer payments) — set test keys in Render Dashboard:

@@ -32,4 +32,10 @@ export interface DelhiveryCreateShipmentResult {
   trackingUrl: string | null;
   status: string | null;
   raw: unknown;
+  pickupRequestId?: string | null;
+}
+
+export interface DelhiveryPickupRequestResult {
+  pickupId: string | null;
+  raw: unknown;
 }

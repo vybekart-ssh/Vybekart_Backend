@@ -1,6 +1,9 @@
-# Delhivery Integration — VybeKart Seller Orders
+# Delhivery Integration — Vybekart Seller Orders
 
-Staging setup for same-day / express delivery via Delhivery CMU API.
+Production setup for express delivery via Delhivery CMU API.
+
+**Full go-live guide:** [`Delhivery-Go-Live.md`](./Delhivery-Go-Live.md)  
+**Env template:** `scripts/delhivery/config.example.env`
 
 ---
 
@@ -8,13 +11,21 @@ Staging setup for same-day / express delivery via Delhivery CMU API.
 
 | Variable | Example | Notes |
 |----------|---------|-------|
-| `DELHIVERY_ENV` | `staging` | Use `prod` only when going live |
-| `DELHIVERY_API_TOKEN_STAGING` | `<token>` | From Delhivery staging dashboard |
-| `DELHIVERY_API_TOKEN_PROD` | `<token>` | Production token (when live) |
-| `DELHIVERY_CLIENT_NAME` | Exact client name | Must match Delhivery account |
-| `DELHIVERY_PICKUP_LOCATION` | Warehouse name | **Exact** registered warehouse name in Delhivery |
+| `DELHIVERY_ENV` | `prod` | `prod` = live API (`track.delhivery.com`) |
+| `DELHIVERY_API_TOKEN_PROD` | `<live token>` | From Delhivery One → API Setup |
+| `DELHIVERY_CLIENT_NAME` | Exact client name | Must match Delhivery account (case-sensitive) |
+| `DELHIVERY_PICKUP_LOCATION` | Warehouse name | **Exact** registered warehouse name |
+| `DELHIVERY_AUTO_PICKUP_REQUEST` | `true` | Auto-schedule pickup after AWB creation |
+| `DELHIVERY_PICKUP_TIME` | `15:00:00` | IST pickup slot (hh:mm:ss) |
 
-Set these in Render Dashboard → Environment, then redeploy.
+Also required for full E2E: `RAZORPAY_KEY_ID`, `RAZORPAY_KEY_SECRET`.
+
+### Admin connectivity test (no shipment)
+
+```http
+GET /admin/delhivery/status?pin=400001
+Authorization: Bearer <admin_jwt>
+```
 
 ---
 
@@ -106,7 +117,7 @@ Seller fulfillment is blocked until `balancePaymentStatus` is `PAID` (or `balanc
 
 ---
 
-## Staging URLs
+## Production URLs
 
-- API base: `https://staging-express.delhivery.com`
+- API base: `https://track.delhivery.com`
 - Tracking: `https://www.delhivery.com/track/package/{waybill}`
