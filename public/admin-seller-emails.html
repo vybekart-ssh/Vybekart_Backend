@@ -1,0 +1,486 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8"/>
+  <meta name="viewport" content="width=device-width,initial-scale=1"/>
+  <title>Vybekart — Seller email sender</title>
+  <style>
+    :root {
+      --primary: #1565C0;
+      --primary-dark: #0B1E5B;
+      --cyan: #00C6FF;
+      --bg: #F0F4F8;
+      --surface: #fff;
+      --text: #1A1D24;
+      --muted: #64748B;
+      --border: #E2E8F0;
+      --danger: #B91C1C;
+      --ok: #15803D;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+      background: var(--bg);
+      color: var(--text);
+      line-height: 1.5;
+    }
+    header {
+      background: linear-gradient(135deg, var(--cyan), var(--primary), var(--primary-dark));
+      color: #fff;
+      padding: 20px 24px;
+    }
+    header h1 { margin: 0 0 4px; font-size: 22px; }
+    header p { margin: 0; opacity: 0.92; font-size: 14px; }
+    main { max-width: 1100px; margin: 0 auto; padding: 24px 16px 48px; }
+    .card {
+      background: var(--surface);
+      border-radius: 14px;
+      padding: 24px;
+      margin-bottom: 20px;
+      box-shadow: 0 4px 20px rgba(11,30,91,0.08);
+      border: 1px solid var(--border);
+    }
+    h2 { margin: 0 0 16px; font-size: 18px; color: var(--primary-dark); }
+    label { display: block; font-size: 13px; font-weight: 600; margin-bottom: 6px; color: var(--muted); }
+    input, select, button, textarea {
+      font: inherit;
+    }
+    input[type="email"], input[type="password"], input[type="text"], select {
+      width: 100%;
+      padding: 10px 12px;
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      margin-bottom: 12px;
+    }
+    .row { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+    @media (max-width: 640px) { .row { grid-template-columns: 1fr; } }
+    .btn {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      gap: 8px;
+      padding: 11px 20px;
+      border: none;
+      border-radius: 999px;
+      font-weight: 700;
+      cursor: pointer;
+      transition: opacity 0.15s;
+    }
+    .btn:disabled { opacity: 0.5; cursor: not-allowed; }
+    .btn-primary { background: linear-gradient(135deg, var(--cyan), var(--primary)); color: #fff; }
+    .btn-secondary { background: #E8F4FD; color: var(--primary-dark); }
+    .btn-danger { background: #FEE2E2; color: var(--danger); }
+    .btn-row { display: flex; flex-wrap: wrap; gap: 10px; margin-top: 8px; }
+    .hidden { display: none !important; }
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 14px;
+    }
+    th, td {
+      border: 1px solid var(--border);
+      padding: 8px 10px;
+      text-align: left;
+      vertical-align: top;
+    }
+    th { background: #F8FAFC; font-size: 12px; text-transform: uppercase; letter-spacing: 0.04em; color: var(--muted); }
+    td input {
+      width: 100%;
+      border: 1px solid transparent;
+      border-radius: 4px;
+      padding: 6px 8px;
+      margin: 0;
+      background: transparent;
+    }
+    td input:focus {
+      border-color: var(--primary);
+      background: #fff;
+      outline: none;
+    }
+    .status { font-size: 14px; margin-top: 12px; padding: 12px; border-radius: 8px; }
+    .status.info { background: #E8F4FD; color: var(--primary-dark); }
+    .status.ok { background: #DCFCE7; color: var(--ok); }
+    .status.err { background: #FEE2E2; color: var(--danger); }
+    .pill {
+      display: inline-block;
+      padding: 4px 10px;
+      border-radius: 999px;
+      font-size: 12px;
+      font-weight: 700;
+      background: rgba(0,198,255,0.15);
+      color: var(--primary-dark);
+    }
+    .modal-backdrop {
+      position: fixed; inset: 0;
+      background: rgba(11,30,91,0.45);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 16px;
+      z-index: 100;
+    }
+    .modal {
+      background: #fff;
+      border-radius: 14px;
+      width: min(920px, 100%);
+      max-height: 90vh;
+      display: flex;
+      flex-direction: column;
+      overflow: hidden;
+    }
+    .modal header {
+      background: var(--primary-dark);
+      padding: 14px 18px;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }
+    .modal header h3 { margin: 0; font-size: 16px; }
+    .modal iframe { flex: 1; border: 0; min-height: 60vh; }
+    .check { display: flex; align-items: center; gap: 8px; margin: 12px 0; font-size: 14px; }
+    .check input { width: auto; margin: 0; }
+    a { color: var(--primary); }
+    .user-bar { display: flex; justify-content: space-between; align-items: center; gap: 12px; flex-wrap: wrap; }
+    .user-bar span { font-size: 14px; color: var(--muted); }
+  </style>
+</head>
+<body>
+  <header>
+    <h1>Vybekart seller emails</h1>
+    <p>Upload your Excel list, edit names if needed, then send Email 1 or Email 2.</p>
+  </header>
+
+  <main>
+    <section id="loginSection" class="card">
+      <h2>Sign in</h2>
+      <p style="margin:0 0 16px;color:var(--muted);font-size:14px;">Use your Vybekart admin account (same as the admin app).</p>
+      <div class="row">
+        <div>
+          <label for="loginEmail">Email</label>
+          <input id="loginEmail" type="email" placeholder="admin@example.com" autocomplete="username"/>
+        </div>
+        <div>
+          <label for="loginPassword">Password</label>
+          <input id="loginPassword" type="password" placeholder="Password" autocomplete="current-password"/>
+        </div>
+      </div>
+      <button class="btn btn-primary" id="btnLogin">Sign in</button>
+      <div id="loginStatus" class="status hidden"></div>
+    </section>
+
+    <section id="appSection" class="hidden">
+      <div class="card user-bar">
+        <div>
+          Signed in as <strong id="userEmail"></strong>
+          <span class="pill" id="apiBasePill"></span>
+        </div>
+        <button class="btn btn-secondary" id="btnLogout">Sign out</button>
+      </div>
+
+      <div class="card">
+        <h2>1. Choose email &amp; load recipients</h2>
+        <label for="emailKind">Email template</label>
+        <select id="emailKind">
+          <option value="email1">Email 1 — Visibility intro (send first)</option>
+          <option value="email2">Email 2 — Partner invitation + I&rsquo;m Interested</option>
+        </select>
+
+        <label>Excel / CSV file</label>
+        <input type="file" id="csvFile" accept=".csv,.txt,text/csv"/>
+        <p style="font-size:13px;color:var(--muted);margin:0 0 12px;">
+          Columns: <code>email</code>, <code>store_name</code>, <code>contact_name</code> (optional: phone, city).
+          <a href="#" id="downloadTemplate">Download template CSV</a>
+        </p>
+
+        <div class="btn-row">
+          <button class="btn btn-secondary" id="btnAddRow">+ Add row manually</button>
+          <button class="btn btn-secondary" id="btnClearRows">Clear all rows</button>
+        </div>
+      </div>
+
+      <div class="card">
+        <h2>2. Review &amp; edit recipients <span class="pill" id="rowCount">0 rows</span></h2>
+        <div style="overflow-x:auto;">
+          <table id="recipientsTable">
+            <thead>
+              <tr>
+                <th>Email</th>
+                <th>Store name</th>
+                <th>Contact name</th>
+                <th>Phone</th>
+                <th></th>
+              </tr>
+            </thead>
+            <tbody id="recipientsBody"></tbody>
+          </table>
+        </div>
+        <p id="emptyHint" style="color:var(--muted);font-size:14px;">Upload a CSV or add a row to get started.</p>
+      </div>
+
+      <div class="card">
+        <h2>3. Preview &amp; send</h2>
+        <label class="check">
+          <input type="checkbox" id="dryRun"/>
+          Dry run only (validate without sending)
+        </label>
+        <div class="btn-row">
+          <button class="btn btn-secondary" id="btnPreview" disabled>Preview first row</button>
+          <button class="btn btn-primary" id="btnSend" disabled>Send emails</button>
+        </div>
+        <div id="sendStatus" class="status hidden"></div>
+        <div id="sendResults" class="hidden" style="margin-top:12px;font-size:13px;max-height:240px;overflow:auto;"></div>
+      </div>
+    </section>
+  </main>
+
+  <div id="previewModal" class="modal-backdrop hidden">
+    <div class="modal">
+      <header>
+        <h3 id="previewSubject">Preview</h3>
+        <button class="btn btn-secondary" id="btnClosePreview">Close</button>
+      </header>
+      <iframe id="previewFrame" title="Email preview"></iframe>
+    </div>
+  </div>
+
+  <script>
+    const API = window.location.origin;
+    const TOKEN_KEY = 'vybekart_seller_email_token';
+    const EMAIL_KEY = 'vybekart_seller_email_user';
+
+    let recipients = [];
+    let token = sessionStorage.getItem(TOKEN_KEY) || '';
+
+    const $ = (id) => document.getElementById(id);
+
+    function showStatus(el, msg, type) {
+      el.textContent = msg;
+      el.className = 'status ' + type;
+      el.classList.remove('hidden');
+    }
+
+    function authHeaders() {
+      return {
+        'Content-Type': 'application/json',
+        Authorization: 'Bearer ' + token,
+      };
+    }
+
+    async function api(path, body) {
+      const res = await fetch(API + path, {
+        method: 'POST',
+        headers: authHeaders(),
+        body: JSON.stringify(body),
+      });
+      const text = await res.text();
+      let data;
+      try { data = JSON.parse(text); } catch { data = { message: text }; }
+      if (!res.ok) {
+        const msg = data.message || (Array.isArray(data.message) ? data.message.join(', ') : text) || res.statusText;
+        throw new Error(msg);
+      }
+      return data;
+    }
+
+    function renderTable() {
+      const body = $('recipientsBody');
+      body.innerHTML = '';
+      recipients.forEach((r, i) => {
+        const tr = document.createElement('tr');
+        tr.innerHTML = `
+          <td><input data-i="${i}" data-f="email" value="${esc(r.email)}"/></td>
+          <td><input data-i="${i}" data-f="storeName" value="${esc(r.storeName)}"/></td>
+          <td><input data-i="${i}" data-f="contactName" value="${esc(r.contactName)}"/></td>
+          <td><input data-i="${i}" data-f="phone" value="${esc(r.phone || '')}"/></td>
+          <td><button type="button" class="btn btn-danger" data-del="${i}" style="padding:6px 12px;font-size:12px;">Remove</button></td>
+        `;
+        body.appendChild(tr);
+      });
+      $('rowCount').textContent = recipients.length + ' row' + (recipients.length === 1 ? '' : 's');
+      $('emptyHint').classList.toggle('hidden', recipients.length > 0);
+      const hasRows = recipients.length > 0;
+      $('btnPreview').disabled = !hasRows;
+      $('btnSend').disabled = !hasRows;
+    }
+
+    function esc(s) {
+      return String(s || '').replace(/&/g,'&amp;').replace(/"/g,'&quot;').replace(/</g,'&lt;');
+    }
+
+    function syncFromInputs() {
+      document.querySelectorAll('#recipientsBody input').forEach((inp) => {
+        const i = +inp.dataset.i;
+        const f = inp.dataset.f;
+        if (recipients[i]) recipients[i][f] = inp.value.trim();
+      });
+    }
+
+    function showApp(email) {
+      $('loginSection').classList.add('hidden');
+      $('appSection').classList.remove('hidden');
+      $('userEmail').textContent = email || '';
+      $('apiBasePill').textContent = API;
+      renderTable();
+    }
+
+    function logout() {
+      token = '';
+      sessionStorage.removeItem(TOKEN_KEY);
+      sessionStorage.removeItem(EMAIL_KEY);
+      $('appSection').classList.add('hidden');
+      $('loginSection').classList.remove('hidden');
+    }
+
+    $('btnLogin').onclick = async () => {
+      const email = $('loginEmail').value.trim();
+      const password = $('loginPassword').value;
+      if (!email || !password) {
+        showStatus($('loginStatus'), 'Enter email and password.', 'err');
+        return;
+      }
+      try {
+        const res = await fetch(API + '/auth/login', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ email, password }),
+        });
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.message || 'Login failed');
+        const roles = data.user?.roles || [];
+        const accessToken = data.access_token || data.accessToken;
+        if (!accessToken) throw new Error('Login response missing token');
+        const payload = JSON.parse(atob(accessToken.split('.')[1]));
+        const jwtRoles = payload.roles || roles;
+        if (!jwtRoles.includes('ADMIN')) {
+          throw new Error('This account is not an admin. Ask your team for admin access.');
+        }
+        token = accessToken;
+        sessionStorage.setItem(TOKEN_KEY, token);
+        sessionStorage.setItem(EMAIL_KEY, email);
+        $('loginStatus').classList.add('hidden');
+        showApp(email);
+      } catch (e) {
+        showStatus($('loginStatus'), e.message, 'err');
+      }
+    };
+
+    $('btnLogout').onclick = logout;
+
+    $('csvFile').onchange = async (e) => {
+      const file = e.target.files[0];
+      if (!file) return;
+      const text = await file.text();
+      try {
+        const data = await api('/admin/seller-emails/parse-csv', { csvContent: text });
+        recipients = data.recipients || [];
+        renderTable();
+        showStatus($('sendStatus'), 'Loaded ' + recipients.length + ' recipient(s). Review the table, then send.', 'info');
+      } catch (err) {
+        showStatus($('sendStatus'), err.message, 'err');
+      }
+    };
+
+    $('btnAddRow').onclick = () => {
+      recipients.push({ email: '', storeName: '', contactName: '', phone: '' });
+      renderTable();
+    };
+
+    $('btnClearRows').onclick = () => {
+      if (!confirm('Remove all rows?')) return;
+      recipients = [];
+      renderTable();
+    };
+
+    $('recipientsBody').addEventListener('input', (e) => {
+      const inp = e.target;
+      if (!inp.dataset.i) return;
+      recipients[+inp.dataset.i][inp.dataset.f] = inp.value;
+    });
+
+    $('recipientsBody').addEventListener('click', (e) => {
+      const btn = e.target.closest('[data-del]');
+      if (!btn) return;
+      recipients.splice(+btn.dataset.del, 1);
+      renderTable();
+    });
+
+    $('btnPreview').onclick = async () => {
+      syncFromInputs();
+      const r = recipients.find((x) => x.email && x.storeName && x.contactName);
+      if (!r) {
+        showStatus($('sendStatus'), 'Fill in at least one complete row (email, store, contact).', 'err');
+        return;
+      }
+      try {
+        const kind = $('emailKind').value;
+        const data = await api('/admin/seller-emails/preview', { kind, recipient: r });
+        $('previewSubject').textContent = data.subject;
+        const frame = $('previewFrame');
+        frame.srcdoc = data.html;
+        $('previewModal').classList.remove('hidden');
+      } catch (err) {
+        showStatus($('sendStatus'), err.message, 'err');
+      }
+    };
+
+    $('btnClosePreview').onclick = () => $('previewModal').classList.add('hidden');
+    $('previewModal').onclick = (e) => { if (e.target === $('previewModal')) $('previewModal').classList.add('hidden'); };
+
+    $('btnSend').onclick = async () => {
+      syncFromInputs();
+      const valid = recipients.filter((r) => r.email && r.storeName && r.contactName);
+      if (!valid.length) {
+        showStatus($('sendStatus'), 'No complete rows. Each row needs email, store name, and contact name.', 'err');
+        return;
+      }
+      const kind = $('emailKind').value;
+      const label = kind === 'email1' ? 'Email 1' : 'Email 2';
+      const dry = $('dryRun').checked;
+      const action = dry ? 'dry-run' : 'send';
+      if (!confirm(action.toUpperCase() + ': ' + label + ' to ' + valid.length + ' recipient(s)?')) return;
+
+      $('btnSend').disabled = true;
+      showStatus($('sendStatus'), (dry ? 'Dry run' : 'Sending') + '… please wait.', 'info');
+      try {
+        const data = await api('/admin/seller-emails/send', {
+          kind,
+          recipients: valid,
+          dryRun: dry,
+        });
+        const lines = data.results.map((r) =>
+          (r.ok ? '✓ ' : '✗ ') + r.email + ' (' + r.storeName + ')' + (r.error ? ' — ' + r.error : '')
+        );
+        $('sendResults').innerHTML = '<pre style="margin:0;white-space:pre-wrap;">' + lines.join('\n') + '</pre>';
+        $('sendResults').classList.remove('hidden');
+        showStatus(
+          $('sendStatus'),
+          (dry ? 'Dry run complete. ' : 'Done. ') + data.sent + '/' + data.total + ' succeeded.',
+          data.failed ? 'err' : 'ok',
+        );
+      } catch (err) {
+        showStatus($('sendStatus'), err.message, 'err');
+      } finally {
+        $('btnSend').disabled = false;
+      }
+    };
+
+    $('downloadTemplate').onclick = (e) => {
+      e.preventDefault();
+      const csv = 'email,store_name,contact_name,phone,city\n' +
+        'seller@example.com,Example Store,Jane Seller,+91-9876543210,Mumbai\n';
+      const blob = new Blob([csv], { type: 'text/csv' });
+      const a = document.createElement('a');
+      a.href = URL.createObjectURL(blob);
+      a.download = 'vybekart-seller-email-template.csv';
+      a.click();
+      URL.revokeObjectURL(a.href);
+    };
+
+    if (token) {
+      const email = sessionStorage.getItem(EMAIL_KEY) || '';
+      showApp(email);
+    }
+  </script>
+</body>
+</html>

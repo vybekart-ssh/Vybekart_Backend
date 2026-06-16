@@ -43,7 +43,7 @@ function thankYouPage(ok: boolean, message: string): string {
 <head>
   <meta charset="utf-8"/>
   <meta name="viewport" content="width=device-width,initial-scale=1"/>
-  <title>${title} — VybeKart</title>
+  <title>${title} — Vybekart</title>
   <style>
     body{font-family:system-ui,-apple-system,Segoe UI,Roboto,sans-serif;background:#F0F4F8;margin:0;padding:24px;display:flex;min-height:100vh;align-items:center;justify-content:center}
     .card{max-width:480px;background:#fff;border-radius:16px;padding:32px 28px;box-shadow:0 8px 30px rgba(11,30,91,.08);text-align:center}

@@ -1,8 +1,8 @@
 /**
  * Email 1 — visibility problem intro (Beautiful Products image).
  *
- * Preview: npm run seller-intro:preview
- * Send:    npm run seller-intro:demo
+ * Preview: npm run email-1:preview
+ * Send:    npm run email-1:demo
  */
 
 import * as fs from 'fs';
@@ -11,6 +11,7 @@ import {
   buildVybeKartMailShellHtml,
   escapeHtml,
   getVybeKartMailBranding,
+  VYBEKART_BRAND_NAME,
 } from './vybekart-email-layout';
 import { loadBackendDotEnv } from './registrations-csv';
 import {
@@ -81,7 +82,7 @@ export function buildSellerIntroHtml(p: SellerIntroParams): string {
     headerTitle: 'Beautiful products deserve visibility.',
     headerSubtitle: 'A note for fashion seller partners',
     bodyHtml: bodyInnerHtml(p),
-    whyReceivedHtml: `We believe ${escapeHtml(p.storeName)} may benefit from VybeKart’s live-commerce seller partner program.`,
+    whyReceivedHtml: `We believe ${escapeHtml(p.storeName)} may benefit from ${escapeHtml(VYBEKART_BRAND_NAME)}’s live-commerce seller partner program.`,
   });
 }
 

@@ -1,8 +1,8 @@
 /**
  * Email 2 — seller partner invitation (5 steps to go live image).
  *
- * Preview: npm run seller-outreach:preview
- * Send:    npm run seller-outreach:demo
+ * Preview: npm run email-2:preview
+ * Send:    npm run email-2:demo
  */
 
 import * as fs from 'fs';
@@ -11,6 +11,7 @@ import {
   buildVybeKartMailShellHtml,
   escapeHtml,
   getVybeKartMailBranding,
+  VYBEKART_BRAND_NAME,
 } from './vybekart-email-layout';
 import { loadBackendDotEnv } from './registrations-csv';
 import {
@@ -42,7 +43,7 @@ export interface SellerOutreachParams {
 }
 
 export function sellerOutreachSubject(storeName: string): string {
-  return `${storeName} — Invitation to join VybeKart’s seller partner program`;
+  return `${storeName} — Invitation to join ${VYBEKART_BRAND_NAME}’s seller partner program`;
 }
 
 function bodyInnerHtml(p: SellerOutreachParams): string {
@@ -61,7 +62,7 @@ function bodyInnerHtml(p: SellerOutreachParams): string {
       In our previous email, we talked about the challenge of getting enough visibility for your products.
     </p>
     <p style="margin:0 0 16px;font-size:16px;line-height:1.6;color:#1A1D24;">
-      That’s why we built <strong style="color:#1565C0;">VybeKart</strong> — a live-commerce marketplace where customers discover products, interact with seller partners in real time, and shop with confidence.
+      That’s why we built <strong style="color:#1565C0;">${escapeHtml(VYBEKART_BRAND_NAME)}</strong> — a live-commerce marketplace where customers discover products, interact with seller partners in real time, and shop with confidence.
     </p>
     <p style="margin:0 0 20px;font-size:16px;line-height:1.6;color:#1A1D24;">
       We’re onboarding a limited group of fashion seller partners for our early launch, so we can provide dedicated support to each seller partner.
@@ -98,7 +99,7 @@ function bodyInnerHtml(p: SellerOutreachParams): string {
       Call us at <a href="tel:${phone}" style="color:#1565C0;text-decoration:none;font-weight:600;">${phone}</a>
     </p>
     <p style="margin:0 0 24px;font-size:16px;line-height:1.6;color:#1A1D24;">
-      We look forward to welcoming <strong>${escapeHtml(p.storeName)}</strong> to VybeKart.
+      We look forward to welcoming <strong>${escapeHtml(p.storeName)}</strong> to ${escapeHtml(VYBEKART_BRAND_NAME)}.
     </p>
 
     ${ceoSignatureHtml(p)}
@@ -112,9 +113,9 @@ export function buildSellerOutreachHtml(p: SellerOutreachParams): string {
     recipientEmail: p.recipientEmail,
     headerBadge: 'Seller partners',
     headerTitle: 'Sell. Live. Engage.',
-    headerSubtitle: 'Join VybeKart’s early seller partner program',
+    headerSubtitle: `Join ${VYBEKART_BRAND_NAME}’s early seller partner program`,
     bodyHtml: bodyInnerHtml(p),
-    whyReceivedHtml: `We believe ${escapeHtml(p.storeName)} may be a fit for VybeKart’s seller partner program.`,
+    whyReceivedHtml: `We believe ${escapeHtml(p.storeName)} may be a fit for ${escapeHtml(VYBEKART_BRAND_NAME)}’s seller partner program.`,
   });
 }
 
@@ -128,7 +129,7 @@ export function buildSellerOutreachText(p: SellerOutreachParams): string {
     '',
     'In our previous email, we talked about the challenge of getting enough visibility for your products.',
     '',
-    'That’s why we built VybeKart — a live-commerce marketplace where customers discover products, interact with seller partners in real time, and shop with confidence.',
+    `That’s why we built ${VYBEKART_BRAND_NAME} — a live-commerce marketplace where customers discover products, interact with seller partners in real time, and shop with confidence.`,
     '',
     'We’re onboarding a limited group of fashion seller partners for our early launch, so we can provide dedicated support to each seller partner.',
     '',
@@ -142,7 +143,7 @@ export function buildSellerOutreachText(p: SellerOutreachParams): string {
     'Have questions?',
     `Call us at ${phone}`,
     '',
-    `We look forward to welcoming ${p.storeName} to VybeKart.`,
+    `We look forward to welcoming ${p.storeName} to ${VYBEKART_BRAND_NAME}.`,
     '',
     'Best regards,',
     ceoName,

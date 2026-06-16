@@ -1,6 +1,7 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { MailService } from '../mail/mail.service';
+import { VYBEKART_BRAND_NAME } from '../mail/templates/vybekart-email-layout';
 import { resolvePublicBaseUrl } from '../common/utils/public-base-url';
 import {
   SellerInterestPayload,
@@ -68,7 +69,7 @@ export class SellerOutreachService {
           from: this.config.get<string>('SELLER_OUTREACH_FROM')?.trim(),
           subject: `Seller interest: ${payload.store}`,
           text: [
-            `${payload.contact} (${payload.email}) is interested in the VybeKart seller partner program.`,
+            `${payload.contact} (${payload.email}) is interested in the ${VYBEKART_BRAND_NAME} seller partner program.`,
             '',
             `Store: ${payload.store}`,
             `Contact: ${payload.contact}`,
@@ -77,7 +78,7 @@ export class SellerOutreachService {
             'They clicked "I\'m Interested" in the outreach email.',
           ].join('\n'),
           html: `
-            <p><strong>${payload.contact}</strong> (${payload.email}) is interested in the VybeKart seller partner program.</p>
+            <p><strong>${payload.contact}</strong> (${payload.email}) is interested in the ${VYBEKART_BRAND_NAME} seller partner program.</p>
             <ul>
               <li><strong>Store:</strong> ${payload.store}</li>
               <li><strong>Contact:</strong> ${payload.contact}</li>
@@ -88,23 +89,23 @@ export class SellerOutreachService {
         });
 
         await this.mail.sendTransactional(payload.email, {
-          subject: 'We received your interest — VybeKart seller partners',
+          subject: `We received your interest — ${VYBEKART_BRAND_NAME} seller partners`,
           text: [
             `Hi ${payload.contact},`,
             '',
-            'Thank you for your interest in joining VybeKart as a seller partner.',
+            `Thank you for your interest in joining ${VYBEKART_BRAND_NAME} as a seller partner.`,
             'Our team has received your response and will reach out to you shortly with next steps.',
             '',
-            'In the meantime, you can download the VybeKart app and keep your store name, address, and contact number handy.',
+            `In the meantime, you can download the ${VYBEKART_BRAND_NAME} app and keep your store name, address, and contact number handy.`,
             '',
-            '— Team VybeKart',
+            `— Team ${VYBEKART_BRAND_NAME}`,
           ].join('\n'),
           html: `
             <p>Hi <strong>${payload.contact}</strong>,</p>
-            <p>Thank you for your interest in joining <strong>VybeKart</strong> as a seller partner.</p>
+            <p>Thank you for your interest in joining <strong>${VYBEKART_BRAND_NAME}</strong> as a seller partner.</p>
             <p>Our team has received your response and will reach out to you shortly with next steps.</p>
-            <p style="color:#64748B;font-size:14px;">In the meantime, you can download the VybeKart app and keep your store name, address, and contact number handy.</p>
-            <p>— Team VybeKart</p>
+            <p style="color:#64748B;font-size:14px;">In the meantime, you can download the ${VYBEKART_BRAND_NAME} app and keep your store name, address, and contact number handy.</p>
+            <p>— Team ${VYBEKART_BRAND_NAME}</p>
           `.trim(),
         });
       } catch (err) {

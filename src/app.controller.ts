@@ -20,4 +20,15 @@ export class AppController {
   viewer(@Res({ passthrough: false }) res: Response) {
     res.type('html').sendFile(join(process.cwd(), 'public', 'viewer.html'));
   }
+
+  /**
+   * Admin UI for sending seller outreach Email 1 / Email 2 from Excel (CSV).
+   * Requires admin login (JWT) in the browser.
+   */
+  @Get('admin/seller-emails')
+  sellerEmailsAdmin(@Res({ passthrough: false }) res: Response) {
+    res
+      .type('html')
+      .sendFile(join(process.cwd(), 'public', 'admin-seller-emails.html'));
+  }
 }
