@@ -250,6 +250,8 @@ export interface VybeKartMailShellOptions {
   headerTitle?: string;
   headerSubtitle?: string;
   postLinksHtml?: string;
+  /** When true, omits “Why you received this” and the “Sent to …” footer (seller intro/outreach). */
+  hideDeliveryNotice?: boolean;
 }
 
 export function buildVybeKartMailShellHtml(o: VybeKartMailShellOptions): string {
@@ -263,6 +265,14 @@ export function buildVybeKartMailShellHtml(o: VybeKartMailShellOptions): string 
     headerTitle: o.headerTitle ?? `Something exciting from ${VYBEKART_BRAND_NAME}`,
     headerSubtitle: o.headerSubtitle ?? 'Shop live. Sell live. All in one place.',
   });
+
+  const whyReceivedBlock = o.hideDeliveryNotice
+    ? ''
+    : `<p class="vk-muted" style="margin:0 0 10px;font-size:13px;color:${VYBE_THEME.textMutedLight};"><strong class="vk-strong" style="color:${VYBE_THEME.navy};">Why you received this</strong><br/>${o.whyReceivedHtml}</p>`;
+
+  const footBlock = o.hideDeliveryNotice
+    ? ''
+    : `<p class="vk-foot" style="margin:16px 0 0;font-size:11px;color:${VYBE_THEME.textMutedLight};text-align:center;">Sent to ${escapeHtml(o.recipientEmail)}</p>`;
 
   return `<!DOCTYPE html>
 <html lang="en">
@@ -278,7 +288,7 @@ export function buildVybeKartMailShellHtml(o: VybeKartMailShellOptions): string 
       <tr><td class="vk-content" bgcolor="${VYBE_THEME.surfaceLight}" style="padding:32px 28px;background-color:${VYBE_THEME.surfaceLight};color:${VYBE_THEME.textLight};">
         ${o.bodyHtml}
         <hr class="vk-hr" style="border:none;border-top:1px solid ${VYBE_THEME.borderLight};margin:28px 0 24px;"/>
-        <p class="vk-muted" style="margin:0 0 10px;font-size:13px;color:${VYBE_THEME.textMutedLight};"><strong class="vk-strong" style="color:${VYBE_THEME.navy};">Why you received this</strong><br/>${o.whyReceivedHtml}</p>
+        ${whyReceivedBlock}
         <p class="vk-muted" style="margin:16px 0 0;font-size:13px;color:${VYBE_THEME.textMutedLight};"><strong class="vk-strong" style="color:${VYBE_THEME.navy};">${escapeHtml(b.companyLegalName)}</strong><br/>
           ${b.supportPhone ? `Phone: ${escapeHtml(b.supportPhone)}<br/>` : ''}
           Support: <a class="vk-link" href="mailto:${escapeHtml(b.supportEmail)}" style="color:${VYBE_THEME.primaryDark};font-weight:600;text-decoration:none;">${escapeHtml(b.supportEmail)}</a>
@@ -290,7 +300,7 @@ export function buildVybeKartMailShellHtml(o: VybeKartMailShellOptions): string 
         <p class="vk-tagline-box" style="margin:18px 0 0;padding:14px;background:linear-gradient(90deg,rgba(0,198,255,0.1),rgba(30,136,229,0.08));border:1px solid rgba(0,198,255,0.25);border-radius:10px;font-size:12px;color:${VYBE_THEME.textMutedLight};text-align:center;"><strong style="color:${VYBE_THEME.primaryDark};">Just Vybe It!</strong> — Shop live. Sell live. All in one place.</p>
       </td></tr>
     </table>
-    <p class="vk-foot" style="margin:16px 0 0;font-size:11px;color:${VYBE_THEME.textMutedLight};text-align:center;">Sent to ${escapeHtml(o.recipientEmail)}</p>
+    ${footBlock}
   </td></tr></table>
 </body></html>`;
 }

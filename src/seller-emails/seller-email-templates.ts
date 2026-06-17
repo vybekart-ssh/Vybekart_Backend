@@ -129,6 +129,7 @@ export function buildSellerEmail1(
     headerSubtitle: 'A note for fashion seller partners',
     bodyHtml,
     whyReceivedHtml: `We believe ${escapeHtml(p.storeName)} may benefit from ${escapeHtml(VYBEKART_BRAND_NAME)}’s live-commerce seller partner program.`,
+    hideDeliveryNotice: true,
   });
 
   const ceoName = p.ceoName || 'Hiren Prajapati';
@@ -229,6 +230,7 @@ export function buildSellerEmail2(
     headerSubtitle: `Join ${VYBEKART_BRAND_NAME}’s early seller partner program`,
     bodyHtml,
     whyReceivedHtml: `We believe ${escapeHtml(p.storeName)} may be a fit for ${escapeHtml(VYBEKART_BRAND_NAME)}’s seller partner program.`,
+    hideDeliveryNotice: true,
   });
 
   const ceoName = p.ceoName || 'Hiren Prajapati';

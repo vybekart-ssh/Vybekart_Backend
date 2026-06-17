@@ -254,6 +254,8 @@ export function buildVybeKartMailShellHtml(params: {
   headerSubtitle?: string;
   bodyHtml: string;
   whyReceivedHtml: string;
+  /** When true, omits “Why you received this” and the “Sent to …” footer (seller intro/outreach). */
+  hideDeliveryNotice?: boolean;
 }): string {
   const b = params.branding;
   const hero = buildVybeKartHeroHeaderHtml({
@@ -262,6 +264,20 @@ export function buildVybeKartMailShellHtml(params: {
     headerTitle: params.headerTitle,
     headerSubtitle: params.headerSubtitle,
   });
+
+  const whyReceivedBlock = params.hideDeliveryNotice
+    ? ''
+    : `<p class="vk-muted" style="margin:0 0 10px;font-size:13px;line-height:1.65;color:${VYBE_THEME.textMutedLight};">
+              <strong class="vk-strong" style="color:${VYBE_THEME.navy};">Why you received this</strong><br/>
+              ${params.whyReceivedHtml}
+            </p>`;
+
+  const footBlock = params.hideDeliveryNotice
+    ? ''
+    : `<p class="vk-foot" style="margin:16px 0 0;font-size:11px;color:${VYBE_THEME.textMutedLight};max-width:600px;line-height:1.5;text-align:center;">
+        Sent to ${escapeHtml(params.recipientEmail)}. Automated message from ${escapeHtml(b.companyLegalName)} —
+        <a class="vk-link" href="mailto:${escapeHtml(b.supportEmail)}" style="color:${VYBE_THEME.textMutedLight};">${escapeHtml(b.supportEmail)}</a>
+      </p>`;
 
   return `<!DOCTYPE html>
 <html lang="en">
@@ -282,10 +298,7 @@ export function buildVybeKartMailShellHtml(params: {
           <td class="vk-content" bgcolor="${VYBE_THEME.surfaceLight}" style="padding:32px 28px;background-color:${VYBE_THEME.surfaceLight};color:${VYBE_THEME.textLight};">
             ${params.bodyHtml}
             <hr class="vk-hr" style="border:none;border-top:1px solid ${VYBE_THEME.borderLight};margin:28px 0 24px;"/>
-            <p class="vk-muted" style="margin:0 0 10px;font-size:13px;line-height:1.65;color:${VYBE_THEME.textMutedLight};">
-              <strong class="vk-strong" style="color:${VYBE_THEME.navy};">Why you received this</strong><br/>
-              ${params.whyReceivedHtml}
-            </p>
+            ${whyReceivedBlock}
             <p class="vk-muted" style="margin:16px 0 0;font-size:13px;line-height:1.65;color:${VYBE_THEME.textMutedLight};">
               <strong class="vk-strong" style="color:${VYBE_THEME.navy};">${escapeHtml(b.companyLegalName)}</strong><br/>
               Support: <a class="vk-link" href="mailto:${escapeHtml(b.supportEmail)}" style="color:${VYBE_THEME.primaryDark};font-weight:600;text-decoration:none;">${escapeHtml(b.supportEmail)}</a>
@@ -303,10 +316,7 @@ export function buildVybeKartMailShellHtml(params: {
           </td>
         </tr>
       </table>
-      <p class="vk-foot" style="margin:16px 0 0;font-size:11px;color:${VYBE_THEME.textMutedLight};max-width:600px;line-height:1.5;text-align:center;">
-        Sent to ${escapeHtml(params.recipientEmail)}. Automated message from ${escapeHtml(b.companyLegalName)} —
-        <a class="vk-link" href="mailto:${escapeHtml(b.supportEmail)}" style="color:${VYBE_THEME.textMutedLight};">${escapeHtml(b.supportEmail)}</a>
-      </p>
+      ${footBlock}
     </td></tr>
   </table>
 </body>

@@ -116,6 +116,7 @@ export function buildSellerOutreachHtml(p: SellerOutreachParams): string {
     headerSubtitle: `Join ${VYBEKART_BRAND_NAME}’s early seller partner program`,
     bodyHtml: bodyInnerHtml(p),
     whyReceivedHtml: `We believe ${escapeHtml(p.storeName)} may be a fit for ${escapeHtml(VYBEKART_BRAND_NAME)}’s seller partner program.`,
+    hideDeliveryNotice: true,
   });
 }
 

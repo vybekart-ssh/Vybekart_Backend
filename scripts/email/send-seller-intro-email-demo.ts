@@ -83,6 +83,7 @@ export function buildSellerIntroHtml(p: SellerIntroParams): string {
     headerSubtitle: 'A note for fashion seller partners',
     bodyHtml: bodyInnerHtml(p),
     whyReceivedHtml: `We believe ${escapeHtml(p.storeName)} may benefit from ${escapeHtml(VYBEKART_BRAND_NAME)}’s live-commerce seller partner program.`,
+    hideDeliveryNotice: true,
   });
 }
 
