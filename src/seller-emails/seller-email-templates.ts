@@ -2,7 +2,6 @@ import { ConfigService } from '@nestjs/config';
 import {
   buildSellerPersonalMailHtml,
   escapeHtml,
-  getVybeKartMailBranding,
   VYBEKART_BRAND_NAME,
 } from '../mail/templates/vybekart-email-layout';
 import { buildSellerInterestUrl } from '../seller-outreach/seller-outreach-interest.util';
@@ -26,6 +25,8 @@ export interface SellerEmailBuildParams {
   ceoEmail?: string;
   ceoPhone?: string;
   website?: string;
+  /** When false, omits images and link-heavy blocks (used for live sends). */
+  richContent?: boolean;
 }
 
 function contactFirstName(contactName: string): string {
@@ -48,6 +49,23 @@ function inlineEmailImageHtml(opts: {
     </p>`.trim();
 }
 
+function ceoSignatureText(p: {
+  ceoName?: string;
+  ceoEmail?: string;
+  ceoPhone?: string;
+}): string {
+  const ceoName = p.ceoName || 'Hiren Prajapati';
+  const ceoEmail = p.ceoEmail || 'ceo@vybekart.co.in';
+  const phone = p.ceoPhone || '';
+  return [
+    'Best regards,',
+    ceoName,
+    `Founder & CEO, ${VYBEKART_BRAND_NAME}`,
+    ceoEmail,
+    phone,
+  ].join('\n');
+}
+
 function ceoSignatureHtml(p: {
   ceoName?: string;
   ceoEmail?: string;
@@ -60,44 +78,44 @@ function ceoSignatureHtml(p: {
   return `
     <p style="margin:0;font-size:15px;line-height:1.6;color:#1A1D24;">
       Best regards,<br/>
-      <strong>${ceoName}</strong><br/>
+      ${ceoName}<br/>
       Founder &amp; CEO, ${escapeHtml(VYBEKART_BRAND_NAME)}<br/>
-      <span style="color:#64748B;font-size:14px;">Happy to answer any questions.</span><br/><br/>
-      Email: <a href="mailto:${ceoEmail}" style="color:#1565C0;text-decoration:underline;">${ceoEmail}</a><br/>
-      Mobile: <a href="tel:${phone}" style="color:#1565C0;text-decoration:underline;">${phone}</a>
+      ${ceoEmail}<br/>
+      ${phone}
     </p>`.trim();
 }
 
-function sellerInterestLinkHtml(interestUrl: string): string {
-  const href = escapeHtml(interestUrl);
-  return `
-    <p style="margin:0 0 24px;">
-      <a href="${href}" style="color:#1565C0;text-decoration:underline;">Yes, I&rsquo;d like to learn more</a>
-    </p>`.trim();
+export function sellerEmail1Subject(contactName: string): string {
+  return `${contactFirstName(contactName)}, quick question`;
 }
 
-export function sellerEmail1Subject(contactName: string, storeName: string): string {
-  return `${contactFirstName(contactName)}, a quick note about ${storeName}`;
-}
-
-export function sellerEmail2Subject(storeName: string): string {
-  return `Re: ${storeName} — following up`;
+export function sellerEmail2Subject(contactName: string): string {
+  return `Re: ${contactFirstName(contactName)}, quick question`;
 }
 
 export function buildSellerEmail1(
   config: ConfigService,
   p: SellerEmailBuildParams,
 ): Omit<BuiltSellerEmail, 'attachments'> {
-  const branding = getVybeKartMailBranding(config);
-  const website = escapeHtml(p.website || branding.websiteUrl);
-  const visibilityImage = inlineEmailImageHtml({
-    src: p.visibilityImageSrc || '',
-    alt: 'Products with limited reach online',
-  });
+  const rich = p.richContent !== false;
+  const visibilityImage = rich
+    ? inlineEmailImageHtml({
+        src: p.visibilityImageSrc || '',
+        alt: 'Products with limited reach online',
+      })
+    : '';
+
+  const websiteLine = rich
+    ? `<p style="margin:0 0 24px;font-size:16px;line-height:1.6;color:#1A1D24;">
+      You can read more at vybekart.co.in.
+    </p>`
+    : `<p style="margin:0 0 24px;font-size:16px;line-height:1.6;color:#1A1D24;">
+      Happy to share more if this resonates — just reply to this email.
+    </p>`;
 
   const bodyHtml = `
     <p style="margin:0 0 16px;font-size:16px;line-height:1.6;color:#1A1D24;">
-      Hi <strong>${escapeHtml(p.contactName)}</strong>,
+      Hi ${escapeHtml(p.contactName)},
     </p>
     ${visibilityImage}
     <p style="margin:0 0 16px;font-size:16px;line-height:1.6;color:#1A1D24;">
@@ -110,21 +128,15 @@ export function buildSellerEmail1(
       A single post often disappears in a crowded feed — your work deserves a steadier audience.
     </p>
     <p style="margin:0 0 24px;font-size:16px;line-height:1.6;color:#1A1D24;">
-      We’re building something for fashion brands like <strong>${escapeHtml(p.storeName)}</strong> — a better way to be seen, connect in real time, and sell with confidence. I’ll share more in my next note.
+      I’m building something for fashion brands like ${escapeHtml(p.storeName)} — a better way to be seen, connect in real time, and sell with confidence. I’ll share more in my next note.
     </p>
-    <p style="margin:0 0 24px;font-size:16px;line-height:1.6;color:#1A1D24;">
-      You can read more at <a href="${website}" style="color:#1565C0;text-decoration:underline;">vybekart.co.in</a>.
-    </p>
+    ${websiteLine}
     ${ceoSignatureHtml(p)}
   `.trim();
 
-  const html = buildSellerPersonalMailHtml({ bodyHtml });
+  const html = rich ? buildSellerPersonalMailHtml({ bodyHtml }) : '';
 
-  const ceoName = p.ceoName || 'Hiren Prajapati';
-  const ceoEmail = p.ceoEmail || 'ceo@vybekart.co.in';
-  const phone = p.ceoPhone || '';
-
-  const text = [
+  const textLines = [
     `Hi ${p.contactName},`,
     '',
     'You create beautiful products — but reaching the right customers is still the hard part.',
@@ -133,22 +145,19 @@ export function buildSellerEmail1(
     '',
     'A single post often disappears in a crowded feed — your work deserves a steadier audience.',
     '',
-    `We’re building something for fashion brands like ${p.storeName} — a better way to be seen, connect in real time, and sell with confidence. I’ll share more in my next note.`,
+    `I’m building something for fashion brands like ${p.storeName} — a better way to be seen, connect in real time, and sell with confidence. I’ll share more in my next note.`,
     '',
-    `You can read more at ${p.website || branding.websiteUrl}`,
+    rich
+      ? `You can read more at vybekart.co.in`
+      : 'Happy to share more if this resonates — just reply to this email.',
     '',
-    'Best regards,',
-    ceoName,
-    `Founder & CEO, ${VYBEKART_BRAND_NAME}`,
-    '',
-    `Email: ${ceoEmail}`,
-    `Mobile: ${phone}`,
-  ].join('\n');
+    ceoSignatureText(p),
+  ];
 
   return {
-    subject: sellerEmail1Subject(p.contactName, p.storeName),
+    subject: sellerEmail1Subject(p.contactName),
     html,
-    text,
+    text: textLines.join('\n'),
   };
 }
 
@@ -156,88 +165,101 @@ export function buildSellerEmail2(
   config: ConfigService,
   p: SellerEmailBuildParams,
 ): Omit<BuiltSellerEmail, 'attachments'> {
-  const appUrl = escapeHtml(p.appDownloadUrl || VYBEKART_PLAY_STORE_URL);
-  const phone = escapeHtml(p.ceoPhone || '');
-  const stepsImage = inlineEmailImageHtml({
-    src: p.stepsImageSrc || '',
-    alt: 'Steps to go live and sell on Vybekart',
-  });
-  const interestLink = p.interestUrl
-    ? sellerInterestLinkHtml(p.interestUrl)
+  const rich = p.richContent !== false;
+  const appUrl = p.appDownloadUrl || VYBEKART_PLAY_STORE_URL;
+  const phone = p.ceoPhone || '';
+
+  const stepsImage = rich
+    ? inlineEmailImageHtml({
+        src: p.stepsImageSrc || '',
+        alt: 'Steps to go live and sell on Vybekart',
+      })
     : '';
+
+  const interestBlock = p.interestUrl
+    ? rich
+      ? `<p style="margin:0 0 24px;font-size:16px;line-height:1.6;color:#1A1D24;">
+      If you’d like to continue, tap here: ${escapeHtml(p.interestUrl)}
+    </p>`
+      : `<p style="margin:0 0 24px;font-size:16px;line-height:1.6;color:#1A1D24;">
+      If you’d like to continue, reply to this email or use this link:
+      ${escapeHtml(p.interestUrl)}
+    </p>`
+    : '';
+
+  const appBlock = rich
+    ? `<p style="margin:0 0 28px;font-size:16px;line-height:1.6;color:#1A1D24;">
+      Get the app: ${escapeHtml(appUrl)}
+    </p>`
+    : `<p style="margin:0 0 28px;font-size:16px;line-height:1.6;color:#1A1D24;">
+      App link: ${escapeHtml(appUrl)}
+    </p>`;
 
   const bodyHtml = `
     <p style="margin:0 0 16px;font-size:16px;line-height:1.6;color:#1A1D24;">
-      Hi <strong>${escapeHtml(p.contactName)}</strong>,
+      Hi ${escapeHtml(p.contactName)},
     </p>
     <p style="margin:0 0 16px;font-size:16px;line-height:1.6;color:#1A1D24;">
       Following up on my last note — we talked about how hard it can be to reach the right customers for your products.
     </p>
     <p style="margin:0 0 16px;font-size:16px;line-height:1.6;color:#1A1D24;">
-      That’s why we built <strong>${escapeHtml(VYBEKART_BRAND_NAME)}</strong> — a live-commerce marketplace where customers discover products, talk to sellers in real time, and shop with confidence.
+      That’s why I built ${escapeHtml(VYBEKART_BRAND_NAME)} — a live-commerce marketplace where customers discover products, talk to sellers in real time, and shop with confidence.
     </p>
     <p style="margin:0 0 20px;font-size:16px;line-height:1.6;color:#1A1D24;">
-      We’re working closely with a small group of fashion brands during our early launch so each store gets dedicated support.
+      I’m working closely with a small group of fashion brands during our early launch so each store gets dedicated support.
     </p>
     ${stepsImage}
-    <p style="margin:0 0 12px;font-size:15px;font-weight:700;color:#1A1D24;">If you’d like to continue, here’s what to do:</p>
-    <p style="margin:0 0 10px;font-size:15px;line-height:1.6;color:#1A1D24;">1. Tap <strong>Yes, I&rsquo;d like to learn more</strong> below so we know you&rsquo;re interested</p>
-    <p style="margin:0 0 10px;font-size:15px;line-height:1.6;color:#1A1D24;">2. Get the Vybekart app using the link below</p>
-    <p style="margin:0 0 10px;font-size:15px;line-height:1.6;color:#1A1D24;">3. Share the following details with us:</p>
-    <ul style="margin:0 0 24px;padding-left:20px;font-size:15px;line-height:1.7;color:#1A1D24;">
-      <li>Store name</li>
-      <li>Store address</li>
-      <li>Contact number</li>
-    </ul>
-    ${interestLink}
-    <p style="margin:0 0 28px;">
-      <a href="${appUrl}" style="color:#1565C0;text-decoration:underline;">Get the Vybekart app</a>
-    </p>
-    <p style="margin:0 0 8px;font-size:16px;font-weight:700;color:#1A1D24;">Have questions?</p>
+    <p style="margin:0 0 12px;font-size:15px;line-height:1.6;color:#1A1D24;">If you’d like to continue:</p>
+    <p style="margin:0 0 10px;font-size:15px;line-height:1.6;color:#1A1D24;">1. Let me know you’re interested (link below or reply to this email)</p>
+    <p style="margin:0 0 10px;font-size:15px;line-height:1.6;color:#1A1D24;">2. Get the Vybekart app</p>
+    <p style="margin:0 0 10px;font-size:15px;line-height:1.6;color:#1A1D24;">3. Share your store name, address, and contact number</p>
+    ${interestBlock}
+    ${appBlock}
     <p style="margin:0 0 24px;font-size:16px;line-height:1.6;color:#1A1D24;">
-      Call us at <a href="tel:${phone}" style="color:#1565C0;text-decoration:underline;">${phone}</a>
+      Questions? Call me at ${escapeHtml(phone)}.
     </p>
     <p style="margin:0 0 24px;font-size:16px;line-height:1.6;color:#1A1D24;">
-      I’d love to explore how <strong>${escapeHtml(p.storeName)}</strong> could work with ${escapeHtml(VYBEKART_BRAND_NAME)}.
+      I’d love to explore how ${escapeHtml(p.storeName)} could work with ${escapeHtml(VYBEKART_BRAND_NAME)}.
     </p>
     ${ceoSignatureHtml(p)}
   `.trim();
 
-  const html = buildSellerPersonalMailHtml({ bodyHtml });
+  const html = rich ? buildSellerPersonalMailHtml({ bodyHtml }) : '';
 
-  const ceoName = p.ceoName || 'Hiren Prajapati';
-  const ceoEmail = p.ceoEmail || 'ceo@vybekart.co.in';
-
-  const text = [
+  const textLines = [
     `Hi ${p.contactName},`,
     '',
     'Following up on my last note — we talked about how hard it can be to reach the right customers for your products.',
     '',
-    `That’s why we built ${VYBEKART_BRAND_NAME} — a live-commerce marketplace where customers discover products, talk to sellers in real time, and shop with confidence.`,
+    `That’s why I built ${VYBEKART_BRAND_NAME} — a live-commerce marketplace where customers discover products, talk to sellers in real time, and shop with confidence.`,
     '',
-    'We’re working closely with a small group of fashion brands during our early launch so each store gets dedicated support.',
+    'I’m working closely with a small group of fashion brands during our early launch so each store gets dedicated support.',
     '',
-    'Steps to go live and sell on Vybekart — see the infographic in the HTML version of this email.',
-    '',
+    ...(rich
+      ? [
+          'Steps to go live and sell on Vybekart — see the infographic in the HTML version of this email.',
+          '',
+        ]
+      : []),
     'If you’d like to continue:',
-    '1. Tap “Yes, I\'d like to learn more” in the email (we\'ll get an instant notification)',
-    `2. Get the Vybekart app: ${p.appDownloadUrl || VYBEKART_PLAY_STORE_URL}`,
-    '3. Share your store name, store address, and contact number',
+    '1. Let me know you’re interested (reply to this email' +
+      (p.interestUrl ? ` or open: ${p.interestUrl}` : '') +
+      ')',
+    `2. Get the Vybekart app: ${appUrl}`,
+    '3. Share your store name, address, and contact number',
     '',
-    'Have questions?',
-    `Call us at ${p.ceoPhone || ''}`,
+    `Questions? Call me at ${phone}.`,
     '',
     `I’d love to explore how ${p.storeName} could work with ${VYBEKART_BRAND_NAME}.`,
     '',
-    'Best regards,',
-    ceoName,
-    `Founder & CEO, ${VYBEKART_BRAND_NAME}`,
-    '',
-    `Email: ${ceoEmail}`,
-    `Mobile: ${p.ceoPhone || ''}`,
-  ].join('\n');
+    ceoSignatureText(p),
+  ];
 
-  return { subject: sellerEmail2Subject(p.storeName), html, text };
+  return {
+    subject: sellerEmail2Subject(p.contactName),
+    html,
+    text: textLines.join('\n'),
+  };
 }
 
 export function resolveInterestUrl(
