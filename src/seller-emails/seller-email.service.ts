@@ -198,6 +198,7 @@ export class SellerEmailService {
     built: BuiltSellerEmail,
   ): Promise<string> {
     const { ceoEmail } = this.ceoDefaults();
+    const messageId = `<vybekart-seller-${Date.now()}-${Math.random().toString(36).slice(2, 10)}@vybekart.co.in>`;
     const body: Record<string, unknown> = {
       from: this.outreachFrom(),
       to: [to],
@@ -206,6 +207,7 @@ export class SellerEmailService {
       text: built.text,
       reply_to: ceoEmail,
       headers: {
+        'Message-ID': messageId,
         'X-Entity-Ref-ID': `vybekart-seller-${Date.now()}`,
       },
     };

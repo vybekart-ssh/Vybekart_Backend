@@ -186,6 +186,8 @@ export function buildVybeKartHeroHeaderHtml(params: {
   headerBadge: string;
   headerTitle: string;
   headerSubtitle?: string;
+  /** Hides the “Just Vybe It!” pill — reduces promotional signals in Gmail. */
+  hideHeaderSlogan?: boolean;
 }): string {
   const b = params.branding;
   const home = escapeHtml(b.websiteUrl);
@@ -194,6 +196,11 @@ export function buildVybeKartHeroHeaderHtml(params: {
     : '';
 
   const gradientStyle = headerGradientCellStyle();
+  const headerSlogan = params.hideHeaderSlogan
+    ? ''
+    : `<td align="right" valign="middle">
+                  <span style="display:inline-block;padding:8px 14px;border-radius:999px;background:rgba(0,198,255,0.22);border:1px solid rgba(0,198,255,0.55);font-size:13px;font-weight:700;color:#FFFFFF;font-style:italic;white-space:nowrap;">Just Vybe It!</span>
+                </td>`;
 
   return `<table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0" style="border-collapse:collapse;">
   <tr>
@@ -218,9 +225,7 @@ export function buildVybeKartHeroHeaderHtml(params: {
                     </tr>
                   </table>
                 </td>
-                <td align="right" valign="middle">
-                  <span style="display:inline-block;padding:8px 14px;border-radius:999px;background:rgba(0,198,255,0.22);border:1px solid rgba(0,198,255,0.55);font-size:13px;font-weight:700;color:#FFFFFF;font-style:italic;white-space:nowrap;">Just Vybe It!</span>
-                </td>
+                ${headerSlogan}
               </tr>
             </table>
           </td>
@@ -254,8 +259,10 @@ export function buildVybeKartMailShellHtml(params: {
   headerSubtitle?: string;
   bodyHtml: string;
   whyReceivedHtml: string;
-  /** When true, omits “Why you received this” and the “Sent to …” footer (seller intro/outreach). */
+  /** When true, omits “Why you received this” and the “Sent to …” footer. */
   hideDeliveryNotice?: boolean;
+  /** Hides header slogan pill and footer tagline box — for 1:1-style outreach. */
+  personalTouch?: boolean;
 }): string {
   const b = params.branding;
   const hero = buildVybeKartHeroHeaderHtml({
@@ -263,6 +270,7 @@ export function buildVybeKartMailShellHtml(params: {
     headerBadge: params.headerBadge,
     headerTitle: params.headerTitle,
     headerSubtitle: params.headerSubtitle,
+    hideHeaderSlogan: params.personalTouch,
   });
 
   const whyReceivedBlock = params.hideDeliveryNotice
@@ -275,9 +283,19 @@ export function buildVybeKartMailShellHtml(params: {
   const footBlock = params.hideDeliveryNotice
     ? ''
     : `<p class="vk-foot" style="margin:16px 0 0;font-size:11px;color:${VYBE_THEME.textMutedLight};max-width:600px;line-height:1.5;text-align:center;">
-        Sent to ${escapeHtml(params.recipientEmail)}. Automated message from ${escapeHtml(b.companyLegalName)} —
+        Sent to ${escapeHtml(params.recipientEmail)}${
+          params.personalTouch
+            ? `. You can reply directly to this message or contact`
+            : `. Message from ${escapeHtml(b.companyLegalName)} —`
+        }
         <a class="vk-link" href="mailto:${escapeHtml(b.supportEmail)}" style="color:${VYBE_THEME.textMutedLight};">${escapeHtml(b.supportEmail)}</a>
       </p>`;
+
+  const promoTaglineBlock = params.personalTouch
+    ? ''
+    : `<p class="vk-tagline-box" style="margin:18px 0 0;padding:14px 16px;background:linear-gradient(90deg,rgba(0,198,255,0.1),rgba(30,136,229,0.08));border:1px solid rgba(0,198,255,0.25);border-radius:10px;font-size:12px;line-height:1.5;color:${VYBE_THEME.textMutedLight};text-align:center;">
+              <strong style="color:${VYBE_THEME.primaryDark};">Just Vybe It!</strong> — Shop live. Sell live. All in one place.
+            </p>`;
 
   return `<!DOCTYPE html>
 <html lang="en">
@@ -310,9 +328,7 @@ export function buildVybeKartMailShellHtml(params: {
               &nbsp;·&nbsp;
               <a class="vk-link" href="${escapeHtml(b.privacyUrl)}" style="color:${VYBE_THEME.textMutedLight};text-decoration:underline;">Privacy Policy</a>
             </p>
-            <p class="vk-tagline-box" style="margin:18px 0 0;padding:14px 16px;background:linear-gradient(90deg,rgba(0,198,255,0.1),rgba(30,136,229,0.08));border:1px solid rgba(0,198,255,0.25);border-radius:10px;font-size:12px;line-height:1.5;color:${VYBE_THEME.textMutedLight};text-align:center;">
-              <strong style="color:${VYBE_THEME.primaryDark};">Just Vybe It!</strong> — Shop live. Sell live. All in one place.
-            </p>
+            ${promoTaglineBlock}
           </td>
         </tr>
       </table>
