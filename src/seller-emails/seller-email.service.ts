@@ -4,10 +4,10 @@ import {
   Logger,
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
+import { VYBEKART_BRAND_NAME } from '../mail/templates/vybekart-email-layout';
 import { resendFetch } from '../common/utils/resend-fetch';
 import { parseSellerEmailRecipients } from './seller-email-csv.util';
 import {
-  collectAttachments,
   resolveSellerEmailImage,
   SELLER_EMAIL_ASSET_FILES,
   VYBEKART_PLAY_STORE_URL,
@@ -16,7 +16,7 @@ import {
   buildSellerEmail1,
   buildSellerEmail2,
   mergeBuiltWithAttachments,
-  resolveInterestUrl,
+  SELLER_OUTREACH_THREAD_SUBJECT,
 } from './seller-email-templates';
 import {
   BuiltSellerEmail,
@@ -54,11 +54,13 @@ export class SellerEmailService {
     };
   }
 
+  /** Human 1:1 sender — "Hiren from Vybekart", not a brand blast address. */
   private outreachFrom(): string {
     const explicit = this.config.get<string>('SELLER_OUTREACH_FROM')?.trim();
     if (explicit) return explicit;
     const { ceoName, ceoEmail } = this.ceoDefaults();
-    return `${ceoName} <${ceoEmail}>`;
+    const first = ceoName.split(/\s+/)[0] || ceoName;
+    return `${first} from ${VYBEKART_BRAND_NAME} <${ceoEmail}>`;
   }
 
   buildEmail(
@@ -71,41 +73,57 @@ export class SellerEmailService {
       recipientEmail: recipient.email,
       storeName: recipient.storeName,
       contactName: recipient.contactName,
+      forPreview,
       ...ceo,
     };
 
     if (kind === 'email1') {
+      const built = buildSellerEmail1(this.config, base);
+      if (!forPreview) {
+        return { ...built, attachments: [] };
+      }
       const img = resolveSellerEmailImage(this.config, {
         envUrlKey: 'SELLER_INTRO_IMAGE_URL',
         assetFileName: SELLER_EMAIL_ASSET_FILES.visibilityIntro,
         objectKey: `email/${SELLER_EMAIL_ASSET_FILES.visibilityIntro}`,
         contentId: 'seller-visibility-intro',
-        forPreview,
+        forPreview: true,
       });
-      const built = buildSellerEmail1(this.config, {
-        ...base,
-        visibilityImageSrc: img.src,
-      });
-      return mergeBuiltWithAttachments(built, [img]);
+      return mergeBuiltWithAttachments(
+        buildSellerEmail1(this.config, {
+          ...base,
+          visibilityImageSrc: img.src,
+        }),
+        [img],
+      );
     }
 
+    const built = buildSellerEmail2(this.config, {
+      ...base,
+      appDownloadUrl:
+        this.config.get<string>('APP_DOWNLOAD_URL')?.trim() ||
+        VYBEKART_PLAY_STORE_URL,
+    });
+    if (!forPreview) {
+      return { ...built, attachments: [] };
+    }
     const stepsImg = resolveSellerEmailImage(this.config, {
       envUrlKey: 'SELLER_STEPS_IMAGE_URL',
       assetFileName: SELLER_EMAIL_ASSET_FILES.goLiveSteps,
       objectKey: `email/${SELLER_EMAIL_ASSET_FILES.goLiveSteps}`,
       contentId: 'seller-go-live-steps',
-      forPreview,
+      forPreview: true,
     });
-    const interestUrl = resolveInterestUrl(this.config, recipient);
-    const built = buildSellerEmail2(this.config, {
-      ...base,
-      stepsImageSrc: stepsImg.src,
-      interestUrl,
-      appDownloadUrl:
-        this.config.get<string>('APP_DOWNLOAD_URL')?.trim() ||
-        VYBEKART_PLAY_STORE_URL,
-    });
-    return mergeBuiltWithAttachments(built, [stepsImg]);
+    return mergeBuiltWithAttachments(
+      buildSellerEmail2(this.config, {
+        ...base,
+        stepsImageSrc: stepsImg.src,
+        appDownloadUrl:
+          this.config.get<string>('APP_DOWNLOAD_URL')?.trim() ||
+          VYBEKART_PLAY_STORE_URL,
+      }),
+      [stepsImg],
+    );
   }
 
   async sendOne(
@@ -134,7 +152,7 @@ export class SellerEmailService {
     }
 
     try {
-      const id = await this.sendViaResend(apiKey, recipient.email, built);
+      const id = await this.sendViaResend(apiKey, recipient.email, built, kind);
       return {
         email: recipient.email,
         storeName: recipient.storeName,
@@ -196,24 +214,26 @@ export class SellerEmailService {
     apiKey: string,
     to: string,
     built: BuiltSellerEmail,
+    kind: SellerEmailKind,
   ): Promise<string> {
     const { ceoEmail } = this.ceoDefaults();
-    const messageId = `<vybekart-seller-${Date.now()}-${Math.random().toString(36).slice(2, 10)}@vybekart.co.in>`;
+    const messageId = `<seller-${Date.now()}-${Math.random().toString(36).slice(2, 10)}@vybekart.co.in>`;
+    const headers: Record<string, string> = {
+      'Message-ID': messageId,
+    };
+    if (kind === 'email2') {
+      headers['In-Reply-To'] = `<thread-${SELLER_OUTREACH_THREAD_SUBJECT.replace(/\s+/g, '-').toLowerCase()}@vybekart.co.in>`;
+      headers.References = headers['In-Reply-To'];
+    }
+
     const body: Record<string, unknown> = {
       from: this.outreachFrom(),
       to: [to],
       subject: built.subject,
-      html: built.html,
       text: built.text,
       reply_to: ceoEmail,
-      headers: {
-        'Message-ID': messageId,
-        'X-Entity-Ref-ID': `vybekart-seller-${Date.now()}`,
-      },
+      headers,
     };
-    if (built.attachments.length) {
-      body.attachments = built.attachments;
-    }
 
     const res = await resendFetch('https://api.resend.com/emails', {
       method: 'POST',
