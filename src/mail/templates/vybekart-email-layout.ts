@@ -251,27 +251,6 @@ export function buildVybeKartHeroHeaderHtml(params: {
 </table>`;
 }
 
-/**
- * Plain 1:1-style shell for seller outreach — avoids Gmail Promotions signals
- * (gradient hero, pill CTAs, footer taglines) while keeping body copy unchanged.
- */
-export function buildSellerPersonalMailHtml(params: {
-  bodyHtml: string;
-}): string {
-  return `<!DOCTYPE html>
-<html lang="en">
-<head>
-  <meta charset="utf-8"/>
-  <meta name="viewport" content="width=device-width,initial-scale=1"/>
-</head>
-<body style="margin:0;padding:24px 16px;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;font-size:16px;line-height:1.6;color:#1A1D24;background:#FFFFFF;-webkit-font-smoothing:antialiased;">
-  <div style="max-width:600px;margin:0 auto;">
-    ${params.bodyHtml}
-  </div>
-</body>
-</html>`;
-}
-
 export function buildVybeKartMailShellHtml(params: {
   branding: VybeKartMailBranding;
   recipientEmail: string;

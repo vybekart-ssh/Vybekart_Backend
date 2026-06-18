@@ -61,55 +61,41 @@ export class SellerEmailService {
     return `${ceoName} <${ceoEmail}>`;
   }
 
-  /** Live sends default to plain text only — best chance of Gmail Primary. */
-  private outreachTextOnly(): boolean {
-    const v = this.config.get<string>('SELLER_OUTREACH_TEXT_ONLY')?.trim().toLowerCase();
-    return v !== 'false' && v !== '0';
-  }
-
   buildEmail(
     kind: SellerEmailKind,
     recipient: SellerEmailRecipient,
     forPreview: boolean,
   ): BuiltSellerEmail {
     const ceo = this.ceoDefaults();
-    const richContent = forPreview;
     const base = {
       recipientEmail: recipient.email,
       storeName: recipient.storeName,
       contactName: recipient.contactName,
-      richContent,
       ...ceo,
     };
 
     if (kind === 'email1') {
-      const img = richContent
-        ? resolveSellerEmailImage(this.config, {
-            envUrlKey: 'SELLER_INTRO_IMAGE_URL',
-            assetFileName: SELLER_EMAIL_ASSET_FILES.visibilityIntro,
-            objectKey: `email/${SELLER_EMAIL_ASSET_FILES.visibilityIntro}`,
-            contentId: 'seller-visibility-intro',
-            forPreview: true,
-          })
-        : { src: '' };
+      const img = resolveSellerEmailImage(this.config, {
+        envUrlKey: 'SELLER_INTRO_IMAGE_URL',
+        assetFileName: SELLER_EMAIL_ASSET_FILES.visibilityIntro,
+        objectKey: `email/${SELLER_EMAIL_ASSET_FILES.visibilityIntro}`,
+        contentId: 'seller-visibility-intro',
+        forPreview,
+      });
       const built = buildSellerEmail1(this.config, {
         ...base,
         visibilityImageSrc: img.src,
       });
-      return richContent
-        ? mergeBuiltWithAttachments(built, [img])
-        : { ...built, attachments: [] };
+      return mergeBuiltWithAttachments(built, [img]);
     }
 
-    const stepsImg = richContent
-      ? resolveSellerEmailImage(this.config, {
-          envUrlKey: 'SELLER_STEPS_IMAGE_URL',
-          assetFileName: SELLER_EMAIL_ASSET_FILES.goLiveSteps,
-          objectKey: `email/${SELLER_EMAIL_ASSET_FILES.goLiveSteps}`,
-          contentId: 'seller-go-live-steps',
-          forPreview: true,
-        })
-      : { src: '' };
+    const stepsImg = resolveSellerEmailImage(this.config, {
+      envUrlKey: 'SELLER_STEPS_IMAGE_URL',
+      assetFileName: SELLER_EMAIL_ASSET_FILES.goLiveSteps,
+      objectKey: `email/${SELLER_EMAIL_ASSET_FILES.goLiveSteps}`,
+      contentId: 'seller-go-live-steps',
+      forPreview,
+    });
     const interestUrl = resolveInterestUrl(this.config, recipient);
     const built = buildSellerEmail2(this.config, {
       ...base,
@@ -119,9 +105,7 @@ export class SellerEmailService {
         this.config.get<string>('APP_DOWNLOAD_URL')?.trim() ||
         VYBEKART_PLAY_STORE_URL,
     });
-    return richContent
-      ? mergeBuiltWithAttachments(built, [stepsImg])
-      : { ...built, attachments: [] };
+    return mergeBuiltWithAttachments(built, [stepsImg]);
   }
 
   async sendOne(
@@ -215,22 +199,20 @@ export class SellerEmailService {
   ): Promise<string> {
     const { ceoEmail } = this.ceoDefaults();
     const messageId = `<vybekart-seller-${Date.now()}-${Math.random().toString(36).slice(2, 10)}@vybekart.co.in>`;
-    const textOnly = this.outreachTextOnly();
     const body: Record<string, unknown> = {
       from: this.outreachFrom(),
       to: [to],
       subject: built.subject,
+      html: built.html,
       text: built.text,
       reply_to: ceoEmail,
       headers: {
         'Message-ID': messageId,
+        'X-Entity-Ref-ID': `vybekart-seller-${Date.now()}`,
       },
     };
-    if (!textOnly && built.html) {
-      body.html = built.html;
-      if (built.attachments.length) {
-        body.attachments = built.attachments;
-      }
+    if (built.attachments.length) {
+      body.attachments = built.attachments;
     }
 
     const res = await resendFetch('https://api.resend.com/emails', {

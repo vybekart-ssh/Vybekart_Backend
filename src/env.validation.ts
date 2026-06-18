@@ -114,8 +114,6 @@ export const envValidationSchema = Joi.object({
   SELLER_OUTREACH_INTEREST_TO: Joi.string().email().optional(),
   APP_DOWNLOAD_URL: Joi.string().uri().optional(),
   SELLER_EMAIL_SEND_DELAY_MS: Joi.string().optional(),
-  /** Default true — plain-text-only seller outreach (better Gmail Primary placement). Set false for HTML. */
-  SELLER_OUTREACH_TEXT_ONLY: Joi.string().valid('true', 'false', '1', '0').optional(),
   SELLER_INTRO_IMAGE_URL: Joi.string().uri().optional(),
   SELLER_STEPS_IMAGE_URL: Joi.string().uri().optional(),
   /** JSON string of Firebase service account (FCM server). Optional — push disabled if unset. */
