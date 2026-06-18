@@ -208,7 +208,7 @@ export class SellerEmailService {
       reply_to: ceoEmail,
       headers: {
         'Message-ID': messageId,
-        'X-Entity-Ref-ID': `vybekart-seller-${Date.now()}`,
+        'X-Auto-Response-Suppress': 'OOF, AutoReply',
       },
     };
     if (built.attachments.length) {
