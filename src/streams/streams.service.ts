@@ -108,11 +108,11 @@ export class StreamsService {
   private async tryStartStreamRecording(
     streamId: string,
     roomName: string,
-  ): Promise<void> {
-    if (!this.livekit.isReplayRecordingConfigured()) return;
+  ): Promise<boolean> {
+    if (!this.livekit.isReplayRecordingConfigured()) return false;
     try {
       const egressId = await this.livekit.startRoomRecording(roomName);
-      if (!egressId) return;
+      if (!egressId) return false;
       await this.prisma.stream.update({
         where: { id: streamId },
         data: {
@@ -120,8 +120,24 @@ export class StreamsService {
           replayStatus: StreamReplayStatus.RECORDING,
         },
       });
+      return true;
     } catch (e) {
       this.logger.warn(`tryStartStreamRecording ${streamId}: ${String(e)}`);
+      return false;
+    }
+  }
+
+  private async ensureStreamRecordingStarted(
+    streamId: string,
+    roomName: string,
+    livekitEgressId: string | null,
+  ): Promise<void> {
+    if (livekitEgressId || !this.livekit.isReplayRecordingConfigured()) return;
+    const started = await this.tryStartStreamRecording(streamId, roomName);
+    if (!started) {
+      this.logger.warn(
+        `Replay recording did not start for stream ${streamId} (check LiveKit egress + S3 env).`,
+      );
     }
   }
 
@@ -131,26 +147,45 @@ export class StreamsService {
     livekitEgressId: string | null;
   }): Promise<Prisma.StreamUpdateInput> {
     const patch: Prisma.StreamUpdateInput = {};
-    if (stream.livekitEgressId && this.livekit.isReplayRecordingConfigured()) {
+    const recordingConfigured = this.livekit.isReplayRecordingConfigured();
+    const optimisticReplayUrl = recordingConfigured
+      ? this.livekit.publicReplayUrlForStreamId(stream.id)
+      : null;
+
+    if (stream.livekitEgressId && recordingConfigured) {
       try {
         const r = await this.livekit.stopRoomRecording(stream.livekitEgressId);
         patch.livekitEgressId = null;
         const replayUrl =
-          r.replayUrl ||
-          (!r.failed ? this.livekit.publicReplayUrlForStreamId(stream.id) : null);
+          r.replayUrl || (!r.failed ? optimisticReplayUrl : null);
         if (replayUrl) {
           patch.replayUrl = replayUrl;
           if (r.durationSec != null) patch.replayDurationSec = r.durationSec;
           patch.replayStatus = StreamReplayStatus.READY;
         } else if (r.failed) {
           patch.replayStatus = StreamReplayStatus.FAILED;
+        } else if (optimisticReplayUrl) {
+          patch.replayUrl = optimisticReplayUrl;
+          patch.replayStatus = StreamReplayStatus.READY;
+        } else {
+          patch.replayStatus = StreamReplayStatus.FAILED;
         }
-      } catch {
+      } catch (e) {
+        this.logger.warn(
+          `finalizeLiveRecordingAndRoom stop egress ${stream.id}: ${String(e)}`,
+        );
         patch.livekitEgressId = null;
-        patch.replayStatus = StreamReplayStatus.FAILED;
+        if (optimisticReplayUrl) {
+          patch.replayUrl = optimisticReplayUrl;
+          patch.replayStatus = StreamReplayStatus.READY;
+        } else {
+          patch.replayStatus = StreamReplayStatus.FAILED;
+        }
       }
     } else if (stream.livekitEgressId) {
       patch.livekitEgressId = null;
+    } else if (recordingConfigured) {
+      patch.replayStatus = StreamReplayStatus.FAILED;
     }
     if (stream.livekitRoomName) {
       await this.livekit.deleteRoom(stream.livekitRoomName).catch(() => undefined);
@@ -765,6 +800,8 @@ export class StreamsService {
       startedAt,
       endedAt,
       stream.viewCount ?? 0,
+      updated.replayUrl,
+      updated.replayStatus,
     );
     return { ...updated, summary };
   }
@@ -774,6 +811,8 @@ export class StreamsService {
     startedAt: Date,
     endedAt: Date,
     viewCountAtStop: number,
+    replayUrl: string | null,
+    replayStatus: StreamReplayStatus,
   ) {
     const engagement = await this.getEngagementSummary(streamId);
     const durationMs = Math.max(0, endedAt.getTime() - startedAt.getTime());
@@ -793,6 +832,11 @@ export class StreamsService {
       comments: engagement.comments,
       ordersPlaced: orderAgg._count._all,
       revenueTotal: orderAgg._sum.totalAmount ?? 0,
+      replayUrl,
+      replayStatus,
+      replaySaved:
+        replayStatus === StreamReplayStatus.READY && !!replayUrl?.trim(),
+      recordingConfigured: this.livekit.isReplayRecordingConfigured(),
     };
   }
 
@@ -886,6 +930,13 @@ export class StreamsService {
     if (!alreadyBroadcasting) {
       this.streamsGateway.emitBroadcastStarted(streamId);
     }
+
+    const roomName = stream.livekitRoomName ?? streamId;
+    await this.ensureStreamRecordingStarted(
+      streamId,
+      roomName,
+      stream.livekitEgressId,
+    );
 
     return {
       ok: true as const,
