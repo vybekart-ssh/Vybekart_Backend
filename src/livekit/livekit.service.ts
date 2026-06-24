@@ -14,6 +14,7 @@ import {
   EgressStatus,
   S3Upload,
 } from '@livekit/protocol';
+import { normalizeLiveKitApiUrl } from './livekit-network.util';
 
 /**
  * Supabase Storage S3 protocol endpoint.
@@ -51,15 +52,19 @@ export class LiveKitService {
   private url: string | null = null;
 
   constructor(private config: ConfigService) {
-    const url = this.config.get<string>('LIVEKIT_URL');
-    const apiKey = this.config.get<string>('LIVEKIT_API_KEY');
-    const apiSecret = this.config.get<string>('LIVEKIT_API_SECRET');
-    if (url && apiKey && apiSecret) {
+    const rawUrl = this.config.get<string>('LIVEKIT_URL')?.trim();
+    const apiKey = this.config.get<string>('LIVEKIT_API_KEY')?.trim();
+    const apiSecret = this.config.get<string>('LIVEKIT_API_SECRET')?.trim();
+    if (rawUrl && apiKey && apiSecret) {
+      const url = normalizeLiveKitApiUrl(rawUrl);
       this.url = url;
       this.apiKey = apiKey;
       this.apiSecret = apiSecret;
       this.roomService = new RoomServiceClient(url, apiKey, apiSecret);
       this.egressClient = new EgressClient(url, apiKey, apiSecret);
+      if (url !== rawUrl.replace(/\/$/, '')) {
+        this.logger.log(`LIVEKIT_URL normalized for API: ${url}`);
+      }
     }
   }
 

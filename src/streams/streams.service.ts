@@ -17,6 +17,10 @@ import {
   PaginatedResult,
 } from '../common/dto/pagination-query.dto';
 import { LiveKitService } from '../livekit/livekit.service';
+import {
+  isLiveKitUnreachableError,
+  liveKitUnreachableMessage,
+} from '../livekit/livekit-network.util';
 import { RedisService } from '../redis/redis.service';
 import { BuyerLiveBroadcastService } from '../notifications/buyer-live-broadcast.service';
 import { RatingsService } from '../ratings/ratings.service';
@@ -306,17 +310,12 @@ export class StreamsService {
         token: publisherToken,
       };
     } catch (err: unknown) {
-      const cause = err instanceof Error ? err.cause ?? err : err;
-      const msg = cause instanceof Error ? cause.message : String(cause);
-      const isUnreachable =
-        msg.includes('ECONNREFUSED') ||
-        msg.includes('fetch failed') ||
-        msg.includes('ENOTFOUND');
       await this.prisma.stream.delete({ where: { id: stream.id } }).catch(() => {});
-      if (isUnreachable) {
-        throw new BadGatewayException(
-          'LiveKit server is unreachable. Start the LiveKit server (see README or LIVEKIT-NATIVE-WINDOWS.md) and set LIVEKIT_URL in .env to that host (e.g. http://localhost:7880).',
+      if (isLiveKitUnreachableError(err)) {
+        this.logger.error(
+          `LiveKit createRoom failed for stream ${stream.id}: ${String(err)}`,
         );
+        throw new BadGatewayException(liveKitUnreachableMessage(err));
       }
       throw err;
     }
@@ -502,16 +501,11 @@ export class StreamsService {
         token: publisherToken,
       };
     } catch (err: unknown) {
-      const cause = err instanceof Error ? err.cause ?? err : err;
-      const msg = cause instanceof Error ? cause.message : String(cause);
-      const isUnreachable =
-        msg.includes('ECONNREFUSED') ||
-        msg.includes('fetch failed') ||
-        msg.includes('ENOTFOUND');
-      if (isUnreachable) {
-        throw new BadGatewayException(
-          'LiveKit server is unreachable. Start the LiveKit server and set LIVEKIT_URL in .env.',
+      if (isLiveKitUnreachableError(err)) {
+        this.logger.error(
+          `LiveKit createRoom failed for scheduled stream ${streamId}: ${String(err)}`,
         );
+        throw new BadGatewayException(liveKitUnreachableMessage(err));
       }
       throw err;
     }
