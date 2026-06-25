@@ -109,12 +109,15 @@ export class AuthService {
       purpose === 'FORGOT_PASSWORD'
         ? `Your ${brand} password reset OTP is ${params.code}.`
         : purpose === 'SELLER_SIGNUP'
-          ? `Welcome to ${brand} Seller Partner. Your OTP to register as a Seller Partner is ${params.code}.`
+          ? `Welcome to ${brand} Seller Partner. Your OTP is ${params.code}.`
           : purpose === 'BUYER_SIGNUP'
-            ? `Welcome to ${brand}. Your OTP to create your Buyer account is ${params.code}.`
+            ? `Welcome to ${brand}. Your Buyer signup OTP is ${params.code}. Valid for ${ttlMin} minutes. Do not share.`
             : `Your ${brand} login OTP is ${params.code}.`;
 
-    const base = `${line1} Valid for ${ttlMin} minutes. Do not share this code with anyone.`;
+    const base =
+      purpose === 'BUYER_SIGNUP'
+        ? line1
+        : `${line1} Valid for ${ttlMin} minutes. Do not share this code with anyone.`;
 
     const appHash = (this.config.get<string>('ANDROID_SMS_APP_HASH') ?? '').trim();
     if (appHash) {

@@ -17,6 +17,8 @@ Complete step-by-step guide for DLT registration, content templates, Fast2SMS in
 | SMS Retriever Hash | `yXX2EIKmar0` |
 | OTP Variable (TRAI) | `{#numeric#}` |
 | Backend Route | `FAST2SMS_ROUTE=dlt` |
+| **SMS Retriever max length** | **140 characters** (entire message incl. hash line) |
+| **Single SMS billing max** | **160 characters** (carrier segment limit) |
 
 ---
 
@@ -114,9 +116,11 @@ yXX2EIKmar0
 **Template Message:**
 
 ```
-<#> Welcome to Vybekart. Your OTP to create your Buyer account is {#numeric#}. Valid for 10 minutes. Do not share this code with anyone.
+<#> Welcome to Vybekart. Your Buyer signup OTP is {#numeric#}. Valid for 10 minutes. Do not share.
 yXX2EIKmar0
 ```
+
+(~125 chars with 6-digit OTP — fits SMS Retriever 140-byte limit)
 
 ### Template 3 — Seller Partner Signup OTP
 
@@ -125,9 +129,13 @@ yXX2EIKmar0
 **Template Message:**
 
 ```
-<#> Welcome to Vybekart Seller Partner. Your OTP to register as a Seller Partner is {#numeric#}. Valid for 10 minutes. Do not share this code with anyone.
+<#> Welcome to Vybekart Seller Partner. Your OTP is {#numeric#}. Valid for 10 minutes. Do not share this code with anyone.
 yXX2EIKmar0
 ```
+
+(~129 chars with 6-digit OTP — fits SMS Retriever; avoids 2-SMS billing)
+
+**Previous longer Seller text** (`Your OTP to register as a Seller Partner…`) was 161 chars → split into **2 SMS** (double cost) and **broke Android auto-fill**. Re-submit this shorter version if you registered the old one.
 
 ### Template 4 — Forgot Password OTP
 
@@ -143,10 +151,13 @@ yXX2EIKmar0
 ### Template rules
 
 - Use `{#numeric#}` for OTP (TRAI typed variable — not `{#var#}`)
-- Hash `yXX2EIKmar0` on its own line at the end (static, not a variable)
+- Hash `yXX2EIKmar0` on its own line at the end (static, not a variable) — **nothing after the hash**
 - `<#>` prefix required for Android SMS auto-read
 - Text must match **exactly** at send time
 - "10 minutes" is fixed (matches backend `OTP_TTL_SECONDS = 600`)
+- **Keep entire message ≤ 140 characters** (Google SMS Retriever limit for auto-fill)
+- **Keep entire message ≤ 160 characters** (single SMS segment — avoids double billing)
+- DLT portal may show a higher character count (uses 30-char variable estimate); verify with a real 6-digit OTP sample
 
 ### Track approval
 
@@ -226,7 +237,8 @@ Deploy backend after setting env vars.
    ```
 
 4. OTP should **auto-fill** in app (SMS Retriever)
-5. If SMS arrives but no auto-fill → template text or hash mismatch
+5. If SMS arrives but no auto-fill → verify template ≤ 140 chars, hash line exact, Play Store install
+6. Filter logcat `VybekartOtp` — expect `SMS Retriever listener active` then `Auto-sending OTP` before SMS arrives
 
 ---
 
@@ -256,8 +268,10 @@ Deploy backend after setting env vars.
 | Cannot select VYBEKT in template | Header must be Approved first |
 | Template rejected | Use `{#numeric#}`, not `{#var#}` |
 | SMS not delivered | Check Fast2SMS chain + wallet balance |
-| SMS delivered, no auto-fill | Verify hash line and exact template text |
+| Fast2SMS shows 2 SMS per recipient | Template > 160 chars — shorten (see Template 3) |
+| SMS delivered, no auto-fill | Template > 140 chars, hash mismatch, or debug APK (not Play Store) |
 | Wrong hash | Re-get from Play Store install + logcat |
+| Auto-fill worked on Resend only | Fixed in app: OTP now sent after SMS listener starts |
 
 ---
 
@@ -272,3 +286,9 @@ Deploy backend after setting env vars.
 - `src/auth/auth.service.ts` — DLT routing by OTP purpose
 - `src/env.validation.ts` — DLT env vars
 - `render.yaml` — `FAST2SMS_ROUTE=dlt`, `FAST2SMS_SENDER_ID=VYBEKT`
+
+## Android files (SMS auto-fill)
+
+- `VybekartAndroid/.../OtpFragment.kt` — starts SMS listener, then auto-sends OTP
+- `VybekartAndroid/.../OtpSmsReceiver.kt` — SMS Retriever + User Consent broadcast
+- `VybekartAndroid/.../AppSignatureHelper.kt` — logs Play Store hash to logcat (`VybekartOtp`)
