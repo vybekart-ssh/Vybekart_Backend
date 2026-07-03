@@ -2,6 +2,7 @@ import { Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { Cron } from '@nestjs/schedule';
 import * as nodemailer from 'nodemailer';
+import { resendFetch } from '../common/utils/resend-fetch';
 import { spawn } from 'child_process';
 import * as crypto from 'crypto';
 import * as fs from 'fs';
@@ -214,7 +215,7 @@ export class DailyDbBackupService {
     resendKey: string,
     input: ResendSendEmailInput,
   ): Promise<void> {
-    const res = await fetch('https://api.resend.com/emails', {
+    const res = await resendFetch('https://api.resend.com/emails', {
       method: 'POST',
       headers: {
         Authorization: `Bearer ${resendKey}`,

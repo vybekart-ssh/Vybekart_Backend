@@ -271,7 +271,7 @@ Deploy backend after setting env vars.
 | Fast2SMS shows 2 SMS per recipient | Template > 160 chars — shorten (see Template 3) |
 | SMS delivered, no auto-fill | Template > 140 chars, hash mismatch, or debug APK (not Play Store) |
 | Wrong hash | Re-get from Play Store install + logcat |
-| Auto-fill worked on Resend only | Fixed in app: OTP now sent after SMS listener starts |
+| Auto-fill worked on Resend only | Fixed: SMS listener starts before OTP send and survives navigation |
 
 ---
 

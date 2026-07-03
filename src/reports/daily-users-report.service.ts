@@ -2,6 +2,7 @@ import { Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { Cron } from '@nestjs/schedule';
 import * as nodemailer from 'nodemailer';
+import { resendFetch } from '../common/utils/resend-fetch';
 import { PrismaService } from '../prisma/prisma.service';
 
 type ReportUserRow = {
@@ -72,6 +73,7 @@ export class DailyUsersReportService {
     const last24h = new Date(now.getTime() - 24 * 60 * 60 * 1000);
 
     const users = await this.prisma.user.findMany({
+      where: { isActive: true },
       select: {
         id: true,
         email: true,
@@ -204,18 +206,12 @@ export class DailyUsersReportService {
   private buildAnalysis(users: ReportUserRow[], since: Date): {
     total: number;
     newLast24h: number;
-    active: number;
-    inactive: number;
     byRole: Record<string, number>;
   } {
     const byRole: Record<string, number> = { BUYER: 0, SELLER: 0, ADMIN: 0 };
-    let active = 0;
-    let inactive = 0;
     let newLast24h = 0;
 
     for (const u of users) {
-      if (u.isActive) active += 1;
-      else inactive += 1;
       if (u.createdAt && u.createdAt >= since) newLast24h += 1;
 
       for (const r of u.roles ?? []) {
@@ -226,8 +222,6 @@ export class DailyUsersReportService {
     return {
       total: users.length,
       newLast24h,
-      active,
-      inactive,
       byRole,
     };
   }
@@ -237,8 +231,6 @@ export class DailyUsersReportService {
     analysis: {
       total: number;
       newLast24h: number;
-      active: number;
-      inactive: number;
       byRole: Record<string, number>;
     },
   ): { subject: string; html: string; text: string; filename: string } {
@@ -246,16 +238,14 @@ export class DailyUsersReportService {
     const dateIso = now.toISOString().slice(0, 10);
     const filename = `users-${dateIso}.csv`;
     const subject = `VybeKart — Daily Users Report (${dateIso})`;
-    const preheader = `Daily snapshot of Users table: ${analysis.total} total, ${analysis.newLast24h} new (last 24h).`;
+    const preheader = `Daily snapshot of active users: ${analysis.total} total, ${analysis.newLast24h} new (last 24h).`;
 
     const rows = [
-      ['Total users', String(analysis.total)],
-      ['New users (last 24h)', String(analysis.newLast24h)],
-      ['Active users', String(analysis.active)],
-      ['Inactive users', String(analysis.inactive)],
-      ['Role: BUYER', String(analysis.byRole.BUYER ?? 0)],
-      ['Role: SELLER', String(analysis.byRole.SELLER ?? 0)],
-      ['Role: ADMIN', String(analysis.byRole.ADMIN ?? 0)],
+      ['Total active users', String(analysis.total)],
+      ['New active users (last 24h)', String(analysis.newLast24h)],
+      ['Users (buyers)', String(analysis.byRole.BUYER ?? 0)],
+      ['Seller partners', String(analysis.byRole.SELLER ?? 0)],
+      ['Admins', String(analysis.byRole.ADMIN ?? 0)],
       ['CSV attachment', filename],
     ];
 
@@ -292,7 +282,7 @@ export class DailyUsersReportService {
           <tr>
             <td style="padding:18px 24px 8px;">
               <p style="margin:0 0 12px;font-size:15px;color:#334155;line-height:1.55;">
-                Please find attached the latest export of the <strong>Users</strong> table (password excluded) in CSV format.
+                Please find attached the latest export of <strong>active users</strong> only (password excluded) in CSV format.
               </p>
               <p style="margin:0 0 18px;font-size:12px;color:#94a3b8;">
                 Generated at ${escapeHtml(now.toISOString())} · Timezone: Asia/Kolkata schedule (10:00 PM IST)
@@ -344,7 +334,7 @@ export class DailyUsersReportService {
       attachments: { filename: string; content: string; contentType?: string }[];
     },
   ): Promise<void> {
-    const res = await fetch('https://api.resend.com/emails', {
+    const res = await resendFetch('https://api.resend.com/emails', {
       method: 'POST',
       headers: {
         Authorization: `Bearer ${apiKey}`,
