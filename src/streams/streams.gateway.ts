@@ -25,9 +25,7 @@ export class StreamsGateway implements OnGatewayDisconnect {
   async handleDisconnect(client: { id: string }) {
     const streamId = (client as unknown as { streamId?: string }).streamId;
     if (streamId) {
-      const key = this.redis.streamViewersKey(streamId);
-      await this.redis.srem(key, client.id);
-      const count = await this.redis.scard(key);
+      const count = await this.redis.trackViewerLeave(streamId, client.id);
       this.server
         .to(`stream:${streamId}`)
         .emit('viewer_count', { streamId, count });
@@ -44,9 +42,7 @@ export class StreamsGateway implements OnGatewayDisconnect {
     const room = `stream:${streamId}`;
     (client as unknown as { streamId?: string }).streamId = streamId;
     client.join(room);
-    const key = this.redis.streamViewersKey(streamId);
-    await this.redis.sadd(key, client.id);
-    const count = await this.redis.scard(key);
+    const count = await this.redis.trackViewerJoin(streamId, client.id);
     this.server.to(room).emit('viewer_count', { streamId, count });
     this.logger.log(`Client ${client.id} joined stream ${streamId}`);
   }

@@ -40,6 +40,9 @@ const streamWithSellerInclude = {
   category: { select: { id: true, name: true, slug: true } },
 } as const;
 
+/** Ephemeral live engagement cache; TTL is a safety net if cleanup is missed. */
+const STREAM_ENGAGEMENT_TTL_SECONDS = 48 * 60 * 60;
+
 @Injectable()
 export class StreamsService {
   private readonly logger = new Logger(StreamsService.name);
@@ -97,13 +100,13 @@ export class StreamsService {
   }
 
   private likesKey(streamId: string) {
-    return `stream:${streamId}:likes`;
+    return this.redis.streamLikesKey(streamId);
   }
   private commentsKey(streamId: string) {
-    return `stream:${streamId}:comments`;
+    return this.redis.streamCommentsKey(streamId);
   }
   private bidsKey(streamId: string) {
-    return `stream:${streamId}:bids`;
+    return this.redis.streamBidsKey(streamId);
   }
   private followsKey(userId: string) {
     return `buyer:${userId}:follows`;
@@ -692,6 +695,7 @@ export class StreamsService {
         this.queueNotifyBuyersLiveEnded(updatedWithProducts);
         const ended = updatedWithProducts.endedAt ?? new Date();
         await this.orders.onStreamEnded(id, ended);
+        await this.redis.clearStreamEphemeralKeys(id);
       }
       return updatedWithProducts;
     }
@@ -731,6 +735,7 @@ export class StreamsService {
       this.queueNotifyBuyersLiveEnded(updated);
       const ended = updated.endedAt ?? new Date();
       await this.orders.onStreamEnded(id, ended);
+      await this.redis.clearStreamEphemeralKeys(id);
     }
     return updated;
   }
@@ -744,6 +749,7 @@ export class StreamsService {
       livekitEgressId: stream.livekitEgressId,
     });
     const deleted = await this.prisma.stream.delete({ where: { id } });
+    await this.redis.clearStreamEphemeralKeys(id);
     if (wasLive) {
       this.queueNotifyBuyersLiveEnded(stream);
     }
@@ -797,6 +803,7 @@ export class StreamsService {
       updated.replayUrl,
       updated.replayStatus,
     );
+    await this.redis.clearStreamEphemeralKeys(id);
     return { ...updated, summary };
   }
 
@@ -1125,7 +1132,11 @@ export class StreamsService {
       likedBy.push(userId);
       liked = true;
     }
-    await this.redis.set(this.likesKey(streamId), JSON.stringify(likedBy));
+    await this.redis.set(
+      this.likesKey(streamId),
+      JSON.stringify(likedBy),
+      STREAM_ENGAGEMENT_TTL_SECONDS,
+    );
     return { liked, likes: likedBy.length };
   }
 
@@ -1146,7 +1157,11 @@ export class StreamsService {
     };
     comments.push(comment);
     const latest = comments.slice(-50);
-    await this.redis.set(this.commentsKey(streamId), JSON.stringify(latest));
+    await this.redis.set(
+      this.commentsKey(streamId),
+      JSON.stringify(latest),
+      STREAM_ENGAGEMENT_TTL_SECONDS,
+    );
     return comment;
   }
 
@@ -1176,7 +1191,11 @@ export class StreamsService {
     };
     bids.push(bid);
     const latest = bids.slice(-100);
-    await this.redis.set(this.bidsKey(streamId), JSON.stringify(latest));
+    await this.redis.set(
+      this.bidsKey(streamId),
+      JSON.stringify(latest),
+      STREAM_ENGAGEMENT_TTL_SECONDS,
+    );
     const topBid = latest.reduce(
       (max, x) => ((x.amount as number) > max ? (x.amount as number) : max),
       0,
@@ -1298,6 +1317,7 @@ export class StreamsService {
           include: streamWithSellerInclude,
         });
         await this.orders.onStreamEnded(s.id, endedAt);
+        await this.redis.clearStreamEphemeralKeys(s.id);
         this.queueNotifyBuyersLiveEnded(updated, { notifyBuyers: false });
       } catch (e) {
         this.logger.warn(
