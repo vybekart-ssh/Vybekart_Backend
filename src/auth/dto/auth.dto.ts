@@ -104,6 +104,14 @@ export class CheckEmailExistsDto {
   @IsEmail()
   @IsNotEmpty()
   email: string;
+
+  /** When set (seller signup), also verify this phone is not tied to a different email. */
+  @IsOptional()
+  @IsString()
+  @Matches(/^\+?[1-9]\d{1,14}$/, {
+    message: 'Phone must be in E.164 format (e.g. +919876543210)',
+  })
+  phone?: string;
 }
 
 /** Allowed values for the `gender` field on registration DTOs. */

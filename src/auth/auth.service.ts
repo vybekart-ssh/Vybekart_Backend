@@ -870,7 +870,9 @@ export class AuthService {
       return { exists: !!user?.buyerProfile };
     }
     if (dto.purpose === CheckPhonePurpose.SELLER_REGISTER) {
-      return { exists: !!user?.sellerProfile };
+      // Block any existing phone early — registerSeller also rejects phone+email mismatches.
+      // Catching it here avoids completing the full store-setup flow only to fail at OTP.
+      return { exists: !!user };
     }
     return { hasBuyer: !!user?.buyerProfile, hasSeller: !!user?.sellerProfile };
   }
@@ -878,6 +880,21 @@ export class AuthService {
   /** Check if an email already exists (case-insensitive). */
   async checkEmailExists(dto: CheckEmailExistsDto): Promise<{ exists: boolean }> {
     const email = dto.email.trim();
+    const phone = dto.phone?.trim();
+
+    // Seller signup: catch phone↔email mismatch before the long onboarding flow.
+    if (phone) {
+      const byPhone = await this.prisma.user.findUnique({
+        where: { phone },
+        select: { email: true },
+      });
+      if (byPhone && byPhone.email.toLowerCase() !== email.toLowerCase()) {
+        throw new ConflictException(
+          'This phone number is already registered with a different email. Sign in with the email linked to this number, or use the correct email.',
+        );
+      }
+    }
+
     const user = await this.prisma.user.findFirst({
       where: { email: { equals: email, mode: 'insensitive' } },
       select: { id: true },
