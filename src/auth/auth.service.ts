@@ -28,6 +28,9 @@ import { SendOtpDto, VerifyOtpDto } from './dto/otp.dto';
 import { Role, VerificationStatus } from '@prisma/client';
 import { SellerRegistrationNotifierService } from './seller-registration-notifier.service';
 import { Fast2SmsService } from '../notifications/fast2sms.service';
+import { MailService } from '../mail/mail.service';
+import { getVybeKartMailBranding } from '../mail/templates/vybekart-email-layout';
+import { buildWelcomeEmail } from '../mail/templates/welcome-email.template';
 
 const REFRESH_TTL_SECONDS = 30 * 24 * 60 * 60; // 30 days
 const OTP_TTL_SECONDS = 10 * 60; // 10 minutes
@@ -42,6 +45,51 @@ function formatPickupAsBusinessAddress(p: PickupAddressDto): string {
     'IN',
   ].filter((x): x is string => !!x && x.length > 0);
   return lines.join('\n');
+}
+
+/** Naive split of a legacy full-name string into parts (used as a fallback only). */
+function splitLegacyName(name: string): {
+  firstName: string;
+  middleName: string | null;
+  lastName: string | null;
+} {
+  const parts = (name ?? '').trim().split(/\s+/).filter(Boolean);
+  if (parts.length === 0) return { firstName: '', middleName: null, lastName: null };
+  if (parts.length === 1) return { firstName: parts[0], middleName: null, lastName: null };
+  const firstName = parts[0];
+  const lastName = parts[parts.length - 1];
+  const middleName = parts.length >= 3 ? parts.slice(1, -1).join(' ') : null;
+  return { firstName, middleName, lastName };
+}
+
+/** Resolves first/middle/last name from structured fields, falling back to legacy `name` if needed. */
+function resolveNameParts(dto: {
+  name?: string;
+  firstName?: string;
+  middleName?: string;
+  lastName?: string;
+}): { firstName: string; middleName: string | null; lastName: string } {
+  const legacy = splitLegacyName(dto.name ?? '');
+  return {
+    firstName: dto.firstName?.trim() || legacy.firstName,
+    middleName: dto.middleName?.trim() || legacy.middleName,
+    lastName: dto.lastName?.trim() || legacy.lastName || '',
+  };
+}
+
+/** Composes the display `name` from structured parts, falling back to legacy `name`. */
+function displayName(dto: {
+  name?: string;
+  firstName?: string;
+  middleName?: string;
+  lastName?: string;
+}): string {
+  return (
+    [dto.firstName, dto.middleName, dto.lastName]
+      .filter(Boolean)
+      .join(' ')
+      .trim() || (dto.name ?? '').trim()
+  );
 }
 
 @Injectable()
@@ -173,12 +221,36 @@ export class AuthService {
     private redis: RedisService,
     private sellerRegistrationNotifier: SellerRegistrationNotifierService,
     private fast2sms: Fast2SmsService,
+    private mail: MailService,
   ) {}
+
+  /** Fire-and-forget welcome email; never throws to the caller. */
+  private sendWelcomeEmail(params: {
+    email: string;
+    firstName: string;
+    role: 'buyer' | 'seller';
+  }): void {
+    const branding = getVybeKartMailBranding(this.config);
+    const { subject, html, text } = buildWelcomeEmail({
+      firstName: params.firstName,
+      role: params.role,
+      recipientEmail: params.email,
+      branding,
+    });
+    void this.mail
+      .sendTransactional(params.email, { subject, html, text })
+      .catch((err) =>
+        this.logger.warn(`Welcome email failed (${params.role}): ${String(err)}`),
+      );
+  }
 
   private authUserResponse(user: {
     id: string;
     email: string;
     name: string;
+    firstName?: string | null;
+    lastName?: string | null;
+    gender?: string | null;
     roles: Role[];
     sellerProfile: { id: string; status: VerificationStatus } | null;
     buyerProfile: { id: string } | null;
@@ -202,6 +274,9 @@ export class AuthService {
       id: user.id,
       email: user.email,
       name: user.name,
+      firstName: user.firstName ?? null,
+      lastName: user.lastName ?? null,
+      gender: user.gender ?? null,
       roles: user.roles,
       sellerProfileId: hasSellerRole ? user.sellerProfile?.id ?? null : null,
       buyerProfileId: hasBuyerRole ? user.buyerProfile?.id ?? null : null,
@@ -448,6 +523,8 @@ export class AuthService {
     const accountType = dto.accountType.trim();
 
     const hashedPassword = await bcrypt.hash(dto.password, 10);
+    const nameParts = resolveNameParts(dto);
+    const fullName = displayName(dto);
 
     try {
       await this.prisma.$transaction(async (tx) => {
@@ -456,7 +533,11 @@ export class AuthService {
               where: { id: existingByPhone.id },
               data: {
                 password: hashedPassword,
-                name: dto.name,
+                name: fullName,
+                firstName: nameParts.firstName || null,
+                middleName: nameParts.middleName,
+                lastName: nameParts.lastName || null,
+                gender: dto.gender ?? null,
                 roles: {
                   // Union roles so the same phone can be both buyer + seller.
                   set: Array.from(
@@ -469,7 +550,11 @@ export class AuthService {
               data: {
                 email,
                 password: hashedPassword,
-                name: dto.name,
+                name: fullName,
+                firstName: nameParts.firstName || null,
+                middleName: nameParts.middleName,
+                lastName: nameParts.lastName || null,
+                gender: dto.gender ?? null,
                 phone,
                 roles: [Role.SELLER],
               },
@@ -557,6 +642,12 @@ export class AuthService {
           this.logger.warn(`Seller registration notify failed: ${String(err)}`),
         );
 
+      this.sendWelcomeEmail({
+        email,
+        firstName: nameParts.firstName || fullName || 'there',
+        role: 'seller',
+      });
+
       return this.login({ email: dto.email, password: dto.password });
     } catch (error) {
       if (
@@ -597,6 +688,8 @@ export class AuthService {
     }
 
     const hashedPassword = await bcrypt.hash(dto.password, 10);
+    const nameParts = resolveNameParts(dto);
+    const fullName = displayName(dto);
 
     // Transaction: Create User + Buyer Profile
     try {
@@ -607,7 +700,11 @@ export class AuthService {
               where: { id: existingByPhone.id },
               data: {
                 password: hashedPassword,
-                name: dto.name,
+                name: fullName,
+                firstName: nameParts.firstName || null,
+                middleName: nameParts.middleName,
+                lastName: nameParts.lastName || null,
+                gender: dto.gender ?? null,
                 roles: {
                   // Union roles so the same phone can be both buyer + seller.
                   set: Array.from(
@@ -620,7 +717,11 @@ export class AuthService {
               data: {
                 email,
                 password: hashedPassword,
-                name: dto.name,
+                name: fullName,
+                firstName: nameParts.firstName || null,
+                middleName: nameParts.middleName,
+                lastName: nameParts.lastName || null,
+                gender: dto.gender ?? null,
                 phone,
                 roles: [Role.BUYER], // Assign BUYER role
               },
@@ -645,6 +746,12 @@ export class AuthService {
         });
 
         return { user, buyer };
+      });
+
+      this.sendWelcomeEmail({
+        email,
+        firstName: nameParts.firstName || fullName || 'there',
+        role: 'buyer',
       });
 
       // Login immediately

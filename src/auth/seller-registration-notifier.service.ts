@@ -133,9 +133,14 @@ function buildSellerRegistrationEmail(
   const categories =
     categoryNames.length > 0 ? categoryNames.join(', ') : '—';
 
+  const fullName =
+    [dto.firstName, dto.middleName, dto.lastName].filter(Boolean).join(' ') ||
+    dto.name ||
+    '—';
+
   const lines: [string, string][] = [
     ['Section', 'Create account & identity'],
-    ['Full name', dto.name],
+    ['Full name', fullName],
     ['Email', dto.email],
     ['Phone', dto.phone],
     ['Password', '•••••••• (submitted; not stored in email)'],

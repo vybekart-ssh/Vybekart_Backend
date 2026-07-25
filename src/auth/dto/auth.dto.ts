@@ -12,6 +12,7 @@ import {
   ValidateIf,
   ArrayMinSize,
   IsEnum,
+  IsIn,
 } from 'class-validator';
 import { Type } from 'class-transformer';
 import { Transform } from 'class-transformer';
@@ -105,6 +106,14 @@ export class CheckEmailExistsDto {
   email: string;
 }
 
+/** Allowed values for the `gender` field on registration DTOs. */
+export const GENDER_VALUES = [
+  'MALE',
+  'FEMALE',
+  'OTHER',
+  'PREFER_NOT_TO_SAY',
+] as const;
+
 export class RegisterBuyerDto {
   @IsEmail()
   @IsNotEmpty()
@@ -115,9 +124,29 @@ export class RegisterBuyerDto {
   @MinLength(6)
   password: string;
 
+  /** Legacy full display name — optional now that first/last name are collected separately. */
+  @IsString()
+  @IsOptional()
+  name?: string;
+
   @IsString()
   @IsNotEmpty()
-  name: string;
+  firstName: string;
+
+  @IsString()
+  @IsOptional()
+  middleName?: string;
+
+  @IsString()
+  @IsNotEmpty()
+  lastName: string;
+
+  @IsString()
+  @IsNotEmpty()
+  @IsIn(GENDER_VALUES, {
+    message: 'gender must be one of MALE, FEMALE, OTHER, PREFER_NOT_TO_SAY',
+  })
+  gender: string;
 
   @IsString()
   @IsOptional()
@@ -175,9 +204,29 @@ export class RegisterSellerDto {
   @MinLength(6)
   password: string;
 
+  /** Legacy full display name — optional now that first/last name are collected separately. */
+  @IsString()
+  @IsOptional()
+  name?: string;
+
   @IsString()
   @IsNotEmpty()
-  name: string;
+  firstName: string;
+
+  @IsString()
+  @IsOptional()
+  middleName?: string;
+
+  @IsString()
+  @IsNotEmpty()
+  lastName: string;
+
+  @IsString()
+  @IsNotEmpty()
+  @IsIn(GENDER_VALUES, {
+    message: 'gender must be one of MALE, FEMALE, OTHER, PREFER_NOT_TO_SAY',
+  })
+  gender: string;
 
   @IsString()
   @IsNotEmpty({ message: 'Phone number is required for registration' })
