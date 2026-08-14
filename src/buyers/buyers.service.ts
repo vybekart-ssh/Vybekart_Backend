@@ -18,7 +18,16 @@ export class BuyersService {
       where: { userId },
       include: {
         user: {
-          select: { id: true, name: true, email: true, phone: true, createdAt: true },
+          select: {
+            id: true,
+            name: true,
+            firstName: true,
+            middleName: true,
+            lastName: true,
+            email: true,
+            phone: true,
+            createdAt: true,
+          },
         },
         orders: { orderBy: { createdAt: 'desc' }, take: 20, include: { items: { include: { product: true } } } },
       },
@@ -32,27 +41,48 @@ export class BuyersService {
     const buyer = await this.prisma.buyer.findUnique({ where: { userId } });
     if (!buyer) throw new NotFoundException('Buyer profile not found');
 
-    if (dto.email) {
-      const existing = await this.prisma.user.findFirst({
-        where: { email: dto.email, NOT: { id: userId } },
-      });
-      if (existing) throw new BadRequestException('Email already in use');
+    const firstName = dto.firstName?.trim() ?? '';
+    const middleName = dto.middleName?.trim() || null;
+    const lastName = dto.lastName?.trim() ?? '';
+    const legacyName = dto.name?.trim();
+
+    let resolvedFirst = firstName;
+    let resolvedMiddle = middleName;
+    let resolvedLast = lastName;
+    if (!resolvedFirst && !resolvedLast && legacyName) {
+      const parts = legacyName.split(/\s+/).filter(Boolean);
+      resolvedFirst = parts[0] ?? '';
+      resolvedLast = parts.length > 1 ? parts[parts.length - 1] : resolvedFirst;
+      resolvedMiddle =
+        parts.length > 2 ? parts.slice(1, -1).join(' ') : null;
     }
-    if (dto.phone) {
-      const existing = await this.prisma.user.findFirst({
-        where: { phone: dto.phone, NOT: { id: userId } },
-      });
-      if (existing) throw new BadRequestException('Phone already in use');
+
+    if (!resolvedFirst || !resolvedLast) {
+      throw new BadRequestException('First name and last name are required');
     }
+
+    const fullName = [resolvedFirst, resolvedMiddle, resolvedLast]
+      .filter(Boolean)
+      .join(' ');
 
     const user = await this.prisma.user.update({
       where: { id: userId },
       data: {
-        ...(dto.name ? { name: dto.name.trim() } : {}),
-        ...(dto.email ? { email: dto.email.trim().toLowerCase() } : {}),
-        ...(dto.phone ? { phone: dto.phone.trim() } : {}),
+        name: fullName,
+        firstName: resolvedFirst,
+        middleName: resolvedMiddle,
+        lastName: resolvedLast,
       },
-      select: { id: true, name: true, email: true, phone: true, createdAt: true },
+      select: {
+        id: true,
+        name: true,
+        firstName: true,
+        middleName: true,
+        lastName: true,
+        email: true,
+        phone: true,
+        createdAt: true,
+      },
     });
     return { success: true, user };
   }

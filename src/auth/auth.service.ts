@@ -870,9 +870,8 @@ export class AuthService {
       return { exists: !!user?.buyerProfile };
     }
     if (dto.purpose === CheckPhonePurpose.SELLER_REGISTER) {
-      // Block any existing phone early — registerSeller also rejects phone+email mismatches.
-      // Catching it here avoids completing the full store-setup flow only to fail at OTP.
-      return { exists: !!user };
+      // Block only when a seller profile already exists — buyers can upgrade to seller.
+      return { exists: !!user?.sellerProfile };
     }
     return { hasBuyer: !!user?.buyerProfile, hasSeller: !!user?.sellerProfile };
   }
@@ -886,12 +885,16 @@ export class AuthService {
     if (phone) {
       const byPhone = await this.prisma.user.findUnique({
         where: { phone },
-        select: { email: true },
+        select: { id: true, email: true },
       });
       if (byPhone && byPhone.email.toLowerCase() !== email.toLowerCase()) {
         throw new ConflictException(
           'This phone number is already registered with a different email. Sign in with the email linked to this number, or use the correct email.',
         );
+      }
+      // Same phone + same email — existing buyer upgrading to seller.
+      if (byPhone && byPhone.email.toLowerCase() === email.toLowerCase()) {
+        return { exists: false };
       }
     }
 
