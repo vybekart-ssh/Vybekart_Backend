@@ -351,7 +351,10 @@ export class StreamsService {
       );
     }
     const first = byId.get(productIds[0]);
-    const thumbnailUrl = first?.images?.[0] ?? null;
+    const thumbnailUrl =
+      dto.thumbnailUrl?.trim() ||
+      first?.images?.[0] ||
+      null;
 
     return this.prisma.stream.create({
       data: {
@@ -679,7 +682,7 @@ export class StreamsService {
             ? { startedAt: new Date(dto.scheduledAt) }
             : {}),
           ...(dto.isLive !== undefined ? { isLive: dto.isLive } : {}),
-          thumbnailUrl: thumbFromProduct,
+          thumbnailUrl: dto.thumbnailUrl?.trim() || thumbFromProduct,
           streamProducts: {
             deleteMany: {},
             create: productIds.map((productId, index) => ({
