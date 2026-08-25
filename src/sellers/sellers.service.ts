@@ -586,10 +586,11 @@ export class SellersService {
       status: { in: ['PAID', 'SHIPPED', 'DELIVERED'] as OrderStatus[] },
     };
 
-    const [todayAgg, yesterdayAgg] = await Promise.all([
+    const [todayAgg, yesterdayAgg, todayOrders] = await Promise.all([
       this.prisma.order.aggregate({
         where: { ...baseWhere, createdAt: { gte: todayStart, lt: todayEnd } },
         _sum: { totalAmount: true },
+        _count: { _all: true },
       }),
       this.prisma.order.aggregate({
         where: {
@@ -598,6 +599,16 @@ export class SellersService {
         },
         _sum: { totalAmount: true },
       }),
+      this.prisma.order.findMany({
+        where: { ...baseWhere, createdAt: { gte: todayStart, lt: todayEnd } },
+        orderBy: { createdAt: 'desc' },
+        select: {
+          id: true,
+          totalAmount: true,
+          status: true,
+          createdAt: true,
+        },
+      }),
     ]);
 
     const today = todayAgg._sum?.totalAmount ?? 0;
@@ -605,10 +616,37 @@ export class SellersService {
     const changePercent =
       yesterday > 0 ? (((today - yesterday) / yesterday) * 100) : today > 0 ? 100 : 0;
 
+    // Hourly buckets for revenue flow chart (local day)
+    const hourBuckets = Array.from({ length: 24 }, () => 0);
+    for (const o of todayOrders) {
+      const h = o.createdAt.getHours();
+      hourBuckets[h] += o.totalAmount ?? 0;
+    }
+    const nowHour = Math.min(23, now.getHours());
+    const flowLabels = ['8 AM', '10 AM', '12 PM', '2 PM', '4 PM', 'Now'];
+    const flowHours = [8, 10, 12, 14, 16, nowHour];
+    const flowData = flowHours.map((h, i) => ({
+      label: flowLabels[i],
+      value: hourBuckets[h] ?? 0,
+    }));
+
+    const recentOrders = todayOrders.slice(0, 5).map((o) => ({
+      id: o.id,
+      shortId: `VK-${o.id.slice(-4).toUpperCase()}`,
+      amount: o.totalAmount ?? 0,
+      status: o.status,
+      createdAt: o.createdAt.toISOString(),
+    }));
+
+    const estimatedPayout = Math.round(today * 0.95 * 100) / 100;
+
     return {
       total: today,
+      orderCount: todayAgg._count?._all ?? todayOrders.length,
       changePercentVsYesterday: Math.round(changePercent * 10) / 10,
-      flowData: [],
+      estimatedPayout,
+      flowData,
+      recentOrders,
       breakdown: [],
     };
   }

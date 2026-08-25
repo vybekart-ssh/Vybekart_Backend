@@ -79,11 +79,17 @@ export class SupportService {
         ? 'Seller partner app feedback'
         : 'Shopper app feedback';
     const ticketSubject = userTopic || defaultTopic;
+    const ratingStars =
+      typeof dto.rating === 'number' && dto.rating >= 1 && dto.rating <= 5
+        ? dto.rating
+        : null;
+    const ratingPrefix =
+      ratingStars != null ? `[RATING:${ratingStars}/5]\n` : '';
     const ticket = await this.prisma.supportTicket.create({
       data: {
         userId,
         subject: ticketSubject,
-        message: `[APP_FEEDBACK|${role}]\n${dto.message.trim()}`,
+        message: `[APP_FEEDBACK|${role}]\n${ratingPrefix}${dto.message.trim()}`,
       },
       select: { id: true, subject: true, createdAt: true },
     });
@@ -120,8 +126,9 @@ export class SupportService {
       role,
       ticketId: ticket.id,
       ticketRef,
-      topicLine: defaultTopic,
+      topicLine: ticketSubject,
       message: dto.message.trim(),
+      rating: ratingStars,
       metaRows,
       submittedAt,
     });
@@ -498,6 +505,7 @@ function buildProfessionalAppFeedbackEmail(params: {
   ticketRef: string;
   topicLine: string;
   message: string;
+  rating: number | null;
   metaRows: { label: string; value: string }[];
   submittedAt: Date;
 }): { html: string; text: string; emailSubject: string } {
@@ -521,6 +529,15 @@ function buildProfessionalAppFeedbackEmail(params: {
         `<tr><td style="padding:10px 14px;border-bottom:1px solid #e8ecf1;font-size:14px;color:#64748b;width:38%;vertical-align:top;">${escapeHtml(r.label)}</td><td style="padding:10px 14px;border-bottom:1px solid #e8ecf1;font-size:14px;color:#0f172a;font-weight:500;vertical-align:top;">${escapeHtml(r.value)}</td></tr>`,
     )
     .join('');
+
+  const ratingHtml =
+    params.rating != null
+      ? `<p style="margin:0 0 8px;font-size:12px;font-weight:600;color:#64748b;text-transform:uppercase;letter-spacing:0.05em;">Experience rating</p>
+              <p style="margin:0 0 20px;font-size:22px;letter-spacing:2px;color:#f59e0b;" aria-label="${params.rating} out of 5 stars">${'★'.repeat(params.rating)}${'☆'.repeat(5 - params.rating)} <span style="font-size:14px;color:#0f172a;font-weight:600;letter-spacing:0;">${params.rating}/5</span></p>`
+      : '';
+
+  const ratingText =
+    params.rating != null ? `Experience rating: ${params.rating}/5 stars` : null;
 
   const html = `<!DOCTYPE html>
 <html lang="en">
@@ -551,6 +568,7 @@ function buildProfessionalAppFeedbackEmail(params: {
               </table>
               <p style="margin:0 0 8px;font-size:12px;font-weight:600;color:#64748b;text-transform:uppercase;letter-spacing:0.05em;">Category</p>
               <p style="margin:0 0 20px;font-size:16px;color:#0f172a;font-weight:600;">${escapeHtml(params.topicLine)}</p>
+              ${ratingHtml}
             </td>
           </tr>
           <tr>
@@ -585,6 +603,7 @@ function buildProfessionalAppFeedbackEmail(params: {
     `Reference: ${params.ticketRef}`,
     `Ticket ID: ${params.ticketId}`,
     `Category: ${params.topicLine}`,
+    ratingText,
     '',
     '--- Submitter ---',
     textMeta,
@@ -593,7 +612,9 @@ function buildProfessionalAppFeedbackEmail(params: {
     params.message,
     '',
     `Submitted: ${params.submittedAt.toISOString()}`,
-  ].join('\n');
+  ]
+    .filter((line) => line !== null)
+    .join('\n');
 
   return { html, text, emailSubject };
 }

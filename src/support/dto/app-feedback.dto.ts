@@ -1,4 +1,14 @@
-import { IsIn, IsOptional, IsString, MaxLength, MinLength } from 'class-validator';
+import {
+  IsIn,
+  IsInt,
+  IsOptional,
+  IsString,
+  Max,
+  MaxLength,
+  Min,
+  MinLength,
+} from 'class-validator';
+import { Type } from 'class-transformer';
 
 export class AppFeedbackDto {
   @IsOptional()
@@ -11,6 +21,14 @@ export class AppFeedbackDto {
   @MinLength(10)
   @MaxLength(5000)
   message: string;
+
+  /** Experience rating 1–5 stars from the in-app feedback form. */
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt()
+  @Min(1)
+  @Max(5)
+  rating?: number;
 
   /** `buyer` (default) or `seller` — controls email copy and user metadata. */
   @IsOptional()
