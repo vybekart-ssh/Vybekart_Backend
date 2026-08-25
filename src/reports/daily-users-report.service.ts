@@ -4,6 +4,7 @@ import { Cron } from '@nestjs/schedule';
 import * as nodemailer from 'nodemailer';
 import { resendFetch } from '../common/utils/resend-fetch';
 import { PrismaService } from '../prisma/prisma.service';
+import { MAIL_DEFAULTS, formatMailFrom } from '../mail/mail-from';
 
 type ReportUserRow = {
   id: string;
@@ -61,13 +62,12 @@ export class DailyUsersReportService {
       this.config.get<string>('DAILY_USERS_REPORT_TO')?.trim() ||
       'vybekart88@gmail.com';
 
-    // Requested: send from SUPPORT_ACCOUNT_MANAGER_EMAIL like other professional mails.
-    const supportFromEmail =
-      this.config.get<string>('SUPPORT_ACCOUNT_MANAGER_EMAIL')?.trim() || '';
-    const mailFrom =
-      supportFromEmail ||
-      this.config.get<string>('MAIL_FROM')?.trim() ||
-      'VybeKart Support <onboarding@resend.dev>';
+    const mailFrom = formatMailFrom(
+      this.config.get<string>('SUPPORT_ACCOUNT_MANAGER_EMAIL') ||
+        this.config.get<string>('MAIL_FROM'),
+      'Vybekart Support',
+      MAIL_DEFAULTS.support,
+    );
 
     const now = new Date();
     const last24h = new Date(now.getTime() - 24 * 60 * 60 * 1000);

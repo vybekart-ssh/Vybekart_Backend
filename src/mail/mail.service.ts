@@ -2,6 +2,11 @@ import { Injectable, Logger } from '@nestjs/common';
 import { resendFetch } from '../common/utils/resend-fetch';
 import { ConfigService } from '@nestjs/config';
 import * as nodemailer from 'nodemailer';
+import {
+  MAIL_DEFAULTS,
+  formatMailFrom,
+  sanitizeReplyTo,
+} from './mail-from';
 
 type SendEmailInput = {
   to: string | string[];
@@ -9,6 +14,7 @@ type SendEmailInput = {
   text?: string;
   html?: string;
   from?: string;
+  replyTo?: string;
 };
 
 @Injectable()
@@ -17,26 +23,51 @@ export class MailService {
 
   constructor(private readonly config: ConfigService) {}
 
-  private supportFrom(): string {
-    return (
-      this.config.get<string>('CONTACT_EMAIL')?.trim() ||
-      this.config.get<string>('MAIL_FROM')?.trim() ||
-      'Vybekart <contact@vybekart.co.in>'
+  /** Buyer-facing contact From (verified domain only). */
+  supportFrom(): string {
+    return formatMailFrom(
+      this.config.get<string>('CONTACT_EMAIL') ||
+        this.config.get<string>('MAIL_FROM'),
+      'Vybekart',
+      MAIL_DEFAULTS.contact,
     );
   }
 
-  private opsFrom(): string {
-    return (
-      this.config.get<string>('SUPPORT_EMAIL')?.trim() ||
-      this.config.get<string>('MAIL_FROM')?.trim() ||
-      'Vybekart Support <support@vybekart.co.in>'
+  /** Ops / support-inbox From. */
+  opsFrom(): string {
+    return formatMailFrom(
+      this.config.get<string>('SUPPORT_EMAIL') ||
+        this.config.get<string>('MAIL_FROM'),
+      'Vybekart Support',
+      MAIL_DEFAULTS.support,
+    );
+  }
+
+  /** Transactional mail (orders, receipts). */
+  noreplyFrom(): string {
+    return formatMailFrom(
+      this.config.get<string>('NOREPLY_EMAIL'),
+      'Vybekart',
+      MAIL_DEFAULTS.noreply,
+    );
+  }
+
+  /**
+   * Default MAIL_FROM for legacy call sites — never resend.dev.
+   * Prefer supportFrom / opsFrom / noreplyFrom for new code.
+   */
+  defaultFrom(): string {
+    return formatMailFrom(
+      this.config.get<string>('MAIL_FROM'),
+      'Vybekart',
+      MAIL_DEFAULTS.contact,
     );
   }
 
   async sendToSupport(input: Omit<SendEmailInput, 'from' | 'to'>): Promise<void> {
     const to =
       this.config.get<string>('SUPPORT_EMAIL')?.trim() ||
-      'support@vybekart.co.in';
+      MAIL_DEFAULTS.support;
     await this.send({ ...input, to, from: this.opsFrom() });
   }
 
@@ -49,14 +80,6 @@ export class MailService {
       to: buyerEmail,
       from: this.supportFrom(),
     });
-  }
-
-  /** Transactional mail (orders, receipts) — noreply@vybekart.co.in */
-  private noreplyFrom(): string {
-    const addr =
-      this.config.get<string>('NOREPLY_EMAIL')?.trim() ||
-      'noreply@vybekart.co.in';
-    return `Vybekart <${addr}>`;
   }
 
   async sendTransactional(
@@ -73,9 +96,10 @@ export class MailService {
   async send(input: SendEmailInput): Promise<void> {
     const resendKey = this.config.get<string>('RESEND_API_KEY')?.trim();
     const from = input.from ?? this.supportFrom();
+    const replyTo = sanitizeReplyTo(input.replyTo);
 
     if (resendKey) {
-      await this.sendViaResend(resendKey, { ...input, from });
+      await this.sendViaResend(resendKey, { ...input, from, replyTo });
       return;
     }
 
@@ -108,26 +132,32 @@ export class MailService {
       subject: input.subject,
       text: input.text,
       html: input.html,
+      replyTo,
     });
   }
 
   private async sendViaResend(
     resendKey: string,
-    input: SendEmailInput & { from: string },
+    input: SendEmailInput & { from: string; replyTo?: string },
   ): Promise<void> {
+    const payload: Record<string, unknown> = {
+      from: input.from,
+      to: input.to,
+      subject: input.subject,
+      text: input.text,
+      html: input.html,
+    };
+    if (input.replyTo) {
+      payload.reply_to = input.replyTo;
+    }
+
     const res = await resendFetch('https://api.resend.com/emails', {
       method: 'POST',
       headers: {
         Authorization: `Bearer ${resendKey}`,
         'Content-Type': 'application/json',
       },
-      body: JSON.stringify({
-        from: input.from,
-        to: input.to,
-        subject: input.subject,
-        text: input.text,
-        html: input.html,
-      }),
+      body: JSON.stringify(payload),
     });
     if (!res.ok) {
       const body = await res.text();

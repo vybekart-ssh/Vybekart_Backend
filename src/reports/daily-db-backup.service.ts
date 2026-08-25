@@ -8,6 +8,7 @@ import * as crypto from 'crypto';
 import * as fs from 'fs';
 import * as path from 'path';
 import * as zlib from 'zlib';
+import { MAIL_DEFAULTS, formatMailFrom } from '../mail/mail-from';
 
 function isTruthyFlag(v: string | undefined): boolean {
   const t = (v ?? '').trim().toLowerCase();
@@ -54,12 +55,12 @@ export class DailyDbBackupService {
       this.config.get<string>('MAIL_USER')?.trim() ||
       'vybekart88@gmail.com';
 
-    const supportFromEmail =
-      this.config.get<string>('SUPPORT_ACCOUNT_MANAGER_EMAIL')?.trim() || '';
-    const mailFrom =
-      supportFromEmail ||
-      this.config.get<string>('MAIL_FROM')?.trim() ||
-      'VybeKart Support <onboarding@resend.dev>';
+    const mailFrom = formatMailFrom(
+      this.config.get<string>('SUPPORT_ACCOUNT_MANAGER_EMAIL') ||
+        this.config.get<string>('MAIL_FROM'),
+      'Vybekart Support',
+      MAIL_DEFAULTS.support,
+    );
 
     const directUrl =
       this.config.get<string>('DIRECT_URL')?.trim() ||

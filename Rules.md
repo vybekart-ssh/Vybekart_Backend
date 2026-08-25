@@ -76,7 +76,8 @@
 2. OTP production → DLT templates; respect `OTP_ENV`.  
 3. Do not log OTP codes in production logs.  
 4. Buyer-facing From/Reply patterns: contact vs support vs noreply as already established.  
-5. HTML emails: light-safe layout; escape user content (`escapeHtml`).
+5. HTML emails: light-safe layout; escape user content (`escapeHtml`).  
+6. Never fall back to `onboarding@resend.dev`; use `mail-from.ts` + verified `@vybekart.co.in` senders.
 
 ---
 

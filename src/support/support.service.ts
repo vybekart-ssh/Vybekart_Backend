@@ -1,7 +1,8 @@
-import { Injectable } from '@nestjs/common';
+import { Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
-import * as nodemailer from 'nodemailer';
 import { PrismaService } from '../prisma/prisma.service';
+import { MailService } from '../mail/mail.service';
+import { sanitizeReplyTo } from '../mail/mail-from';
 import { ReportIssueDto } from './dto/report-issue.dto';
 import { SubmitConcernDto } from './dto/submit-concern.dto';
 import { AppFeedbackDto } from './dto/app-feedback.dto';
@@ -22,9 +23,12 @@ export interface EscalationLevel {
 
 @Injectable()
 export class SupportService {
+  private readonly logger = new Logger(SupportService.name);
+
   constructor(
     private prisma: PrismaService,
     private config: ConfigService,
+    private mail: MailService,
   ) {}
 
   async getFaqs() {
@@ -41,7 +45,7 @@ export class SupportService {
       this.config.get<string>('SUPPORT_ACCOUNT_MANAGER_PHONE') ?? '';
     const email =
       this.config.get<string>('SUPPORT_ACCOUNT_MANAGER_EMAIL') ??
-      'support@vybekart.com';
+      'support@vybekart.co.in';
     return { name, phone, email };
   }
 
@@ -133,62 +137,20 @@ export class SupportService {
       submittedAt,
     });
 
-    const resendKey = this.config.get<string>('RESEND_API_KEY')?.trim();
-    const replyTo = user?.email?.trim() || 'noreply@vybekart.com';
-    const mailFrom =
-      this.config.get<string>('MAIL_FROM') ??
-      'VybeKart Support <onboarding@resend.dev>';
-
-    if (resendKey) {
-      try {
-        await this.sendViaResend(resendKey, {
-          from: mailFrom,
-          to: toEmail,
-          subject: ensureNonEmptySubject(emailSubject, ticketRef, role),
-          html,
-          text,
-          replyTo,
-        });
-      } catch (err) {
-        console.error('Support: failed to send app feedback (Resend)', err);
-        return { ...ticket, emailed: false };
-      }
-      return { ...ticket, emailed: true };
-    }
-
-    const mailHost = this.config.get<string>('MAIL_HOST')?.trim();
-    if (!mailHost || mailHost.includes('@')) {
-      return { ...ticket, emailed: false };
-    }
-
     try {
-      const mailPort = this.config.get<number>('MAIL_PORT') ?? 587;
-      const transporter = nodemailer.createTransport({
-        host: mailHost,
-        port: mailPort,
-        secure: this.config.get<string>('MAIL_SECURE') === 'true',
-        family: 4,
-        auth: this.config.get<string>('MAIL_USER')
-          ? {
-              user: this.config.get<string>('MAIL_USER'),
-              pass: this.config.get<string>('MAIL_PASS'),
-            }
-          : undefined,
-      } as any);
-      await transporter.sendMail({
-        from: mailFrom,
+      await this.mail.send({
+        from: this.mail.opsFrom(),
         to: toEmail,
         subject: ensureNonEmptySubject(emailSubject, ticketRef, role),
-        text,
         html,
-        replyTo,
+        text,
+        replyTo: sanitizeReplyTo(user?.email),
       });
+      return { ...ticket, emailed: true };
     } catch (err) {
-      console.error('Support: failed to send app feedback (SMTP)', err);
+      this.logger.error('Support: failed to send app feedback email', err);
       return { ...ticket, emailed: false };
     }
-
-    return { ...ticket, emailed: true };
   }
 
   async submitConcern(userId: string, dto: SubmitConcernDto) {
@@ -240,90 +202,20 @@ export class SupportService {
       user: user!,
     });
 
-    const resendKey = this.config.get<string>('RESEND_API_KEY')?.trim();
-    if (resendKey) {
-      try {
-        await this.sendViaResend(resendKey, {
-          from: this.config.get<string>('MAIL_FROM') ?? 'VybeKart Support <onboarding@resend.dev>',
-          to: toEmail,
-          subject: dto.subject,
-          html,
-          text,
-          replyTo: sellerEmail,
-        });
-      } catch (err) {
-        console.error('Support: failed to send concern email (Resend)', err);
-      }
-      return ticket;
-    }
-
-    const mailHost = this.config.get<string>('MAIL_HOST')?.trim();
-    if (!mailHost || mailHost.includes('@')) {
-      if (mailHost?.includes('@')) {
-        console.warn('Support: MAIL_HOST must be the SMTP server hostname (e.g. smtp.gmail.com), not an email. Skipping send.');
-      }
-      return ticket;
-    }
-
     try {
-      const mailPort = this.config.get<number>('MAIL_PORT') ?? 587;
-      const transporter = nodemailer.createTransport({
-        host: mailHost,
-        port: mailPort,
-        secure: this.config.get<string>('MAIL_SECURE') === 'true',
-        family: 4,
-        auth: this.config.get<string>('MAIL_USER')
-          ? {
-              user: this.config.get<string>('MAIL_USER'),
-              pass: this.config.get<string>('MAIL_PASS'),
-            }
-          : undefined,
-      } as any);
-      await transporter.sendMail({
-        from: sellerEmail,
+      await this.mail.send({
+        from: this.mail.opsFrom(),
         to: toEmail,
         subject: dto.subject,
-        text,
         html,
-        replyTo: sellerEmail,
+        text,
+        replyTo: sanitizeReplyTo(sellerEmail),
       });
     } catch (err) {
-      console.error('Support: failed to send concern email (SMTP)', err);
+      this.logger.error('Support: failed to send concern email', err);
     }
 
     return ticket;
-  }
-
-  private async sendViaResend(
-    apiKey: string,
-    opts: {
-      from: string;
-      to: string;
-      subject: string;
-      html: string;
-      text: string;
-      replyTo: string;
-    },
-  ): Promise<void> {
-    const res = await fetch('https://api.resend.com/emails', {
-      method: 'POST',
-      headers: {
-        Authorization: `Bearer ${apiKey}`,
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({
-        from: opts.from,
-        to: [opts.to],
-        subject: opts.subject,
-        html: opts.html,
-        text: opts.text,
-        reply_to: opts.replyTo,
-      }),
-    });
-    if (!res.ok) {
-      const body = await res.text();
-      throw new Error(`Resend API ${res.status}: ${body}`);
-    }
   }
 }
 

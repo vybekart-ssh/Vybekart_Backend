@@ -47,7 +47,7 @@ Per `Testing/Phase2.md` (historical target 14 May 2026):
 **Monitor / harden:**
 
 - `OTP_ENV` must be `production` with DLT when SMS is customer-facing live  
-- Email deliverability (Resend domain/DNS)  
+- Email deliverability: Resend domain verified + SPF/DKIM/DMARC; code no longer falls back to `onboarding@resend.dev` (`mail-from.ts`)  
 - Replacement edge cases + penalty crons/notifications  
 - Doc drift: retire IVS/Stripe language from any remaining guides  
 

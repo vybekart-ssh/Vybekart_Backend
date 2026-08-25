@@ -73,6 +73,13 @@ Email header gradient stops (SVG tile): `#00C6FF` → `#1E88E5` → `#1565C0` �
 | Ops | `SUPPORT_EMAIL` |
 | Seller outreach | `SELLER_OUTREACH_FROM` |
 
+7. Deliverability (spam avoidance):
+   - Never send as `onboarding@resend.dev` — code falls back to `@vybekart.co.in` only.
+   - `MAIL_FROM` / contact / support / noreply must be addresses on the **verified Resend domain** (`vybekart.co.in`).
+   - DNS at the registrar: SPF + DKIM (Resend) + DMARC for that domain.
+   - Display name is normalized via `mail-from.ts` (`Vybekart` / `Vybekart Support`).
+   - Reply-To is only set for real user emails (never noreply/resend.dev).
+
 ---
 
 ## 5. Invoice / PDF design

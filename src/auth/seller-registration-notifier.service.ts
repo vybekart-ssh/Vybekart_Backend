@@ -1,13 +1,17 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
-import * as nodemailer from 'nodemailer';
+import { MailService } from '../mail/mail.service';
+import { sanitizeReplyTo } from '../mail/mail-from';
 import { RegisterSellerDto } from './dto/auth.dto';
 
 @Injectable()
 export class SellerRegistrationNotifierService {
   private readonly logger = new Logger(SellerRegistrationNotifierService.name);
 
-  constructor(private config: ConfigService) {}
+  constructor(
+    private config: ConfigService,
+    private mail: MailService,
+  ) {}
 
   async notifyNewSellerApplication(
     dto: RegisterSellerDto,
@@ -19,92 +23,17 @@ export class SellerRegistrationNotifierService {
     const subject = `New seller registration — ${dto.businessName.trim()}`;
     const { html, text } = buildSellerRegistrationEmail(dto, categoryNames);
 
-    const resendKey = this.config.get<string>('RESEND_API_KEY')?.trim();
-    if (resendKey) {
-      try {
-        await this.sendViaResend(resendKey, {
-          from:
-            this.config.get<string>('MAIL_FROM') ??
-            'VybeKart <onboarding@resend.dev>',
-          to,
-          subject,
-          html,
-          replyTo: dto.email.trim(),
-        });
-        return;
-      } catch (err) {
-        this.logger.error('Resend failed for seller registration email', err);
-      }
-    }
-
-    const mailHost = this.config.get<string>('MAIL_HOST')?.trim();
-    if (!mailHost || mailHost.includes('@')) {
-      this.logger.warn(
-        'Seller registration email skipped: configure RESEND_API_KEY or MAIL_HOST',
-      );
-      return;
-    }
-
     try {
-      const mailPort = this.config.get<number>('MAIL_PORT') ?? 587;
-      const transporter = nodemailer.createTransport({
-        // IMPORTANT: keep hostname here so TLS can validate the server certificate
-        // (connecting via a resolved IP breaks cert altname checks for e.g. smtp.gmail.com).
-        host: mailHost,
-        port: mailPort,
-        secure: this.config.get<string>('MAIL_SECURE') === 'true',
-        family: 4,
-        tls: {
-          // Ensure SNI / hostname verification uses the SMTP hostname
-          servername: mailHost,
-        },
-        auth: this.config.get<string>('MAIL_USER')
-          ? {
-              user: this.config.get<string>('MAIL_USER'),
-              pass: this.config.get<string>('MAIL_PASS'),
-            }
-          : undefined,
-      } as any);
-      await transporter.sendMail({
-        from: dto.email.trim(),
+      await this.mail.send({
+        from: this.mail.opsFrom(),
         to,
         subject,
-        text,
         html,
-        replyTo: dto.email.trim(),
+        text,
+        replyTo: sanitizeReplyTo(dto.email),
       });
     } catch (err) {
-      this.logger.error('SMTP failed for seller registration email', err);
-    }
-  }
-
-  private async sendViaResend(
-    apiKey: string,
-    opts: {
-      from: string;
-      to: string;
-      subject: string;
-      html: string;
-      replyTo: string;
-    },
-  ): Promise<void> {
-    const res = await fetch('https://api.resend.com/emails', {
-      method: 'POST',
-      headers: {
-        Authorization: `Bearer ${apiKey}`,
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({
-        from: opts.from,
-        to: [opts.to],
-        subject: opts.subject,
-        html: opts.html,
-        reply_to: opts.replyTo,
-      }),
-    });
-    if (!res.ok) {
-      const body = await res.text();
-      throw new Error(`Resend API ${res.status}: ${body}`);
+      this.logger.error('Failed to send seller registration email', err);
     }
   }
 }
