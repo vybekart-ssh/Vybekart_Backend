@@ -8,6 +8,7 @@ export type VariantItem = {
   selection: Record<string, string>;
   sellingPrice: number;
   mrp?: number;
+  gstPercent?: number;
   discountPercent?: number;
   stock: number;
   sku?: string;
@@ -59,6 +60,8 @@ export function parseVariantItems(raw: unknown): VariantItem[] {
       }
     }
     const mrp = row['mrp'] != null ? Number(row['mrp']) : undefined;
+    const gstPercent =
+      row['gstPercent'] != null ? Number(row['gstPercent']) : undefined;
     const discountPercent =
       row['discountPercent'] != null ? Number(row['discountPercent']) : undefined;
     const sku = row['sku'] != null ? String(row['sku']).trim() : undefined;
@@ -71,6 +74,10 @@ export function parseVariantItems(raw: unknown): VariantItem[] {
       selection,
       sellingPrice,
       mrp: mrp != null && !Number.isNaN(mrp) ? mrp : undefined,
+      gstPercent:
+        gstPercent != null && !Number.isNaN(gstPercent)
+          ? gstPercent
+          : undefined,
       discountPercent:
         discountPercent != null && !Number.isNaN(discountPercent)
           ? discountPercent
@@ -176,6 +183,7 @@ export function validateAndNormalizeSellerVariants(
       selection: i.selection,
       sellingPrice: i.sellingPrice,
       ...(i.mrp != null ? { mrp: i.mrp } : {}),
+      ...(i.gstPercent != null ? { gstPercent: i.gstPercent } : {}),
       ...(i.discountPercent != null ? { discountPercent: i.discountPercent } : {}),
       stock: i.stock,
       ...(i.sku ? { sku: i.sku } : {}),
@@ -220,6 +228,7 @@ export function applyVariantStockDelta(
       selection: i.selection,
       sellingPrice: i.sellingPrice,
       ...(i.mrp != null ? { mrp: i.mrp } : {}),
+      ...(i.gstPercent != null ? { gstPercent: i.gstPercent } : {}),
       ...(i.discountPercent != null ? { discountPercent: i.discountPercent } : {}),
       stock: i.stock,
       ...(i.sku ? { sku: i.sku } : {}),
