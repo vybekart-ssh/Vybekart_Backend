@@ -2,6 +2,7 @@ import {
   Injectable,
   NotFoundException,
   BadRequestException,
+  ConflictException,
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { PrismaService } from '../prisma/prisma.service';
@@ -58,7 +59,17 @@ export class SellersService {
     const seller = await this.prisma.seller.findUnique({
       where: { userId },
       include: {
-        user: { select: { id: true, name: true, email: true, phone: true } },
+        user: {
+          select: {
+            id: true,
+            name: true,
+            email: true,
+            phone: true,
+            firstName: true,
+            middleName: true,
+            lastName: true,
+          },
+        },
         changeRequests: { take: 1, orderBy: { createdAt: 'desc' } },
         categories: {
           include: {
@@ -90,24 +101,92 @@ export class SellersService {
     });
     if (!seller) throw new NotFoundException('Seller profile not found');
 
-    return this.prisma.seller.update({
-      where: { userId },
-      data: {
-        ...(dto.description !== undefined && { description: dto.description }),
-        ...(dto.bankAccount !== undefined && { bankAccount: dto.bankAccount }),
-        ...(dto.ifscCode !== undefined && { ifscCode: dto.ifscCode }),
-        ...(dto.logoUrl !== undefined && { logoUrl: dto.logoUrl }),
-        ...(dto.bannerUrl !== undefined && { bannerUrl: dto.bannerUrl }),
-      },
-      include: {
-        user: { select: { id: true, name: true, email: true, phone: true } },
-        categories: {
-          include: {
-            category: { select: { id: true, name: true, slug: true } },
+    const firstName =
+      dto.firstName !== undefined ? dto.firstName.trim() : undefined;
+    const middleName =
+      dto.middleName !== undefined ? dto.middleName.trim() : undefined;
+    const lastName =
+      dto.lastName !== undefined ? dto.lastName.trim() : undefined;
+    const email =
+      dto.email !== undefined ? dto.email.trim().toLowerCase() : undefined;
+
+    if (firstName !== undefined && !firstName) {
+      throw new BadRequestException('First name is required');
+    }
+    if (lastName !== undefined && !lastName) {
+      throw new BadRequestException('Last name is required');
+    }
+    if (email !== undefined && !email) {
+      throw new BadRequestException('Email is required');
+    }
+
+    if (email) {
+      const taken = await this.prisma.user.findFirst({
+        where: { email, NOT: { id: userId } },
+        select: { id: true },
+      });
+      if (taken) {
+        throw new ConflictException('Email is already in use');
+      }
+    }
+
+    let resolvedName: string | undefined;
+    if (
+      firstName !== undefined ||
+      middleName !== undefined ||
+      lastName !== undefined
+    ) {
+      const existing = await this.prisma.user.findUnique({
+        where: { id: userId },
+        select: { firstName: true, middleName: true, lastName: true },
+      });
+      const f = firstName ?? existing?.firstName?.trim() ?? '';
+      const m =
+        middleName !== undefined
+          ? middleName
+          : (existing?.middleName?.trim() ?? '');
+      const l = lastName ?? existing?.lastName?.trim() ?? '';
+      resolvedName = [f, m, l].filter((p) => p.length > 0).join(' ').trim();
+    }
+
+    await this.prisma.$transaction(async (tx) => {
+      if (
+        firstName !== undefined ||
+        middleName !== undefined ||
+        lastName !== undefined ||
+        email !== undefined ||
+        (resolvedName !== undefined && resolvedName.length > 0)
+      ) {
+        await tx.user.update({
+          where: { id: userId },
+          data: {
+            ...(firstName !== undefined && { firstName }),
+            ...(middleName !== undefined && {
+              middleName: middleName || null,
+            }),
+            ...(lastName !== undefined && { lastName }),
+            ...(email !== undefined && { email }),
+            ...(resolvedName !== undefined &&
+              resolvedName.length > 0 && { name: resolvedName }),
           },
+        });
+      }
+
+      await tx.seller.update({
+        where: { userId },
+        data: {
+          ...(dto.description !== undefined && {
+            description: dto.description?.trim() || null,
+          }),
+          ...(dto.bankAccount !== undefined && { bankAccount: dto.bankAccount }),
+          ...(dto.ifscCode !== undefined && { ifscCode: dto.ifscCode }),
+          ...(dto.logoUrl !== undefined && { logoUrl: dto.logoUrl }),
+          ...(dto.bannerUrl !== undefined && { bannerUrl: dto.bannerUrl }),
         },
-      },
+      });
     });
+
+    return this.findOne(userId);
   }
 
   /** Admin: list sellers (optional status filter) */

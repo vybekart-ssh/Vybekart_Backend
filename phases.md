@@ -37,6 +37,8 @@
 |------|-------|
 | Replacements + ratings + follow + live reward | Shipped |
 | AppConfig product GST slabs | Master-configurable threshold / %; public `GET public/android-app`; enforced on product create/update |
+| Seller My Profile PATCH | `firstName` / `middleName` / `lastName` / `email` + seller `description`; phone not updatable; email uniqueness checked |
+| Store details + pickup | Store name min 4 chars; GSTIN format; pickup PIN 6 digits |
 
 Per `Testing/Phase2.md` (historical target 14 May 2026):
 

@@ -4,6 +4,7 @@ import {
   IsOptional,
   IsUrl,
   MaxLength,
+  MinLength,
   Matches,
   ValidateIf,
   IsUUID,
@@ -14,6 +15,7 @@ const GSTIN_REGEX = /^[0-9]{2}[A-Z]{5}[0-9]{4}[A-Z][0-9A-Z]Z[0-9A-Z]$/;
 export class UpdateStoreDetailsDto {
   @IsOptional()
   @IsString()
+  @MinLength(4, { message: 'Store name must be at least 4 characters' })
   @MaxLength(200)
   businessName?: string;
 
