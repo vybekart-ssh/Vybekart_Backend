@@ -1,4 +1,12 @@
-import { IsInt, IsOptional, IsString, MaxLength, Min } from 'class-validator';
+import {
+  IsInt,
+  IsNumber,
+  IsOptional,
+  IsString,
+  Max,
+  MaxLength,
+  Min,
+} from 'class-validator';
 import { Type } from 'class-transformer';
 
 export class UpdateAppConfigDto {
@@ -12,4 +20,25 @@ export class UpdateAppConfigDto {
   @IsString()
   @MaxLength(32)
   latestAndroidVersionName?: string | null;
+
+  /** Selling price threshold (INR) for product GST slab split. */
+  @IsOptional()
+  @Type(() => Number)
+  @IsNumber()
+  @Min(0)
+  productGstPriceThresholdInr?: number;
+
+  @IsOptional()
+  @Type(() => Number)
+  @IsNumber()
+  @Min(0)
+  @Max(100)
+  productGstPercentBelow?: number;
+
+  @IsOptional()
+  @Type(() => Number)
+  @IsNumber()
+  @Min(0)
+  @Max(100)
+  productGstPercentAtOrAbove?: number;
 }

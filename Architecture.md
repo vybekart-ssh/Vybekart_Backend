@@ -159,7 +159,7 @@ No cookie sessions; no OAuth.
 
 ## 6. Data architecture
 
-- Prisma models: User (roles array), Buyer, Seller, Product, Stream*, Order*, PaymentCheckoutFailure, Replacement*, ratings, follow, notifications, FAQ/support, AppConfig, etc.  
+- Prisma models: User (roles array), Buyer, Seller, Product, Stream*, Order*, PaymentCheckoutFailure, Replacement*, ratings, follow, notifications, FAQ/support, AppConfig (min Android version + product GST slab rules), etc.  
 - Enums for roles, verification, order/replacement statuses, stream replay, etc.  
 - Migrations under `prisma/migrations/` — deploy via `scripts/render-migrate.sh` on Render start.
 

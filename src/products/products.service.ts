@@ -7,6 +7,7 @@ import { ProductStatus, Prisma } from '@prisma/client';
 import { CreateProductDto } from './dto/create-product.dto';
 import { UpdateProductDto } from './dto/update-product.dto';
 import { PrismaService } from '../prisma/prisma.service';
+import { AppConfigService } from '../app-config/app-config.service';
 import { validateAndNormalizeSellerVariants } from './product-variants.util';
 import {
   PaginationQueryDto,
@@ -16,7 +17,10 @@ import { MyListingsQueryDto } from './dto/my-listings-query.dto';
 
 @Injectable()
 export class ProductsService {
-  constructor(private prisma: PrismaService) {}
+  constructor(
+    private prisma: PrismaService,
+    private appConfig: AppConfigService,
+  ) {}
 
   async create(createProductDto: CreateProductDto, sellerId: string) {
     const seller = await this.prisma.seller.findUnique({
@@ -28,15 +32,21 @@ export class ProductsService {
     }
 
     const { variants, categoryAttributes, ...rest } = createProductDto;
+    const rules = await this.appConfig.getProductGstSlabRules();
     const base = {
       ...rest,
       sellerId: seller.id,
+      returnable: true,
       ...(categoryAttributes != null && {
         categoryAttributes: categoryAttributes as Prisma.InputJsonValue,
       }),
     } as Prisma.ProductUncheckedCreateInput;
     if (variants != null) {
       const norm = validateAndNormalizeSellerVariants(variants);
+      const gstPercent = this.appConfig.resolveGstPercentForPrice(
+        norm.minPrice,
+        rules,
+      );
       return this.prisma.product.create({
         data: {
           ...base,
@@ -44,10 +54,16 @@ export class ProductsService {
           stock: norm.totalStock,
           priceType: 'VARIABLE',
           variants: norm.json,
+          gstPercent,
+          returnable: true,
         },
       });
     }
-    return this.prisma.product.create({ data: base });
+    const price = typeof rest.price === 'number' ? rest.price : 0;
+    const gstPercent = this.appConfig.resolveGstPercentForPrice(price, rules);
+    return this.prisma.product.create({
+      data: { ...base, gstPercent, returnable: true },
+    });
   }
 
   async findAll(query: PaginationQueryDto): Promise<PaginatedResult<unknown>> {
@@ -104,8 +120,13 @@ export class ProductsService {
       categoryAttributes?: Record<string, unknown>;
     };
     const { variants, categoryAttributes, ...rest } = dto;
+    const rules = await this.appConfig.getProductGstSlabRules();
     if (variants !== undefined) {
       const norm = validateAndNormalizeSellerVariants(variants);
+      const gstPercent = this.appConfig.resolveGstPercentForPrice(
+        norm.minPrice,
+        rules,
+      );
       return this.prisma.product.update({
         where: { id },
         data: {
@@ -114,16 +135,28 @@ export class ProductsService {
           stock: norm.totalStock,
           priceType: 'VARIABLE',
           variants: norm.json,
+          gstPercent,
+          returnable: true,
           ...(categoryAttributes !== undefined && {
             categoryAttributes: categoryAttributes as Prisma.InputJsonValue,
           }),
         },
       });
     }
+    const nextPrice =
+      typeof rest.price === 'number'
+        ? rest.price
+        : (product.price as number);
+    const gstPercent = this.appConfig.resolveGstPercentForPrice(
+      nextPrice,
+      rules,
+    );
     return this.prisma.product.update({
       where: { id },
       data: {
         ...rest,
+        gstPercent,
+        returnable: true,
         ...(categoryAttributes !== undefined && {
           categoryAttributes: categoryAttributes as Prisma.InputJsonValue,
         }),

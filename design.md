@@ -24,6 +24,18 @@
 
 Do not hardcode a divergent legal block in templates — call `getVybeKartCompanyInfo()`.
 
+### Product GST slabs (`AppConfig`)
+
+Master-configurable on singleton `AppConfig` (`id = global`):
+
+| Field | Default | Meaning |
+|-------|---------|---------|
+| `productGstPriceThresholdInr` | 1000 | Max selling price (INR, inclusive) for the lower GST slab |
+| `productGstPercentBelow` | 5 | GST % when selling price ≤ threshold |
+| `productGstPercentAtOrAbove` | 12 | GST % when selling price > threshold |
+
+Exposed on `GET /public/android-app` and admin `GET/PATCH /admin/app-config`. Product create/update overwrites client `gstPercent` from listing price and always sets `returnable: true`.
+
 ---
 
 ## 2. Color system (`VYBE_THEME`)

@@ -129,6 +129,9 @@ async function main() {
       id: 'global',
       minAndroidVersionCode: 1,
       latestAndroidVersionName: '1.0',
+      productGstPriceThresholdInr: 1000,
+      productGstPercentBelow: 5,
+      productGstPercentAtOrAbove: 12,
     },
   });
   console.log('AppConfig ensured (global).');

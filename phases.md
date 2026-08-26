@@ -33,6 +33,11 @@
 
 ## Phase 2 — Trust & engagement (Done / monitor)
 
+| Item | Notes |
+|------|-------|
+| Replacements + ratings + follow + live reward | Shipped |
+| AppConfig product GST slabs | Master-configurable threshold / %; public `GET public/android-app`; enforced on product create/update |
+
 Per `Testing/Phase2.md` (historical target 14 May 2026):
 
 | Module | Status |

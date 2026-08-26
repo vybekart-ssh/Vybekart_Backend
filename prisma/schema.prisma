@@ -31,11 +31,15 @@ enum VerificationStatus {
   NEEDS_CHANGES
 }
 
-/// Singleton row (`id = "global"`): minimum Android [versionCode] the app must have to run; master can raise it to force updates.
+/// Singleton row (`id = "global"`): min Android version gate + product GST slab rules for the seller app.
 model AppConfig {
   id                       String   @id
   minAndroidVersionCode    Int      @default(1)
   latestAndroidVersionName String?
+  /// Selling price at or below this INR uses [productGstPercentBelow]; above uses [productGstPercentAtOrAbove].
+  productGstPriceThresholdInr Float @default(1000)
+  productGstPercentBelow      Float @default(5)
+  productGstPercentAtOrAbove  Float @default(12)
   updatedAt                DateTime @updatedAt
 }
 

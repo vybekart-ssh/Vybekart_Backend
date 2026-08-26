@@ -55,15 +55,21 @@ export class AdminService {
   }
 
   async patchAppConfig(dto: UpdateAppConfigDto) {
-    if (
-      dto.minAndroidVersionCode === undefined &&
-      dto.latestAndroidVersionName === undefined
-    ) {
+    const hasUpdate =
+      dto.minAndroidVersionCode !== undefined ||
+      dto.latestAndroidVersionName !== undefined ||
+      dto.productGstPriceThresholdInr !== undefined ||
+      dto.productGstPercentBelow !== undefined ||
+      dto.productGstPercentAtOrAbove !== undefined;
+    if (!hasUpdate) {
       return this.appConfig.getPublicAndroid();
     }
     await this.appConfig.updateAndroidConfig({
       minAndroidVersionCode: dto.minAndroidVersionCode,
       latestAndroidVersionName: dto.latestAndroidVersionName,
+      productGstPriceThresholdInr: dto.productGstPriceThresholdInr,
+      productGstPercentBelow: dto.productGstPercentBelow,
+      productGstPercentAtOrAbove: dto.productGstPercentAtOrAbove,
     });
     return this.appConfig.getPublicAndroid();
   }
