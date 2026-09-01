@@ -235,7 +235,7 @@ export class BuyersService {
         'Your friend signs up.',
         "You'll both get rewards",
       ],
-      inviteText: `Use my VybeKart referral code ${code} and get ₹80 off on your first purchase.`,
+      inviteText: `Use my Vybekart referral code ${code} and get ₹80 off on your first purchase.`,
     };
   }
 

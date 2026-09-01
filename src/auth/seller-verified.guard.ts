@@ -38,7 +38,7 @@ export class SellerVerifiedGuard implements CanActivate {
     }
     if (seller.status !== VerificationStatus.VERIFIED) {
       throw new ForbiddenException(
-        'Your seller partner profile is under verification. You will be able to use seller features once VybeKart approves your application.',
+        'Your seller partner profile is under verification. You will be able to use seller features once Vybekart approves your application.',
       );
     }
     return true;

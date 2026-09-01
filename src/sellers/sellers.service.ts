@@ -280,7 +280,7 @@ export class SellersService {
     await this.bestEffortPushToSellerUser(
       updated.userId,
       'Seller verification approved',
-      'Your seller account is verified. You can now start selling on VybeKart.',
+      'Your seller account is verified. You can now start selling on Vybekart.',
       { type: 'SELLER_VERIFICATION', status: 'VERIFIED', sellerId },
     );
     return updated;
@@ -363,7 +363,7 @@ export class SellersService {
       'Changes requested',
       input.note?.trim()
         ? input.note.trim()
-        : 'VybeKart has requested changes to your seller onboarding details.',
+        : 'Vybekart has requested changes to your seller onboarding details.',
       {
         type: 'SELLER_VERIFICATION',
         status: 'NEEDS_CHANGES',
@@ -454,7 +454,7 @@ export class SellersService {
           signatureUrl: null,
           status: VerificationStatus.PENDING,
           rejectionReason:
-            'Your registration was reset by VybeKart. Please complete seller onboarding again in the app.',
+            'Your registration was reset by Vybekart. Please complete seller onboarding again in the app.',
         },
       });
     });

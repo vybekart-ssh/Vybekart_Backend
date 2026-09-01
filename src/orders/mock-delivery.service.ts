@@ -21,7 +21,7 @@ export class MockDeliveryService {
     });
     return {
       trackingId,
-      carrierName: 'VybeKart Mock Logistics',
+      carrierName: 'Vybekart Mock Logistics',
       externalId: `mock-shp-${orderId}`,
     };
   }

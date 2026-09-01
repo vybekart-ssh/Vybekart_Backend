@@ -1916,7 +1916,7 @@ export class OrdersService {
 
 function buildMatterFromCart(items: CartItemDto[]): string {
   const n = items.reduce((sum, i) => sum + (i.quantity ?? 0), 0);
-  return `VybeKart live order (${n} item${n === 1 ? '' : 's'})`;
+  return `Vybekart live order (${n} item${n === 1 ? '' : 's'})`;
 }
 
 function normalizeInPhone(raw: string): string {

@@ -21,10 +21,10 @@ export class ScheduleStreamDto {
   @IsDateString()
   scheduledAt: string;
 
-  /** Exactly 1–3 seller-owned products; thumbnail defaults to the first product image unless `thumbnailUrl` is set. */
+  /** Exactly 1–300 seller-owned products; thumbnail defaults to the first product image unless `thumbnailUrl` is set. */
   @IsArray()
   @ArrayMinSize(1)
-  @ArrayMaxSize(3)
+  @ArrayMaxSize(300)
   @IsString({ each: true })
   productIds: string[];
 

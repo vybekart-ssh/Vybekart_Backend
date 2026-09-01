@@ -101,6 +101,17 @@ export class StreamsController {
     return this.streamsService.getLiveState(id);
   }
 
+  @Get(':id/archive')
+  @UseGuards(JwtAuthGuard)
+  getArchive(
+    @Param('id') id: string,
+    @Request() req: { user: { id: string; role?: Role } },
+  ) {
+    return this.streamsService.getArchivePlayback(id, req.user.id, {
+      isSeller: req.user.role === Role.SELLER,
+    });
+  }
+
   @Get(':id')
   @SkipThrottle()
   findOne(@Param('id') id: string) {

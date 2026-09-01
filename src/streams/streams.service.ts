@@ -42,6 +42,8 @@ const streamWithSellerInclude = {
 
 /** Ephemeral live engagement cache; TTL is a safety net if cleanup is missed. */
 const STREAM_ENGAGEMENT_TTL_SECONDS = 48 * 60 * 60;
+/** Archived replay + engagement remain available for buyers after live ends. */
+const ARCHIVE_AVAILABILITY_HOURS = 24;
 
 @Injectable()
 export class StreamsService {
@@ -215,9 +217,9 @@ export class StreamsService {
     }
 
     const productIds = createStreamDto.productIds ?? [];
-    if (productIds.length < 1 || productIds.length > 3) {
+    if (productIds.length < 1 || productIds.length > 300) {
       throw new BadRequestException(
-        'Select between 1 and 3 products to go live.',
+        'Select between 1 and 300 products to go live.',
       );
     }
     const sellerProducts = await this.prisma.product.findMany({
@@ -573,6 +575,94 @@ export class StreamsService {
     };
   }
 
+  /** Validate and return metadata for watching an archived live replay. */
+  async getArchivePlayback(
+    streamId: string,
+    viewerUserId?: string,
+    options?: { isSeller?: boolean },
+  ) {
+    const stream = await this.prisma.stream.findUnique({
+      where: { id: streamId },
+      include: {
+        seller: {
+          include: { user: { select: { id: true, name: true } } },
+        },
+        streamProducts: {
+          include: { product: true },
+          orderBy: { sortOrder: 'asc' },
+        },
+      },
+    });
+    if (!stream) {
+      throw new NotFoundException(`Stream with ID ${streamId} not found`);
+    }
+    if (stream.isLive) {
+      throw new BadRequestException('This stream is still live');
+    }
+    if (!stream.endedAt) {
+      throw new BadRequestException('This stream has not ended yet');
+    }
+    const expiry = new Date(stream.endedAt);
+    expiry.setHours(expiry.getHours() + ARCHIVE_AVAILABILITY_HOURS);
+    const isOwner =
+      !!viewerUserId &&
+      !!options?.isSeller &&
+      stream.seller?.userId === viewerUserId;
+    const expired = new Date() > expiry;
+    if (expired && !isOwner) {
+      throw new BadRequestException('This archived live is no longer available');
+    }
+    const replayReady =
+      !!stream.replayUrl?.trim() &&
+      stream.replayStatus === StreamReplayStatus.READY;
+    if (!replayReady && !isOwner) {
+      throw new NotFoundException('Replay is not available for this stream');
+    }
+    if (viewerUserId && !isOwner) {
+      const dedupeKey = `stream:archive:view:${streamId}:${viewerUserId}`;
+      const first = await this.redis.setNx(dedupeKey, '1', 3600);
+      if (first) {
+        try {
+          await this.prisma.stream.update({
+            where: { id: streamId },
+            data: { viewCount: { increment: 1 } },
+          });
+        } catch (e) {
+          this.logger.warn(
+            `archive viewCount increment failed for ${streamId}: ${String(e)}`,
+          );
+        }
+      }
+    }
+    const engagement = await this.getEngagementSummary(streamId);
+    const refreshed = await this.prisma.stream.findUnique({
+      where: { id: streamId },
+      select: { viewCount: true },
+    });
+    return {
+      streamId: stream.id,
+      title: stream.title,
+      thumbnailUrl: stream.thumbnailUrl,
+      replayUrl: replayReady ? stream.replayUrl : null,
+      replayStatus: stream.replayStatus,
+      replayDurationSec: stream.replayDurationSec,
+      endedAt: stream.endedAt.toISOString(),
+      archiveExpiresAt: expiry.toISOString(),
+      expired,
+      isOwner,
+      viewCount: refreshed?.viewCount ?? stream.viewCount ?? 0,
+      engagement,
+      seller: stream.seller
+        ? {
+            id: stream.seller.id,
+            businessName: stream.seller.businessName,
+            user: stream.seller.user,
+          }
+        : null,
+      streamProducts: stream.streamProducts,
+    };
+  }
+
   async findOne(id: string) {
     const stream = await this.prisma.stream.findUnique({
       where: { id },
@@ -627,9 +717,9 @@ export class StreamsService {
 
     if (dto.productIds !== undefined) {
       const productIds = dto.productIds;
-      if (productIds.length < 1 || productIds.length > 3) {
+      if (productIds.length < 1 || productIds.length > 300) {
         throw new BadRequestException(
-          'Provide between 1 and 3 products for this stream',
+          'Provide between 1 and 300 products for this stream',
         );
       }
       const sellerProducts = await this.prisma.product.findMany({
@@ -698,7 +788,6 @@ export class StreamsService {
         this.queueNotifyBuyersLiveEnded(updatedWithProducts);
         const ended = updatedWithProducts.endedAt ?? new Date();
         await this.orders.onStreamEnded(id, ended);
-        await this.redis.clearStreamEphemeralKeys(id);
       }
       return updatedWithProducts;
     }
@@ -738,7 +827,6 @@ export class StreamsService {
       this.queueNotifyBuyersLiveEnded(updated);
       const ended = updated.endedAt ?? new Date();
       await this.orders.onStreamEnded(id, ended);
-      await this.redis.clearStreamEphemeralKeys(id);
     }
     return updated;
   }
@@ -806,7 +894,7 @@ export class StreamsService {
       updated.replayUrl,
       updated.replayStatus,
     );
-    await this.redis.clearStreamEphemeralKeys(id);
+    // Keep likes/comments in Redis for archive replay (48h TTL); cleared on stream delete only.
     return { ...updated, summary };
   }
 
@@ -949,13 +1037,16 @@ export class StreamsService {
     };
   }
 
-  /** Single round-trip for live UI: engagement + viewCount + comments tail. */
+  /** Single round-trip for live UI: engagement + viewCount + comments tail. Works for archive too. */
   async getLiveState(streamId: string) {
     const stream = await this.prisma.stream.findUnique({
       where: { id: streamId },
       select: {
         id: true,
         isLive: true,
+        endedAt: true,
+        replayUrl: true,
+        replayStatus: true,
         viewCount: true,
         title: true,
         broadcastStartedAt: true,
@@ -975,10 +1066,19 @@ export class StreamsService {
     const tail = Array.isArray(comments)
       ? (comments as unknown[]).slice(-30)
       : [];
+    let archiveAvailable = false;
+    if (!stream.isLive && stream.endedAt && stream.replayUrl?.trim()) {
+      const expiry = new Date(stream.endedAt);
+      expiry.setHours(expiry.getHours() + ARCHIVE_AVAILABILITY_HOURS);
+      archiveAvailable =
+        stream.replayStatus === StreamReplayStatus.READY &&
+        new Date() <= expiry;
+    }
     return {
       streamId,
       isLive: stream.isLive,
       isBroadcasting: !!stream.broadcastStartedAt,
+      archiveAvailable,
       title: stream.title,
       viewCount: Math.max(stream.viewCount ?? 0, socketViewers),
       engagement,
@@ -1123,7 +1223,21 @@ export class StreamsService {
   }
 
   async toggleLike(streamId: string, userId: string) {
-    await this.findOne(streamId);
+    const stream = await this.prisma.stream.findUnique({
+      where: { id: streamId },
+      select: { id: true, isLive: true, endedAt: true, replayUrl: true },
+    });
+    if (!stream) throw new NotFoundException(`Stream with ID ${streamId} not found`);
+    if (!stream.isLive) {
+      if (!stream.endedAt || !stream.replayUrl?.trim()) {
+        throw new BadRequestException('Likes are not available for this stream');
+      }
+      const expiry = new Date(stream.endedAt);
+      expiry.setHours(expiry.getHours() + ARCHIVE_AVAILABILITY_HOURS);
+      if (new Date() > expiry) {
+        throw new BadRequestException('This archived live is no longer available');
+      }
+    }
     const raw = await this.redis.get(this.likesKey(streamId));
     const likedBy: string[] = raw ? JSON.parse(raw) : [];
     const index = likedBy.indexOf(userId);
@@ -1144,19 +1258,43 @@ export class StreamsService {
   }
 
   async addComment(streamId: string, userId: string, text: string) {
-    await this.findOne(streamId);
+    const stream = await this.prisma.stream.findUnique({
+      where: { id: streamId },
+      include: {
+        seller: { include: { user: { select: { id: true, name: true } } } },
+      },
+    });
+    if (!stream) throw new NotFoundException(`Stream with ID ${streamId} not found`);
+    if (stream.isLive) {
+      // live comments allowed
+    } else if (stream.endedAt && stream.replayUrl?.trim()) {
+      const expiry = new Date(stream.endedAt);
+      expiry.setHours(expiry.getHours() + ARCHIVE_AVAILABILITY_HOURS);
+      if (new Date() > expiry) {
+        throw new BadRequestException('This archived live is no longer available');
+      }
+    } else {
+      throw new BadRequestException('Comments are not available for this stream');
+    }
     const user = await this.prisma.user.findUnique({
       where: { id: userId },
       select: { id: true, name: true },
     });
+    const isSeller = stream.seller?.userId === userId;
     const raw = await this.redis.get(this.commentsKey(streamId));
     const comments: Array<Record<string, unknown>> = raw ? JSON.parse(raw) : [];
     const comment = {
       id: `cmt-${Date.now()}`,
       userId,
-      userName: user?.name ?? 'user',
+      userName: isSeller
+        ? stream.seller?.businessName?.trim() ||
+          stream.seller?.user?.name ||
+          user?.name ||
+          'Seller'
+        : user?.name ?? 'user',
       text: text.trim(),
       createdAt: new Date().toISOString(),
+      isSeller,
     };
     comments.push(comment);
     const latest = comments.slice(-50);
@@ -1207,8 +1345,20 @@ export class StreamsService {
   }
 
   async followSeller(streamId: string, userId: string) {
-    const stream = await this.findOne(streamId);
-    if (!stream.isLive || stream.endedAt) {
+    const stream = await this.prisma.stream.findUnique({
+      where: { id: streamId },
+      include: { seller: true },
+    });
+    if (!stream) throw new NotFoundException(`Stream with ID ${streamId} not found`);
+    if (stream.isLive) {
+      // follow during live
+    } else if (stream.endedAt && stream.replayUrl?.trim()) {
+      const expiry = new Date(stream.endedAt);
+      expiry.setHours(expiry.getHours() + ARCHIVE_AVAILABILITY_HOURS);
+      if (new Date() > expiry) {
+        throw new BadRequestException('This archived live is no longer available');
+      }
+    } else {
       throw new BadRequestException('You can only follow during a live stream');
     }
     const sellerId = stream.seller?.id;

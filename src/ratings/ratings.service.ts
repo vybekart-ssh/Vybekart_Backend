@@ -204,8 +204,8 @@ export class RatingsService {
       });
       if (buyer?.user.email) {
         await this.mail.sendToBuyer(buyer.user.email, {
-          subject: 'VybeKart — replacement activity notice',
-          text: `Hi ${buyer.user.name},\n\nWe recorded multiple replacement requests on your account. Our team may review future requests more closely.\n\n— VybeKart`,
+          subject: 'Vybekart — replacement activity notice',
+          text: `Hi ${buyer.user.name},\n\nWe recorded multiple replacement requests on your account. Our team may review future requests more closely.\n\n— Vybekart`,
         });
       }
     }
