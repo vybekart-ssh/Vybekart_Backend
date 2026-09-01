@@ -46,6 +46,13 @@ export class SellersController {
 
   @UseGuards(JwtAuthGuard, RolesGuard, SellerVerifiedGuard)
   @Roles(Role.SELLER)
+  @Get('archived-lives')
+  getArchivedLives(@Request() req: { user: { id: string } }) {
+    return this.sellersService.getMyArchivedLiveSessions(req.user.id);
+  }
+
+  @UseGuards(JwtAuthGuard, RolesGuard, SellerVerifiedGuard)
+  @Roles(Role.SELLER)
   @Get('revenue/today')
   getRevenueToday(@Request() req: { user: { id: string } }) {
     return this.sellersService.getRevenueToday(req.user.id);

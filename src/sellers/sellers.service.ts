@@ -12,7 +12,7 @@ import { UpdateStoreDetailsDto } from './dto/store-details.dto';
 import { UpdateSignatureDto } from './dto/signature.dto';
 import { UpdatePickupAddressDto } from './dto/pickup-address.dto';
 import { AddressType } from '@prisma/client';
-import { OrderStatus, VerificationStatus } from '@prisma/client';
+import { OrderStatus, StreamReplayStatus, VerificationStatus } from '@prisma/client';
 import { SupabaseStorageService } from '../storage/supabase-storage.service';
 import { FirebasePushService } from '../notifications/firebase-push.service';
 import { RatingsService } from '../ratings/ratings.service';
@@ -26,6 +26,9 @@ const STORE_IMAGE_MIME_EXT: Record<string, string> = {
   'image/webp': '.webp',
   'image/gif': '.gif',
 };
+
+/** Matches buyer archive window in streams.service.ts */
+const ARCHIVE_AVAILABILITY_HOURS = 24;
 
 @Injectable()
 export class SellersService {
@@ -505,6 +508,10 @@ export class SellersService {
 
     const upcomingScheduled = await this.getUpcomingScheduledStreams(seller.id);
     const liveNow = await this.getActiveLiveStream(seller.id);
+    const archivedLiveSessions = await this.getArchivedStreamsForSeller(
+      seller.id,
+      15,
+    );
 
     const productCount = await this.prisma.product.count({
       where: { sellerId: seller.id },
@@ -551,6 +558,18 @@ export class SellersService {
       scheduledLiveSessions: upcomingScheduled.map(mapSession),
       /** Currently live stream (if any) */
       activeLiveSession: liveNow ? mapSession(liveNow) : null,
+      /** Seller's ended streams with replay available (last 24h) */
+      archivedLiveSessions: archivedLiveSessions.map((s) => ({
+        id: s.id,
+        title: s.title,
+        description: s.description,
+        thumbnailUrl: s.thumbnailUrl,
+        endedAt: s.endedAt,
+        replayUrl: s.replayUrl,
+        replayDurationSec: s.replayDurationSec,
+        replayStatus: s.replayStatus,
+        viewCount: s.viewCount,
+      })),
       /** @deprecated First scheduled session only — use `scheduledLiveSessions` */
       nextLiveSession: upcomingScheduled[0] ? mapSession(upcomingScheduled[0]) : null,
     };
@@ -596,6 +615,59 @@ export class SellersService {
       orderBy: { startedAt: 'desc' },
       select,
     });
+  }
+
+  /** Ended seller streams still in the archive replay window (seller-only dashboard). */
+  private async getArchivedStreamsForSeller(sellerId: string, take = 15) {
+    const cutoff = new Date(
+      Date.now() - ARCHIVE_AVAILABILITY_HOURS * 60 * 60 * 1000,
+    );
+    return this.prisma.stream.findMany({
+      where: {
+        sellerId,
+        isLive: false,
+        endedAt: { not: null, gte: cutoff },
+        replayStatus: {
+          in: [StreamReplayStatus.READY, StreamReplayStatus.RECORDING],
+        },
+      },
+      orderBy: { endedAt: 'desc' },
+      take,
+      select: {
+        id: true,
+        title: true,
+        description: true,
+        thumbnailUrl: true,
+        endedAt: true,
+        replayUrl: true,
+        replayDurationSec: true,
+        replayStatus: true,
+        viewCount: true,
+      },
+    });
+  }
+
+  /** Seller: list archived live replays (view-all screen). */
+  async getMyArchivedLiveSessions(userId: string) {
+    const seller = await this.prisma.seller.findUnique({
+      where: { userId },
+    });
+    if (!seller) throw new NotFoundException('Seller profile not found');
+
+    const sessions = await this.getArchivedStreamsForSeller(seller.id, 50);
+    return {
+      archivedLiveSessions: sessions.map((s) => ({
+        id: s.id,
+        title: s.title,
+        description: s.description,
+        thumbnailUrl: s.thumbnailUrl,
+        endedAt: s.endedAt,
+        replayUrl: s.replayUrl,
+        replayDurationSec: s.replayDurationSec,
+        replayStatus: s.replayStatus,
+        viewCount: s.viewCount,
+      })),
+    };
   }
 
   /** Last 7 calendar days (oldest → newest) for dashboard charts */
