@@ -111,3 +111,33 @@ graph TD
 | **Hot Data** | Viewer Counts, Session Caching | Redis (In-memory speed) |
 | **Signaling** | Chat, Likes, Product Popups | Socket.io (WebSockets) |
 
+---
+
+## 📼 4. Archived Live Replay (24h VOD) — current stack
+
+> **Note:** Sections 1–3 above describe the original IVS/RTMP design. Production uses **LiveKit + egress replay + ExoPlayer** on Android.
+
+### Buyer journey
+
+1. Stream ends → LiveKit egress webhook stores replay → `replayStatus: READY`.  
+2. `GET /buyers/feed` includes `archivedLives` (public, last 24h, replay ready).  
+3. Buyer opens archive in app (Explore carousel or **App Link** `https://www.vybekart.co.in/archive/{id}`).  
+4. App calls `GET /streams/:id/archive` (auth required) → ExoPlayer plays `replayUrl`.  
+5. Same live UI: cart, likes, comments, follow — via `live-state` poll + comment/like/follow APIs.  
+6. Share button emits deep link; landing page `/archive/[streamId]` tries custom scheme fallback.
+
+### Seller journey
+
+1. After ending live → **Livestream summary** offers “Watch archive”.  
+2. **Seller dashboard** → **Archived Lives** horizontal cards (from `archivedLiveSessions` on dashboard).  
+3. **View all** → `GET /sellers/archived-lives` → same scheduled-live card layout.  
+4. **Watch archive** → `SellerArchiveStreamFragment` (replay + reply to comments as seller).  
+5. Owner may replay even after buyer-facing 24h window expires.
+
+### Deep links & domain validation
+
+- Android App Links: `https://vybekart.co.in/archive/*` and `https://www.vybekart.co.in/archive/*`.  
+- Digital Asset Links: `https://vybekart.co.in/.well-known/assetlinks.json` (must return **200**, no redirect — set **apex** as primary domain in Vercel).  
+- Package: `com.vybekart.app`; fingerprints include Play App Signing + debug.
+
+---

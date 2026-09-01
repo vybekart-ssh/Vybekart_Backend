@@ -356,6 +356,63 @@ Update a stream. **Auth:** Seller (owner only). **Request body:** `{ "title"?: s
 
 Stop a stream. **Auth:** Seller (owner only).
 
+Stops LiveKit egress, sets `endedAt`, begins replay processing. **Likes/comments Redis keys are retained** for archive replay (48h TTL); they are cleared on stream delete only.
+
+---
+
+### GET `/streams/:id/live-state`
+
+Single round-trip for live or **archive** UI: engagement summary, view count, comments tail, `archiveAvailable` flag. **Auth:** Required (buyer or seller).
+
+Works for ended streams within the archive window (and for stream owner after public expiry).
+
+---
+
+### GET `/streams/:id/archive`
+
+Validate and return metadata for watching an **archived live replay**. **Auth:** Required (buyer or seller).
+
+| Rule | Detail |
+|------|--------|
+| Archive window | **24 hours** after `endedAt` for buyers (`ARCHIVE_AVAILABILITY_HOURS`) |
+| Owner override | Seller (stream owner) may replay after public expiry |
+| Replay | Requires `replayStatus: READY` and `replayUrl` for buyers; owner may see processing state |
+| Engagement | Likes/comments/follow remain in Redis for **48h** after stream end |
+
+**Response (abbreviated):**
+```json
+{
+  "streamId": "uuid",
+  "title": "Festive Kurtis Live",
+  "thumbnailUrl": "https://…",
+  "replayUrl": "https://…/replay.mp4",
+  "replayStatus": "READY",
+  "viewCount": 248,
+  "engagement": { "likes": 42, "comments": 12 },
+  "products": [ … ],
+  "expired": false,
+  "archiveExpiresAt": "2026-09-03T12:00:00.000Z"
+}
+```
+
+---
+
+### POST `/streams/:id/comments`
+
+Add a comment. **Auth:** Required. Allowed during **live and archive** (within availability rules). Seller replies include `isSeller: true`.
+
+---
+
+### POST `/streams/:id/like`
+
+Toggle like. **Auth:** Required. Allowed during live and archive.
+
+---
+
+### POST `/streams/:id/follow`
+
+Follow seller from stream. **Auth:** Buyer. Allowed during live and archive.
+
 ---
 
 ### DELETE `/streams/:id`
@@ -495,14 +552,48 @@ Update seller profile. **Auth:** Seller only.
 
 ### GET `/sellers/dashboard`
 
-Get dashboard stats (product count, sales). **Auth:** Seller only.
+Get seller dashboard stats. **Auth:** Seller only.
 
-**Response:**
+**Response (abbreviated):**
 ```json
 {
-  "productCount": 42,
-  "sales": 0
+  "todayRevenue": 1421,
+  "todayOrders": 15,
+  "followers": 1204,
+  "revenueLast7Days": [ { "dayLabel": "26 Aug", "amount": 200 } ],
+  "ordersLast7Days": [ { "dayLabel": "26 Aug", "count": 3 } ],
+  "scheduledLiveSessions": [ { "id": "…", "title": "…", "startedAt": "…" } ],
+  "activeLiveSession": null,
+  "archivedLiveSessions": [
+    {
+      "id": "uuid",
+      "title": "Festive Kurtis Live",
+      "thumbnailUrl": "https://…",
+      "endedAt": "2026-09-02T10:00:00.000Z",
+      "replayUrl": "https://…",
+      "replayDurationSec": 2700,
+      "replayStatus": "READY",
+      "viewCount": 248
+    }
+  ],
+  "liveReward": { "minutesToday": 18, "rewardActive": false }
 }
+```
+
+`archivedLiveSessions`: seller's own ended streams from the **last 24h** with `replayStatus` `READY` or `RECORDING` (max **15** on dashboard).
+
+---
+
+### GET `/sellers/archived-lives`
+
+List seller's archived live replays for the **View all** screen. **Auth:** Seller only.
+
+Same shape as `archivedLiveSessions` items above; returns up to **50** streams (24h window, `READY` or `RECORDING`).
+
+**Example:**
+```bash
+curl -H "Authorization: Bearer YOUR_TOKEN" \
+  https://vybekart-backend.onrender.com/sellers/archived-lives
 ```
 
 ---

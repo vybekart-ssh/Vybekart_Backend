@@ -49,6 +49,7 @@ Per `Testing/Phase2.md` (historical target 14 May 2026):
 | Seller & customer ratings + overrides | Done |
 | Follow graph | Done |
 | Post-live 24h cart | Done |
+| **Archived live replay (24h VOD)** | Done — `GET /streams/:id/archive`, engagement preserved 48h, buyer feed + seller dashboard/list |
 | Admin users APIs | Done |
 
 **Monitor / harden:**

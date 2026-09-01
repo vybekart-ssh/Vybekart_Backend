@@ -78,6 +78,7 @@ Landing Next.js apps generally **do not** call commerce APIs (except shared lega
 - Replacements (not money-back returns): submit window, auto-approve vs admin, seller fulfillment, emails.  
 - Buyer & seller ratings + admin overrides + penalty rules.  
 - Follow graph (live-oriented product rules).  
+- **Archived live replay (24h VOD):** egress replay, buyer feed `archivedLives`, seller dashboard/list, share deep links, engagement preserved 48h in Redis.  
 - Admin users directory APIs.
 
 ### 3.7 Communications

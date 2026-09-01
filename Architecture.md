@@ -22,7 +22,7 @@ flowchart TB
   API --> SMS[Fast2SMS]
   API --> FCM[Firebase Admin]
   Cron[Nest Schedule] --> API
-  Landing[Landing3D] -.->|legal/brand URLs only| Web[vybekart.co.in]
+  Landing[Landing3D] -.->|archive links + assetlinks.json| Web[vybekart.co.in]
   API -->|seller outreach interest| Ops[Email ops]
 ```
 
@@ -116,8 +116,8 @@ Vybekart_Backend/
 | Module | Responsibility |
 |--------|----------------|
 | `auth` | Login, register, OTP, refresh, FCM token |
-| `buyers` | Profile, feed, addresses, follow, referrals, help |
-| `sellers` | Profile, dashboard, bank/store/pickup, media, resubmit |
+| `buyers` | Profile, feed (incl. `archivedLives`), addresses, follow, referrals, help |
+| `sellers` | Profile, dashboard (+ `archivedLiveSessions`), `GET archived-lives`, bank/store/pickup, media, resubmit |
 | `products` | Seller listings CRUD |
 | `orders` | Cart, quote, checkout orchestration, buyer/seller order APIs, fulfillment |
 | `payments` | Razorpay create/verify + replacement balance |
@@ -170,6 +170,24 @@ No cookie sessions; no OAuth.
 - HTTP creates stream + LiveKit room.  
 - Clients connect Socket.IO to `/streams` with join/chat/like/viewer events.  
 - Egress webhook `POST /webhooks/livekit` finalizes replay media in storage.
+
+### 7.1 Archived live replay
+
+| Constant | Value | Meaning |
+|----------|-------|---------|
+| `ARCHIVE_AVAILABILITY_HOURS` | 24 | Buyers may watch/share/archive-shop within this window after `endedAt` |
+| `STREAM_ENGAGEMENT_TTL_SECONDS` | 48h | Redis likes/comments survive stream stop for archive replay |
+
+**Lifecycle:**
+
+1. Seller stops stream → egress uploads replay → `replayStatus` becomes `READY`.  
+2. `GET /streams/:id/archive` returns replay URL + products + engagement.  
+3. `GET /streams/:id/live-state` polls views/likes/comments during archive playback.  
+4. `POST /streams/:id/comments|like|follow` remain enabled during archive (buyer rules + owner override).  
+5. On stream **delete**, ephemeral Redis keys are cleared.  
+6. `GET /buyers/feed` exposes public `archivedLives`; `GET /sellers/dashboard` and `GET /sellers/archived-lives` expose **seller-owned** archives only.
+
+**Share URL (client):** `https://www.vybekart.co.in/archive/{streamId}` → Android App Links via `/.well-known/assetlinks.json` on landing site.
 
 ---
 
