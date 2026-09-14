@@ -2,13 +2,18 @@ import {
   BadRequestException,
   Body,
   Controller,
+  Delete,
   Get,
-  Patch,
   Param,
+  Patch,
+  Post,
   Query,
   Request,
+  UploadedFiles,
   UseGuards,
+  UseInterceptors,
 } from '@nestjs/common';
+import { FileFieldsInterceptor } from '@nestjs/platform-express';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
 import { RolesGuard } from '../auth/roles.guard';
 import { Roles } from '../auth/roles.decorator';
@@ -92,6 +97,104 @@ export class AdminController {
   @Get('packing-videos')
   packingVideos(@Query('sellerId') sellerId?: string) {
     return this.adminService.listPackingVideos({ sellerId });
+  }
+
+  @Get('archives')
+  listArchives(
+    @Query('sellerId') sellerId?: string,
+    @Query('q') q?: string,
+  ) {
+    return this.adminService.listArchives({ sellerId, q });
+  }
+
+  @Get('archives/retention-options')
+  retentionOptions() {
+    return this.adminService.retentionOptions();
+  }
+
+  @Get('archives/:id')
+  getArchive(@Param('id') id: string) {
+    return this.adminService.getArchive(id);
+  }
+
+  @Post('archives')
+  @UseInterceptors(
+    FileFieldsInterceptor(
+      [
+        { name: 'video', maxCount: 1 },
+        { name: 'thumbnail', maxCount: 1 },
+      ],
+      { limits: { fileSize: 512 * 1024 * 1024 } },
+    ),
+  )
+  createArchive(
+    @UploadedFiles()
+    files: {
+      video?: Express.Multer.File[];
+      thumbnail?: Express.Multer.File[];
+    },
+    @Body('sellerId') sellerId?: string,
+    @Body('title') title?: string,
+    @Body('description') description?: string,
+    @Body('retentionHours') retentionHoursRaw?: string,
+    @Body('startedAt') startedAt?: string,
+    @Body('endedAt') endedAt?: string,
+    @Body('durationSec') durationSecRaw?: string,
+  ) {
+    const video = files?.video?.[0];
+    if (!video?.buffer?.length) {
+      throw new BadRequestException('video file is required');
+    }
+    if (!sellerId?.trim()) {
+      throw new BadRequestException('sellerId is required');
+    }
+    const retentionHours = retentionHoursRaw
+      ? parseInt(retentionHoursRaw, 10)
+      : undefined;
+    const durationSec = durationSecRaw
+      ? parseInt(durationSecRaw, 10)
+      : undefined;
+    const thumb = files?.thumbnail?.[0];
+    return this.adminService.createArchiveFromUpload({
+      sellerId: sellerId.trim(),
+      title,
+      description,
+      retentionHours,
+      startedAt,
+      endedAt,
+      durationSec,
+      video: {
+        buffer: video.buffer,
+        mimetype: video.mimetype,
+        originalname: video.originalname,
+      },
+      thumbnail: thumb
+        ? { buffer: thumb.buffer, mimetype: thumb.mimetype }
+        : null,
+    });
+  }
+
+  @Patch('archives/:id')
+  updateArchive(
+    @Param('id') id: string,
+    @Body()
+    body: {
+      sellerId?: string;
+      title?: string;
+      description?: string;
+      retentionHours?: number;
+      startedAt?: string;
+      endedAt?: string;
+      durationSec?: number | null;
+      thumbnailUrl?: string | null;
+    },
+  ) {
+    return this.adminService.updateArchive(id, body ?? {});
+  }
+
+  @Delete('archives/:id')
+  deleteArchive(@Param('id') id: string) {
+    return this.adminService.deleteArchive(id);
   }
 
   @Get('users/buyers')

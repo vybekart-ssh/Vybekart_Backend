@@ -13,6 +13,7 @@ import { UpdateSignatureDto } from './dto/signature.dto';
 import { UpdatePickupAddressDto } from './dto/pickup-address.dto';
 import { AddressType } from '@prisma/client';
 import { OrderStatus, StreamReplayStatus, VerificationStatus } from '@prisma/client';
+import { archiveNotExpiredWhere } from '../streams/archive-retention.util';
 import { SupabaseStorageService } from '../storage/supabase-storage.service';
 import { FirebasePushService } from '../notifications/firebase-push.service';
 import { RatingsService } from '../ratings/ratings.service';
@@ -27,8 +28,7 @@ const STORE_IMAGE_MIME_EXT: Record<string, string> = {
   'image/gif': '.gif',
 };
 
-/** Matches buyer archive window in streams.service.ts */
-const ARCHIVE_AVAILABILITY_HOURS = 24;
+/** Seller archived live sessions still within their configured retention window. */
 
 @Injectable()
 export class SellersService {
@@ -619,17 +619,16 @@ export class SellersService {
 
   /** Ended seller streams still in the archive replay window (seller-only dashboard). */
   private async getArchivedStreamsForSeller(sellerId: string, take = 15) {
-    const cutoff = new Date(
-      Date.now() - ARCHIVE_AVAILABILITY_HOURS * 60 * 60 * 1000,
-    );
+    const now = new Date();
     return this.prisma.stream.findMany({
       where: {
         sellerId,
         isLive: false,
-        endedAt: { not: null, gte: cutoff },
+        endedAt: { not: null },
         replayStatus: {
           in: [StreamReplayStatus.READY, StreamReplayStatus.RECORDING],
         },
+        ...archiveNotExpiredWhere(now),
       },
       orderBy: { endedAt: 'desc' },
       take,
@@ -643,6 +642,8 @@ export class SellersService {
         replayDurationSec: true,
         replayStatus: true,
         viewCount: true,
+        archiveExpiresAt: true,
+        archiveRetentionHours: true,
       },
     });
   }

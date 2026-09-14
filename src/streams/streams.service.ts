@@ -13,6 +13,14 @@ import { ScheduleStreamDto } from './dto/schedule-stream.dto';
 import { PrismaService } from '../prisma/prisma.service';
 import { Prisma, StreamReplayStatus, VerificationStatus } from '@prisma/client';
 import {
+  ARCHIVE_RETENTION_FOREVER,
+  DEFAULT_ARCHIVE_RETENTION_HOURS,
+  archiveNotExpiredWhere,
+  computeArchiveExpiresAt,
+  isArchiveExpired,
+  normalizeArchiveRetentionHours,
+} from './archive-retention.util';
+import {
   PaginationQueryDto,
   PaginatedResult,
 } from '../common/dto/pagination-query.dto';
@@ -42,8 +50,6 @@ const streamWithSellerInclude = {
 
 /** Ephemeral live engagement cache; TTL is a safety net if cleanup is missed. */
 const STREAM_ENGAGEMENT_TTL_SECONDS = 48 * 60 * 60;
-/** Archived replay + engagement remain available for buyers after live ends. */
-const ARCHIVE_AVAILABILITY_HOURS = 24;
 
 @Injectable()
 export class StreamsService {
@@ -148,6 +154,19 @@ export class StreamsService {
         `Replay recording did not start for stream ${streamId} (check LiveKit egress + S3 env).`,
       );
     }
+  }
+
+  private archiveRetentionFields(
+    endedAt: Date,
+    existingRetentionHours?: number | null,
+  ): { archiveRetentionHours: number; archiveExpiresAt: Date | null } {
+    const hours = normalizeArchiveRetentionHours(
+      existingRetentionHours ?? DEFAULT_ARCHIVE_RETENTION_HOURS,
+    );
+    return {
+      archiveRetentionHours: hours,
+      archiveExpiresAt: computeArchiveExpiresAt(endedAt, hours),
+    };
   }
 
   private async finalizeLiveRecordingAndRoom(stream: {
@@ -602,13 +621,15 @@ export class StreamsService {
     if (!stream.endedAt) {
       throw new BadRequestException('This stream has not ended yet');
     }
-    const expiry = new Date(stream.endedAt);
-    expiry.setHours(expiry.getHours() + ARCHIVE_AVAILABILITY_HOURS);
     const isOwner =
       !!viewerUserId &&
       !!options?.isSeller &&
       stream.seller?.userId === viewerUserId;
-    const expired = new Date() > expiry;
+    const expired = isArchiveExpired({
+      archiveRetentionHours: stream.archiveRetentionHours,
+      archiveExpiresAt: stream.archiveExpiresAt,
+      endedAt: stream.endedAt,
+    });
     if (expired && !isOwner) {
       throw new BadRequestException('This archived live is no longer available');
     }
@@ -647,7 +668,8 @@ export class StreamsService {
       replayStatus: stream.replayStatus,
       replayDurationSec: stream.replayDurationSec,
       endedAt: stream.endedAt.toISOString(),
-      archiveExpiresAt: expiry.toISOString(),
+      archiveExpiresAt: stream.archiveExpiresAt?.toISOString() ?? null,
+      archiveRetentionHours: stream.archiveRetentionHours,
       expired,
       isOwner,
       viewCount: refreshed?.viewCount ?? stream.viewCount ?? 0,
@@ -799,7 +821,12 @@ export class StreamsService {
           livekitRoomName: stream.livekitRoomName,
           livekitEgressId: stream.livekitEgressId,
         });
-        endLiveData.endedAt = new Date();
+        const endedAt = new Date();
+        endLiveData.endedAt = endedAt;
+        Object.assign(
+          endLiveData,
+          this.archiveRetentionFields(endedAt, stream.archiveRetentionHours),
+        );
       }
 
       const updatedWithProducts = await this.prisma.stream.update({
@@ -872,7 +899,12 @@ export class StreamsService {
         livekitEgressId: stream.livekitEgressId,
       });
       Object.assign(data, endLiveData);
-      data.endedAt = new Date();
+      const endedAt = new Date();
+      data.endedAt = endedAt;
+      Object.assign(
+        data,
+        this.archiveRetentionFields(endedAt, stream.archiveRetentionHours),
+      );
     }
     const updated = await this.prisma.stream.update({
       where: { id },
@@ -915,12 +947,17 @@ export class StreamsService {
     const endedAt = new Date();
     const durationMs = Math.max(0, endedAt.getTime() - startedAt.getTime());
     const durationSeconds = Math.round(durationMs / 1000);
+    const retention = this.archiveRetentionFields(
+      endedAt,
+      stream.archiveRetentionHours,
+    );
     const updated = await this.prisma.stream.update({
       where: { id },
       data: {
         isLive: false,
         endedAt,
         durationSeconds,
+        ...retention,
         ...finalizePatch,
       },
       include: streamWithSellerInclude,
@@ -1103,6 +1140,8 @@ export class StreamsService {
         endedAt: true,
         replayUrl: true,
         replayStatus: true,
+        archiveRetentionHours: true,
+        archiveExpiresAt: true,
         viewCount: true,
         title: true,
         broadcastStartedAt: true,
@@ -1124,11 +1163,13 @@ export class StreamsService {
       : [];
     let archiveAvailable = false;
     if (!stream.isLive && stream.endedAt && stream.replayUrl?.trim()) {
-      const expiry = new Date(stream.endedAt);
-      expiry.setHours(expiry.getHours() + ARCHIVE_AVAILABILITY_HOURS);
       archiveAvailable =
         stream.replayStatus === StreamReplayStatus.READY &&
-        new Date() <= expiry;
+        !isArchiveExpired({
+          archiveRetentionHours: stream.archiveRetentionHours,
+          archiveExpiresAt: stream.archiveExpiresAt,
+          endedAt: stream.endedAt,
+        });
     }
     return {
       streamId,
@@ -1281,16 +1322,27 @@ export class StreamsService {
   async toggleLike(streamId: string, userId: string) {
     const stream = await this.prisma.stream.findUnique({
       where: { id: streamId },
-      select: { id: true, isLive: true, endedAt: true, replayUrl: true },
+      select: {
+        id: true,
+        isLive: true,
+        endedAt: true,
+        replayUrl: true,
+        archiveRetentionHours: true,
+        archiveExpiresAt: true,
+      },
     });
     if (!stream) throw new NotFoundException(`Stream with ID ${streamId} not found`);
     if (!stream.isLive) {
       if (!stream.endedAt || !stream.replayUrl?.trim()) {
         throw new BadRequestException('Likes are not available for this stream');
       }
-      const expiry = new Date(stream.endedAt);
-      expiry.setHours(expiry.getHours() + ARCHIVE_AVAILABILITY_HOURS);
-      if (new Date() > expiry) {
+      if (
+        isArchiveExpired({
+          archiveRetentionHours: stream.archiveRetentionHours,
+          archiveExpiresAt: stream.archiveExpiresAt,
+          endedAt: stream.endedAt,
+        })
+      ) {
         throw new BadRequestException('This archived live is no longer available');
       }
     }
@@ -1324,9 +1376,13 @@ export class StreamsService {
     if (stream.isLive) {
       // live comments allowed
     } else if (stream.endedAt && stream.replayUrl?.trim()) {
-      const expiry = new Date(stream.endedAt);
-      expiry.setHours(expiry.getHours() + ARCHIVE_AVAILABILITY_HOURS);
-      if (new Date() > expiry) {
+      if (
+        isArchiveExpired({
+          archiveRetentionHours: stream.archiveRetentionHours,
+          archiveExpiresAt: stream.archiveExpiresAt,
+          endedAt: stream.endedAt,
+        })
+      ) {
         throw new BadRequestException('This archived live is no longer available');
       }
     } else {
@@ -1400,7 +1456,7 @@ export class StreamsService {
     return { bid, topBid };
   }
 
-  async followSeller(streamId: string, userId: string) {
+    async followSeller(streamId: string, userId: string) {
     const stream = await this.prisma.stream.findUnique({
       where: { id: streamId },
       include: { seller: true },
@@ -1409,11 +1465,17 @@ export class StreamsService {
     if (stream.isLive) {
       // follow during live
     } else if (stream.endedAt && stream.replayUrl?.trim()) {
-      const expiry = new Date(stream.endedAt);
-      expiry.setHours(expiry.getHours() + ARCHIVE_AVAILABILITY_HOURS);
-      if (new Date() > expiry) {
+      if (
+        isArchiveExpired({
+          archiveRetentionHours: stream.archiveRetentionHours,
+          archiveExpiresAt: stream.archiveExpiresAt,
+          endedAt: stream.endedAt,
+        })
+      ) {
         throw new BadRequestException('This archived live is no longer available');
       }
+    } else if (stream.endedAt) {
+      // Allow follow from stream-ended screen even before replay is ready.
     } else {
       throw new BadRequestException('You can only follow during a live stream');
     }
@@ -1429,6 +1491,35 @@ export class StreamsService {
       update: {},
     });
     return { followed: true, sellerId };
+  }
+
+  /** Whether the authenticated buyer already follows this stream's seller. */
+  async getFollowStatus(streamId: string, userId: string) {
+    const stream = await this.prisma.stream.findUnique({
+      where: { id: streamId },
+      select: { sellerId: true, seller: { select: { id: true, businessName: true } } },
+    });
+    if (!stream) throw new NotFoundException(`Stream with ID ${streamId} not found`);
+    const sellerId = stream.sellerId ?? stream.seller?.id;
+    if (!sellerId) {
+      return { following: false, sellerId: null, businessName: null };
+    }
+    const buyer = await this.prisma.buyer.findUnique({ where: { userId } });
+    if (!buyer) {
+      return {
+        following: false,
+        sellerId,
+        businessName: stream.seller?.businessName ?? null,
+      };
+    }
+    const follow = await this.prisma.buyerSellerFollow.findUnique({
+      where: { buyerId_sellerId: { buyerId: buyer.id, sellerId } },
+    });
+    return {
+      following: follow != null,
+      sellerId,
+      businessName: stream.seller?.businessName ?? null,
+    };
   }
 
   async getStoreProducts(

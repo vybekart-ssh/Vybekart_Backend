@@ -405,6 +405,13 @@ model Stream {
   replayDurationSec Int?
   replayStatus      StreamReplayStatus @default(NONE)
 
+  /// How long the archive stays visible after endedAt. `-1` = forever. Default 24.
+  archiveRetentionHours Int @default(24)
+  /// Computed expiry for queries/cleanup. Null when retention is forever (or not ended).
+  archiveExpiresAt DateTime?
+  /// True when admin uploaded this VOD from master console (not LiveKit egress).
+  isAdminUploaded Boolean @default(false)
+
   viewCount Int       @default(0)
   startedAt DateTime?
   endedAt   DateTime?

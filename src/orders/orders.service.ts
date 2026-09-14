@@ -264,6 +264,13 @@ export class OrdersService {
     await this.unindexCartForStream(userId, streamId);
   }
 
+  /** Buyer-initiated empty cart (e.g. switch lives from the app). */
+  async clearCartForBuyer(userId: string) {
+    const state = await this.loadCartState(userId);
+    await this.clearCart(userId, state.streamId, 'buyer cleared cart');
+    return this.getCart(userId);
+  }
+
   private computeExpiryFromEnd(effectiveEnd: Date): Date {
     const expires = new Date(effectiveEnd);
     expires.setHours(expires.getHours() + POST_LIVE_CART_HOURS);
@@ -599,20 +606,25 @@ export class OrdersService {
         'streamId is required — add products from a live stream.',
       );
     }
+    // Live carts are single-stream: switching lives replaces the previous cart.
+    let working = state;
     if (
       state.streamId &&
       dto.streamId &&
       dto.streamId !== state.streamId
     ) {
-      throw new BadRequestException(
-        'Cart is tied to a different live stream. Clear the cart first.',
+      await this.clearCart(
+        userId,
+        state.streamId,
+        'switched cart to another live stream',
       );
+      working = { items: [] };
     }
 
-    const items = [...state.items];
-    const streamId = state.streamId ?? dto.streamId;
+    const items = [...working.items];
+    const streamId = working.streamId ?? dto.streamId;
     const streamTitle =
-      state.streamTitle?.trim() ||
+      working.streamTitle?.trim() ||
       dto.streamTitle?.trim() ||
       undefined;
     const vKey = dto.variantId?.trim() ?? '';

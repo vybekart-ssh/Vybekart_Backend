@@ -5,9 +5,16 @@ import { AppConfigModule } from '../app-config/app-config.module';
 import { AdminController } from './admin.controller';
 import { AdminService } from './admin.service';
 import { RatingsModule } from '../ratings/ratings.module';
+import { StorageModule } from '../storage/storage.module';
 
 @Module({
-  imports: [PrismaModule, SellersModule, AppConfigModule, RatingsModule],
+  imports: [
+    PrismaModule,
+    SellersModule,
+    AppConfigModule,
+    RatingsModule,
+    StorageModule,
+  ],
   controllers: [AdminController],
   providers: [AdminService],
 })

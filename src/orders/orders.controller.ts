@@ -49,6 +49,12 @@ export class OrdersController {
     return this.ordersService.getCart(req.user.id);
   }
 
+  @Delete('cart')
+  @UseGuards(JwtAuthGuard, BuyerAccessGuard)
+  clearCart(@Request() req: { user: { id: string } }) {
+    return this.ordersService.clearCartForBuyer(req.user.id);
+  }
+
   @Post('cart/items')
   @UseGuards(JwtAuthGuard, BuyerAccessGuard)
   addCartItem(

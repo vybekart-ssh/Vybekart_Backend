@@ -169,6 +169,15 @@ export class StreamsController {
     return this.streamsService.followSeller(id, req.user.id);
   }
 
+  @Get(':id/follow-status')
+  @UseGuards(JwtAuthGuard)
+  getFollowStatus(
+    @Request() req: { user: { id: string } },
+    @Param('id') id: string,
+  ) {
+    return this.streamsService.getFollowStatus(id, req.user.id);
+  }
+
   @Post(':id/bid')
   @UseGuards(JwtAuthGuard)
   addBid(
