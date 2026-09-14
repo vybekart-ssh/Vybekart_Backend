@@ -16,6 +16,10 @@ import {
   UpdatePromoVideoDto,
   youtubeThumbnailUrl,
 } from './dto/promo-video.dto';
+import {
+  assertDirectReplayUrl,
+  CreateArchiveFromUrlDto,
+} from './dto/create-archive-from-url.dto';
 import { RatingsService } from '../ratings/ratings.service';
 import { Prisma } from '@prisma/client';
 import { SupabaseStorageService } from '../storage/supabase-storage.service';
@@ -652,6 +656,59 @@ export class AdminService {
     return this.mapArchiveRow(created);
   }
 
+  async createArchiveFromUrl(input: CreateArchiveFromUrlDto) {
+    const seller = await this.prisma.seller.findUnique({
+      where: { id: input.sellerId.trim() },
+      select: { id: true, businessName: true, logoUrl: true },
+    });
+    if (!seller) throw new NotFoundException('Seller not found');
+
+    const replayUrl = assertDirectReplayUrl(input.replayUrl);
+    const streamId = randomUUID();
+    const endedAt = input.endedAt ? new Date(input.endedAt) : new Date();
+    const startedAt = input.startedAt
+      ? new Date(input.startedAt)
+      : new Date(endedAt.getTime() - 20 * 60 * 1000);
+    const hours = normalizeArchiveRetentionHours(
+      input.retentionHours ?? DEFAULT_ARCHIVE_RETENTION_HOURS,
+    );
+    const archiveExpiresAt = computeArchiveExpiresAt(endedAt, hours);
+    const thumbnailUrl =
+      input.thumbnailUrl?.trim() || seller.logoUrl?.trim() || null;
+
+    const created = await this.prisma.stream.create({
+      data: {
+        id: streamId,
+        title:
+          input.title?.trim() ||
+          `${seller.businessName} live archive`,
+        description: input.description?.trim() || null,
+        isLive: false,
+        visibility: StreamVisibility.PUBLIC,
+        sellerId: seller.id,
+        startedAt,
+        endedAt,
+        replayUrl,
+        replayStatus: StreamReplayStatus.READY,
+        replayDurationSec: input.durationSec ?? null,
+        archiveRetentionHours: hours,
+        archiveExpiresAt,
+        isAdminUploaded: true,
+        thumbnailUrl,
+      },
+      include: {
+        seller: this.archiveSellerInclude(),
+        streamProducts: this.archiveProductsInclude(),
+      },
+    });
+
+    if (input.productIds?.length) {
+      await this.setArchiveProducts(streamId, seller.id, input.productIds);
+      return this.getArchive(streamId);
+    }
+    return this.mapArchiveRow(created);
+  }
+
   async updateArchive(
     id: string,
     input: {
@@ -745,10 +802,14 @@ export class AdminService {
     const bucket = this.replayBucket();
     const keys: string[] = [];
     if (existing.replayUrl?.trim()) {
-      const key =
-        this.extractObjectKeyFromPublicUrl(existing.replayUrl) ||
-        `vybekart-replays/${id}.mp4`;
-      keys.push(key);
+      const key = this.extractObjectKeyFromPublicUrl(existing.replayUrl);
+      if (key) {
+        keys.push(key);
+      } else if (existing.replayUrl.includes('vybekart-replays/')) {
+        // Legacy uploaded object path when public URL parsing fails.
+        keys.push(`vybekart-replays/${id}.mp4`);
+      }
+      // External CDN/link archives: do not attempt Supabase deletes.
     }
     if (existing.thumbnailUrl?.trim()) {
       const tKey = this.extractObjectKeyFromPublicUrl(existing.thumbnailUrl);

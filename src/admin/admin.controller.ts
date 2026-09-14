@@ -25,6 +25,7 @@ import {
   CreatePromoVideoDto,
   UpdatePromoVideoDto,
 } from './dto/promo-video.dto';
+import { CreateArchiveFromUrlDto } from './dto/create-archive-from-url.dto';
 
 @Controller('admin')
 @UseGuards(JwtAuthGuard, RolesGuard)
@@ -202,6 +203,12 @@ export class AdminController {
         ? { buffer: thumb.buffer, mimetype: thumb.mimetype }
         : null,
     });
+  }
+
+  /** Create an archive from an external direct video URL (MP4 / HLS) — no Supabase upload. */
+  @Post('archives/from-url')
+  createArchiveFromUrl(@Body() body: CreateArchiveFromUrlDto) {
+    return this.adminService.createArchiveFromUrl(body);
   }
 
   @Patch('archives/:id')
