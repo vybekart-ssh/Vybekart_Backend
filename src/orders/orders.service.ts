@@ -470,6 +470,8 @@ export class OrdersService {
       return {
         items: [],
         subtotal: 0,
+        mrpSubtotal: 0,
+        discountTotal: 0,
         shipping: 0,
         total: 0,
         streamId: null,
@@ -482,7 +484,21 @@ export class OrdersService {
     const productIds = [...new Set(items.map((i) => i.productId))];
     const products = await this.prisma.product.findMany({
       where: { id: { in: productIds } },
-      select: { id: true, name: true, price: true, images: true, variants: true },
+      select: {
+        id: true,
+        name: true,
+        price: true,
+        images: true,
+        variants: true,
+        mrp: true,
+        discountPercent: true,
+        description: true,
+        brand: true,
+        material: true,
+        stock: true,
+        suitableForOccasion: true,
+        seller: { select: { businessName: true } },
+      },
     });
     const map = new Map(products.map((p) => [p.id, p]));
 
@@ -492,11 +508,26 @@ export class OrdersService {
         if (!product) return null;
         const hasVariants = productHasVariantItems(product.variants);
         let unitPrice = product.price;
+        let unitMrp = product.mrp ?? null;
         if (hasVariants) {
           if (!item.variantId) return null;
           const v = findVariantItem(product.variants, item.variantId);
           if (!v) return null;
           unitPrice = v.sellingPrice;
+          if (v.mrp != null && !Number.isNaN(Number(v.mrp))) {
+            unitMrp = Number(v.mrp);
+          }
+        }
+        let discountPercent = product.discountPercent ?? null;
+        if (
+          (discountPercent == null || discountPercent <= 0) &&
+          unitMrp != null &&
+          unitMrp > unitPrice
+        ) {
+          discountPercent = Math.max(
+            1,
+            Math.round(((unitMrp - unitPrice) / unitMrp) * 100),
+          );
         }
         return {
           ...item,
@@ -504,23 +535,61 @@ export class OrdersService {
             id: product.id,
             name: product.name,
             price: unitPrice,
+            mrp: unitMrp,
+            discountPercent,
             images: product.images,
+            description: product.description ?? null,
+            brand: product.brand ?? null,
+            material: product.material ?? null,
+            stock: product.stock,
+            suitableForOccasion: product.suitableForOccasion ?? null,
+            variants: product.variants ?? null,
+            sellerName: product.seller?.businessName ?? null,
           },
           unitPrice,
+          unitMrp,
+          discountPercent,
           amount: unitPrice * item.quantity,
+          mrpAmount:
+            unitMrp != null && unitMrp > unitPrice
+              ? unitMrp * item.quantity
+              : null,
         };
       })
       .filter(Boolean) as Array<
       CartItemDto & {
-        product: { id: string; name: string; price: number; images: string[] };
+        product: {
+          id: string;
+          name: string;
+          price: number;
+          mrp: number | null;
+          discountPercent: number | null;
+          images: string[];
+          description: string | null;
+          brand: string | null;
+          material: string | null;
+          stock: number;
+          suitableForOccasion: string | null;
+          variants: unknown;
+          sellerName: string | null;
+        };
         unitPrice: number;
+        unitMrp: number | null;
+        discountPercent: number | null;
         amount: number;
+        mrpAmount: number | null;
       }
     >;
 
     const subtotal = normalized.reduce((sum, i) => sum + i.amount, 0);
-    const shipping = subtotal > 0 ? 90 : 0;
-    const total = subtotal + shipping;
+    const mrpSubtotal = normalized.reduce(
+      (sum, i) => sum + (i.mrpAmount ?? i.amount),
+      0,
+    );
+    const discountTotal = Math.max(0, mrpSubtotal - subtotal);
+    // Shipping is quoted via Delhivery only at checkout — never bake a flat fee into cart.
+    const shipping = 0;
+    const total = subtotal;
 
     let checkoutExpiresAt: string | null = cartExpiresAt ?? null;
     let secondsRemaining = 0;
@@ -534,6 +603,8 @@ export class OrdersService {
         return {
           items: [],
           subtotal: 0,
+          mrpSubtotal: 0,
+          discountTotal: 0,
           shipping: 0,
           total: 0,
           streamId: null,
@@ -571,6 +642,8 @@ export class OrdersService {
     return {
       items: normalized,
       subtotal,
+      mrpSubtotal,
+      discountTotal,
       shipping,
       total,
       streamId: streamId ?? null,
