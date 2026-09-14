@@ -132,7 +132,7 @@ export class BuyersService {
             replayDurationSec: true,
             archiveExpiresAt: true,
             archiveRetentionHours: true,
-            seller: { select: { id: true, businessName: true } },
+            seller: { select: { id: true, businessName: true, logoUrl: true } },
           },
         }),
         this.prisma.recentlyViewedProduct.findMany({
@@ -167,7 +167,10 @@ export class BuyersService {
 
     return {
       upcomingLive,
-      archivedLives,
+      archivedLives: archivedLives.map((s) => ({
+        ...s,
+        thumbnailUrl: s.thumbnailUrl?.trim() || s.seller?.logoUrl?.trim() || null,
+      })),
       recentlyViewed: recentlyViewed.map((rv) => ({
         id: rv.id,
         viewedAt: rv.viewedAt,

@@ -563,7 +563,7 @@ export class SellersService {
         id: s.id,
         title: s.title,
         description: s.description,
-        thumbnailUrl: s.thumbnailUrl,
+        thumbnailUrl: s.thumbnailUrl?.trim() || s.seller?.logoUrl?.trim() || null,
         endedAt: s.endedAt,
         replayUrl: s.replayUrl,
         replayDurationSec: s.replayDurationSec,
@@ -644,6 +644,7 @@ export class SellersService {
         viewCount: true,
         archiveExpiresAt: true,
         archiveRetentionHours: true,
+        seller: { select: { logoUrl: true } },
       },
     });
   }
@@ -661,7 +662,7 @@ export class SellersService {
         id: s.id,
         title: s.title,
         description: s.description,
-        thumbnailUrl: s.thumbnailUrl,
+        thumbnailUrl: s.thumbnailUrl?.trim() || s.seller?.logoUrl?.trim() || null,
         endedAt: s.endedAt,
         replayUrl: s.replayUrl,
         replayDurationSec: s.replayDurationSec,

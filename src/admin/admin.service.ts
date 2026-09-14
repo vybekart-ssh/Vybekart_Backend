@@ -367,14 +367,26 @@ export class AdminService {
     seller: {
       id: string;
       businessName: string;
+      logoUrl?: string | null;
       user: { name: string | null; email: string | null } | null;
     };
+    streamProducts?: { productId: string; sortOrder: number; product?: { id: string; name: string; price: number; images: string[] } }[];
   }) {
+    const logoUrl = s.seller.logoUrl?.trim() || null;
+    const products = (s.streamProducts ?? [])
+      .slice()
+      .sort((a, b) => a.sortOrder - b.sortOrder)
+      .map((sp) => ({
+        id: sp.product?.id ?? sp.productId,
+        name: sp.product?.name ?? 'Product',
+        price: sp.product?.price ?? 0,
+        imageUrl: sp.product?.images?.[0] ?? null,
+      }));
     return {
       id: s.id,
       title: s.title,
       description: s.description,
-      thumbnailUrl: s.thumbnailUrl,
+      thumbnailUrl: s.thumbnailUrl?.trim() || logoUrl,
       startedAt: s.startedAt?.toISOString() ?? null,
       endedAt: s.endedAt?.toISOString() ?? null,
       createdAt: s.createdAt.toISOString(),
@@ -386,17 +398,111 @@ export class AdminService {
       archiveExpiresAt: s.archiveExpiresAt?.toISOString() ?? null,
       isAdminUploaded: s.isAdminUploaded,
       isLive: s.isLive,
+      productIds: products.map((p) => p.id),
+      products,
       seller: {
         id: s.seller.id,
         businessName: s.seller.businessName,
+        logoUrl,
         ownerName: s.seller.user?.name ?? null,
         email: s.seller.user?.email ?? null,
       },
     };
   }
 
+  private archiveSellerInclude() {
+    return {
+      select: {
+        id: true,
+        businessName: true,
+        logoUrl: true,
+        user: { select: { name: true, email: true } },
+      },
+    } as const;
+  }
+
+  private archiveProductsInclude() {
+    return {
+      orderBy: { sortOrder: 'asc' as const },
+      select: {
+        productId: true,
+        sortOrder: true,
+        product: {
+          select: { id: true, name: true, price: true, images: true },
+        },
+      },
+    };
+  }
+
+  /** Replace stream products for an archive; productIds must belong to sellerId. */
+  private async setArchiveProducts(streamId: string, sellerId: string, productIds: string[]) {
+    const unique = [...new Set(productIds.map((id) => id.trim()).filter(Boolean))];
+    if (unique.length > 300) {
+      throw new BadRequestException('Provide at most 300 products for this archive');
+    }
+    if (unique.length === 0) {
+      await this.prisma.streamProduct.deleteMany({ where: { streamId } });
+      return;
+    }
+    const found = await this.prisma.product.findMany({
+      where: { sellerId, id: { in: unique } },
+      select: { id: true },
+    });
+    const foundIds = new Set(found.map((p) => p.id));
+    const invalid = unique.filter((id) => !foundIds.has(id));
+    if (invalid.length > 0) {
+      throw new BadRequestException(
+        `Products not found or not owned by seller: ${invalid.slice(0, 5).join(', ')}`,
+      );
+    }
+    await this.prisma.$transaction([
+      this.prisma.streamProduct.deleteMany({ where: { streamId } }),
+      this.prisma.streamProduct.createMany({
+        data: unique.map((productId, index) => ({
+          streamId,
+          productId,
+          sortOrder: index,
+        })),
+      }),
+    ]);
+  }
+
   retentionOptions() {
     return ARCHIVE_RETENTION_OPTIONS;
+  }
+
+  async listSellerProductsForArchive(sellerId: string) {
+    const seller = await this.prisma.seller.findUnique({
+      where: { id: sellerId },
+      select: { id: true },
+    });
+    if (!seller) throw new NotFoundException('Seller not found');
+    const products = await this.prisma.product.findMany({
+      where: {
+        sellerId,
+        status: { in: ['ACTIVE', 'OUT_OF_STOCK'] },
+      },
+      orderBy: { updatedAt: 'desc' },
+      take: 300,
+      select: {
+        id: true,
+        name: true,
+        price: true,
+        images: true,
+        status: true,
+        stock: true,
+      },
+    });
+    return {
+      items: products.map((p) => ({
+        id: p.id,
+        name: p.name,
+        price: p.price,
+        imageUrl: p.images?.[0] ?? null,
+        status: p.status,
+        stock: p.stock,
+      })),
+    };
   }
 
   async listArchives(filter?: { sellerId?: string; q?: string }) {
@@ -423,13 +529,8 @@ export class AdminService {
       orderBy: { endedAt: 'desc' },
       take: 100,
       include: {
-        seller: {
-          select: {
-            id: true,
-            businessName: true,
-            user: { select: { name: true, email: true } },
-          },
-        },
+        seller: this.archiveSellerInclude(),
+        streamProducts: this.archiveProductsInclude(),
       },
     });
     return {
@@ -442,13 +543,8 @@ export class AdminService {
     const s = await this.prisma.stream.findUnique({
       where: { id },
       include: {
-        seller: {
-          select: {
-            id: true,
-            businessName: true,
-            user: { select: { name: true, email: true } },
-          },
-        },
+        seller: this.archiveSellerInclude(),
+        streamProducts: this.archiveProductsInclude(),
       },
     });
     if (!s || !s.endedAt) throw new NotFoundException('Archive not found');
@@ -463,12 +559,13 @@ export class AdminService {
     startedAt?: string;
     endedAt?: string;
     durationSec?: number;
+    productIds?: string[];
     video: { buffer: Buffer; mimetype: string; originalname: string };
     thumbnail?: { buffer: Buffer; mimetype: string } | null;
   }) {
     const seller = await this.prisma.seller.findUnique({
       where: { id: input.sellerId },
-      select: { id: true, businessName: true },
+      select: { id: true, businessName: true, logoUrl: true },
     });
     if (!seller) throw new NotFoundException('Seller not found');
 
@@ -511,6 +608,9 @@ export class AdminService {
         upsert: true,
       });
       thumbnailUrl = thumb.publicUrl;
+    } else {
+      // Admin uploads often have no thumb — use store logo so cards aren't blank.
+      thumbnailUrl = seller.logoUrl?.trim() || null;
     }
 
     const created = await this.prisma.stream.create({
@@ -534,15 +634,15 @@ export class AdminService {
         thumbnailUrl,
       },
       include: {
-        seller: {
-          select: {
-            id: true,
-            businessName: true,
-            user: { select: { name: true, email: true } },
-          },
-        },
+        seller: this.archiveSellerInclude(),
+        streamProducts: this.archiveProductsInclude(),
       },
     });
+
+    if (input.productIds?.length) {
+      await this.setArchiveProducts(streamId, seller.id, input.productIds);
+      return this.getArchive(streamId);
+    }
     return this.mapArchiveRow(created);
   }
 
@@ -557,16 +657,21 @@ export class AdminService {
       endedAt?: string;
       durationSec?: number | null;
       thumbnailUrl?: string | null;
+      productIds?: string[];
     },
   ) {
-    const existing = await this.prisma.stream.findUnique({ where: { id } });
+    const existing = await this.prisma.stream.findUnique({
+      where: { id },
+      include: { seller: { select: { id: true, logoUrl: true } } },
+    });
     if (!existing || !existing.endedAt) {
       throw new NotFoundException('Archive not found');
     }
+    const nextSellerId = input.sellerId?.trim() || existing.sellerId;
     if (input.sellerId) {
       const seller = await this.prisma.seller.findUnique({
         where: { id: input.sellerId },
-        select: { id: true },
+        select: { id: true, logoUrl: true },
       });
       if (!seller) throw new NotFoundException('Seller not found');
     }
@@ -582,6 +687,15 @@ export class AdminService {
       input.retentionHours !== undefined
         ? new Date(Math.max(endedAt.getTime(), Date.now()))
         : endedAt;
+
+    let thumbnailUrl = input.thumbnailUrl;
+    if (thumbnailUrl === undefined && !existing.thumbnailUrl?.trim()) {
+      const seller = await this.prisma.seller.findUnique({
+        where: { id: nextSellerId },
+        select: { logoUrl: true },
+      });
+      thumbnailUrl = seller?.logoUrl?.trim() || null;
+    }
 
     const data: Prisma.StreamUpdateInput = {
       ...(input.title !== undefined ? { title: input.title.trim() } : {}),
@@ -600,25 +714,19 @@ export class AdminService {
       ...(input.durationSec !== undefined
         ? { replayDurationSec: input.durationSec }
         : {}),
-      ...(input.thumbnailUrl !== undefined
-        ? { thumbnailUrl: input.thumbnailUrl }
-        : {}),
+      ...(thumbnailUrl !== undefined ? { thumbnailUrl } : {}),
     };
 
-    const updated = await this.prisma.stream.update({
+    await this.prisma.stream.update({
       where: { id },
       data,
-      include: {
-        seller: {
-          select: {
-            id: true,
-            businessName: true,
-            user: { select: { name: true, email: true } },
-          },
-        },
-      },
     });
-    return this.mapArchiveRow(updated);
+
+    if (input.productIds !== undefined) {
+      await this.setArchiveProducts(id, nextSellerId, input.productIds);
+    }
+
+    return this.getArchive(id);
   }
 
   async deleteArchive(id: string) {

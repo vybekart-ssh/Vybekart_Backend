@@ -112,6 +112,15 @@ export class AdminController {
     return this.adminService.retentionOptions();
   }
 
+  /** Products available to attach to an admin-uploaded archive for a seller. */
+  @Get('archives/seller-products')
+  listSellerProductsForArchive(@Query('sellerId') sellerId?: string) {
+    if (!sellerId?.trim()) {
+      throw new BadRequestException('sellerId is required');
+    }
+    return this.adminService.listSellerProductsForArchive(sellerId.trim());
+  }
+
   @Get('archives/:id')
   getArchive(@Param('id') id: string) {
     return this.adminService.getArchive(id);
@@ -140,6 +149,7 @@ export class AdminController {
     @Body('startedAt') startedAt?: string,
     @Body('endedAt') endedAt?: string,
     @Body('durationSec') durationSecRaw?: string,
+    @Body('productIds') productIdsRaw?: string,
   ) {
     const video = files?.video?.[0];
     if (!video?.buffer?.length) {
@@ -155,6 +165,21 @@ export class AdminController {
       ? parseInt(durationSecRaw, 10)
       : undefined;
     const thumb = files?.thumbnail?.[0];
+    let productIds: string[] | undefined;
+    if (productIdsRaw?.trim()) {
+      try {
+        const parsed = JSON.parse(productIdsRaw) as unknown;
+        if (!Array.isArray(parsed)) {
+          throw new Error('not array');
+        }
+        productIds = parsed.map((x) => String(x));
+      } catch {
+        productIds = productIdsRaw
+          .split(',')
+          .map((s) => s.trim())
+          .filter(Boolean);
+      }
+    }
     return this.adminService.createArchiveFromUpload({
       sellerId: sellerId.trim(),
       title,
@@ -163,6 +188,7 @@ export class AdminController {
       startedAt,
       endedAt,
       durationSec,
+      productIds,
       video: {
         buffer: video.buffer,
         mimetype: video.mimetype,
@@ -187,6 +213,7 @@ export class AdminController {
       endedAt?: string;
       durationSec?: number | null;
       thumbnailUrl?: string | null;
+      productIds?: string[];
     },
   ) {
     return this.adminService.updateArchive(id, body ?? {});
