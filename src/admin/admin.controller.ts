@@ -21,6 +21,10 @@ import { Role, VerificationStatus } from '@prisma/client';
 import { AdminService } from './admin.service';
 import { UpdateAppConfigDto } from './dto/update-app-config.dto';
 import { RequestSellerChangesDto } from './dto/request-seller-changes.dto';
+import {
+  CreatePromoVideoDto,
+  UpdatePromoVideoDto,
+} from './dto/promo-video.dto';
 
 @Controller('admin')
 @UseGuards(JwtAuthGuard, RolesGuard)
@@ -258,5 +262,25 @@ export class AdminController {
   @Get('users/sellers/:id')
   getSellerUserDetail(@Param('id') id: string) {
     return this.adminService.getSellerUserDetail(id);
+  }
+
+  @Get('promo-videos')
+  listPromoVideos() {
+    return this.adminService.listPromoVideos();
+  }
+
+  @Post('promo-videos')
+  createPromoVideo(@Body() body: CreatePromoVideoDto) {
+    return this.adminService.createPromoVideo(body);
+  }
+
+  @Patch('promo-videos/:id')
+  updatePromoVideo(@Param('id') id: string, @Body() body: UpdatePromoVideoDto) {
+    return this.adminService.updatePromoVideo(id, body ?? {});
+  }
+
+  @Delete('promo-videos/:id')
+  deletePromoVideo(@Param('id') id: string) {
+    return this.adminService.deletePromoVideo(id);
   }
 }

@@ -554,6 +554,22 @@ model Faq {
   createdAt DateTime @default(now())
 }
 
+/// Explore promo / about-app YouTube videos curated from Master Console.
+model PromoVideo {
+  id             String   @id @default(uuid())
+  title          String
+  youtubeUrl     String
+  youtubeVideoId String
+  thumbnailUrl   String?
+  description    String?  @db.Text
+  sortOrder      Int      @default(0)
+  isActive       Boolean  @default(true)
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  @@index([isActive, sortOrder])
+}
+
 model SupportTicket {
   id        String   @id @default(uuid())
   userId    String

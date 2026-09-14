@@ -153,9 +153,14 @@ export class BuyersService {
     if (!buyer) throw new NotFoundException('Buyer profile not found');
 
     const now = new Date();
-    const [upcomingLive, archivedLives, recentlyViewed, recommendedProducts] =
-      await this.prisma.$transaction([
-        this.prisma.stream.findMany({
+    const [
+      upcomingLive,
+      archivedLives,
+      recentlyViewed,
+      recommendedProducts,
+      promoVideos,
+    ] = await Promise.all([
+      this.prisma.stream.findMany({
           where: {
             isLive: false,
             endedAt: null,
@@ -166,7 +171,7 @@ export class BuyersService {
           take: 20,
           include: { seller: { select: { businessName: true, id: true } } },
         }),
-        this.prisma.stream.findMany({
+      this.prisma.stream.findMany({
           where: {
             isLive: false,
             endedAt: { not: null },
@@ -189,7 +194,7 @@ export class BuyersService {
             seller: { select: { id: true, businessName: true, logoUrl: true } },
           },
         }),
-        this.prisma.recentlyViewedProduct.findMany({
+      this.prisma.recentlyViewedProduct.findMany({
           where: { buyerId: buyer.id },
           orderBy: { viewedAt: 'desc' },
           take: 10,
@@ -205,7 +210,7 @@ export class BuyersService {
             },
           },
         }),
-        this.prisma.product.findMany({
+      this.prisma.product.findMany({
           where: { status: 'ACTIVE' },
           orderBy: { createdAt: 'desc' },
           take: 20,
@@ -217,7 +222,21 @@ export class BuyersService {
             seller: { select: { businessName: true } },
           },
         }),
-      ]);
+      this.prisma.promoVideo.findMany({
+          where: { isActive: true },
+          orderBy: [{ sortOrder: 'asc' }, { createdAt: 'desc' }],
+          take: 50,
+          select: {
+            id: true,
+            title: true,
+            youtubeUrl: true,
+            youtubeVideoId: true,
+            thumbnailUrl: true,
+            description: true,
+            sortOrder: true,
+          },
+        }),
+    ]);
 
     return {
       upcomingLive,
@@ -231,6 +250,7 @@ export class BuyersService {
         product: rv.product,
       })),
       recommendedProducts,
+      promoVideos,
     };
   }
 

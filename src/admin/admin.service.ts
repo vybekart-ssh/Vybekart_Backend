@@ -10,6 +10,12 @@ import { SellersService } from '../sellers/sellers.service';
 import { AppConfigService } from '../app-config/app-config.service';
 import { UpdateAppConfigDto } from './dto/update-app-config.dto';
 import { RequestSellerChangesDto } from './dto/request-seller-changes.dto';
+import {
+  assertYoutubeVideoId,
+  CreatePromoVideoDto,
+  UpdatePromoVideoDto,
+  youtubeThumbnailUrl,
+} from './dto/promo-video.dto';
 import { RatingsService } from '../ratings/ratings.service';
 import { Prisma } from '@prisma/client';
 import { SupabaseStorageService } from '../storage/supabase-storage.service';
@@ -753,6 +759,62 @@ export class AdminService {
     }
 
     await this.prisma.stream.delete({ where: { id } });
+    return { deleted: true, id };
+  }
+
+  listPromoVideos() {
+    return this.prisma.promoVideo.findMany({
+      orderBy: [{ sortOrder: 'asc' }, { createdAt: 'desc' }],
+    });
+  }
+
+  async createPromoVideo(dto: CreatePromoVideoDto) {
+    const youtubeVideoId = assertYoutubeVideoId(dto.youtubeUrl);
+    const youtubeUrl = dto.youtubeUrl.trim();
+    return this.prisma.promoVideo.create({
+      data: {
+        title: dto.title.trim(),
+        youtubeUrl,
+        youtubeVideoId,
+        thumbnailUrl: youtubeThumbnailUrl(youtubeVideoId),
+        description: dto.description?.trim() || null,
+        sortOrder: dto.sortOrder ?? 0,
+        isActive: dto.isActive ?? true,
+      },
+    });
+  }
+
+  async updatePromoVideo(id: string, dto: UpdatePromoVideoDto) {
+    const existing = await this.prisma.promoVideo.findUnique({ where: { id } });
+    if (!existing) throw new NotFoundException('Promo video not found');
+
+    let youtubeVideoId = existing.youtubeVideoId;
+    let youtubeUrl = existing.youtubeUrl;
+    let thumbnailUrl = existing.thumbnailUrl;
+    if (dto.youtubeUrl != null && dto.youtubeUrl.trim()) {
+      youtubeVideoId = assertYoutubeVideoId(dto.youtubeUrl);
+      youtubeUrl = dto.youtubeUrl.trim();
+      thumbnailUrl = youtubeThumbnailUrl(youtubeVideoId);
+    }
+
+    return this.prisma.promoVideo.update({
+      where: { id },
+      data: {
+        ...(dto.title != null ? { title: dto.title.trim() } : {}),
+        ...(dto.youtubeUrl != null ? { youtubeUrl, youtubeVideoId, thumbnailUrl } : {}),
+        ...(dto.description !== undefined
+          ? { description: dto.description?.trim() || null }
+          : {}),
+        ...(dto.sortOrder != null ? { sortOrder: dto.sortOrder } : {}),
+        ...(dto.isActive != null ? { isActive: dto.isActive } : {}),
+      },
+    });
+  }
+
+  async deletePromoVideo(id: string) {
+    const existing = await this.prisma.promoVideo.findUnique({ where: { id } });
+    if (!existing) throw new NotFoundException('Promo video not found');
+    await this.prisma.promoVideo.delete({ where: { id } });
     return { deleted: true, id };
   }
 }

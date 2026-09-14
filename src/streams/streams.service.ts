@@ -678,6 +678,7 @@ export class StreamsService {
         ? {
             id: stream.seller.id,
             businessName: stream.seller.businessName,
+            logoUrl: stream.seller.logoUrl?.trim() || null,
             user: stream.seller.user,
           }
         : null,
