@@ -60,7 +60,8 @@ export class CreateArchiveFromUrlDto {
   @IsOptional()
   @Type(() => Number)
   @IsInt()
-  @Min(1)
+  /** Hours to keep public, or -1 for Forever (same as upload archives). */
+  @Min(-1)
   retentionHours?: number;
 
   @IsOptional()
