@@ -57,6 +57,8 @@ model User {
   middleName String?
   lastName   String?
   gender     String? // MALE | FEMALE | OTHER | PREFER_NOT_TO_SAY
+  /// Buyer (and shared) profile photo URL
+  avatarUrl String?
   isActive  Boolean  @default(true)
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt

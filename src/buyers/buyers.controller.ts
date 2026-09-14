@@ -9,7 +9,11 @@ import {
   Body,
   Post,
   Delete,
+  UploadedFile,
+  UseInterceptors,
+  BadRequestException,
 } from '@nestjs/common';
+import { FileInterceptor } from '@nestjs/platform-express';
 import { BuyersService } from './buyers.service';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
 import { UpdateBuyerProfileDto } from './dto/update-buyer-profile.dto';
@@ -33,6 +37,19 @@ export class BuyersController {
     @Body() dto: UpdateBuyerProfileDto,
   ) {
     return this.buyersService.updateProfile(req.user.id, dto);
+  }
+
+  @UseGuards(JwtAuthGuard)
+  @Post('profile/avatar')
+  @UseInterceptors(
+    FileInterceptor('image', { limits: { fileSize: 5 * 1024 * 1024 } }),
+  )
+  uploadAvatar(
+    @Request() req: { user: { id: string } },
+    @UploadedFile() file: Express.Multer.File,
+  ) {
+    if (!file) throw new BadRequestException('Image file is required');
+    return this.buyersService.uploadAvatar(req.user.id, file);
   }
 
   /** Buyer home feed: upcoming live, recently viewed, recommendations. */

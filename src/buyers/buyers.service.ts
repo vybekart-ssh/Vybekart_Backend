@@ -10,12 +10,22 @@ import { UpdateBuyerProfileDto } from './dto/update-buyer-profile.dto';
 import { CreateAddressDto } from './dto/create-address.dto';
 import { UpdateAddressDto } from './dto/update-address.dto';
 import { RatingsService } from '../ratings/ratings.service';
+import { SupabaseStorageService } from '../storage/supabase-storage.service';
+
+const AVATAR_IMAGE_MIME_EXT: Record<string, string> = {
+  'image/jpeg': '.jpg',
+  'image/jpg': '.jpg',
+  'image/png': '.png',
+  'image/webp': '.webp',
+  'image/gif': '.gif',
+};
 
 @Injectable()
 export class BuyersService {
   constructor(
     private prisma: PrismaService,
     private ratings: RatingsService,
+    private supabaseStorage: SupabaseStorageService,
   ) {}
 
   async findOne(userId: string) {
@@ -31,6 +41,7 @@ export class BuyersService {
             lastName: true,
             email: true,
             phone: true,
+            avatarUrl: true,
             createdAt: true,
           },
         },
@@ -86,10 +97,53 @@ export class BuyersService {
         lastName: true,
         email: true,
         phone: true,
+        avatarUrl: true,
         createdAt: true,
       },
     });
     return { success: true, user };
+  }
+
+  async uploadAvatar(userId: string, file?: Express.Multer.File) {
+    if (!file?.buffer?.length) {
+      throw new BadRequestException('Image file is required');
+    }
+    const buyer = await this.prisma.buyer.findUnique({ where: { userId } });
+    if (!buyer) throw new NotFoundException('Buyer profile not found');
+
+    const mime = (file.mimetype ?? '').toLowerCase();
+    const ext = AVATAR_IMAGE_MIME_EXT[mime];
+    if (!ext) {
+      throw new BadRequestException('Image must be JPEG, PNG, WebP, or GIF');
+    }
+
+    const bucket = this.supabaseStorage.publicBucket();
+    const fname = `avatar-${Date.now()}${ext}`;
+    const objectKey = `vybekart-images/avatars/${userId}/${fname}`;
+    const { publicUrl: url } = await this.supabaseStorage.uploadPublicObject({
+      bucket,
+      objectKey,
+      contentType: mime,
+      bytes: file.buffer,
+      cacheControlSeconds: 60 * 60 * 24 * 30,
+      upsert: true,
+    });
+
+    const user = await this.prisma.user.update({
+      where: { id: userId },
+      data: { avatarUrl: url },
+      select: {
+        id: true,
+        name: true,
+        firstName: true,
+        middleName: true,
+        lastName: true,
+        email: true,
+        phone: true,
+        avatarUrl: true,
+      },
+    });
+    return { avatarUrl: url, user };
   }
 
   async getFeed(userId: string) {
