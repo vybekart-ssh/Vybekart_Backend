@@ -1,5 +1,9 @@
 import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
-import { StreamReplayStatus, StreamVisibility } from '@prisma/client';
+import {
+  StreamReplayStatus,
+  StreamVisibility,
+  VerificationStatus,
+} from '@prisma/client';
 import { archiveNotExpiredWhere } from '../streams/archive-retention.util';
 import { PrismaService } from '../prisma/prisma.service';
 import { UpdateBuyerProfileDto } from './dto/update-buyer-profile.dto';
@@ -416,6 +420,61 @@ export class BuyersService {
       where: { buyerId: buyer.id, sellerId },
     });
     return { unfollowed: true, sellerId };
+  }
+
+  /** All verified seller stores for buyer explore (includes stores with no live history). */
+  async listDiscoverStores(userId: string) {
+    const buyer = await this.prisma.buyer.findUnique({ where: { userId } });
+    if (!buyer) throw new NotFoundException('Buyer profile not found');
+
+    const [sellers, follows] = await Promise.all([
+      this.prisma.seller.findMany({
+        where: { status: VerificationStatus.VERIFIED },
+        orderBy: { businessName: 'asc' },
+        select: {
+          id: true,
+          businessName: true,
+          logoUrl: true,
+          description: true,
+        },
+      }),
+      this.prisma.buyerSellerFollow.findMany({
+        where: { buyerId: buyer.id },
+        select: { sellerId: true },
+      }),
+    ]);
+    const followingIds = new Set(follows.map((f) => f.sellerId));
+
+    return {
+      items: sellers.map((s) => ({
+        sellerId: s.id,
+        businessName: s.businessName,
+        logoUrl: s.logoUrl,
+        description: s.description,
+        following: followingIds.has(s.id),
+      })),
+    };
+  }
+
+  async followSeller(userId: string, sellerId: string) {
+    const buyer = await this.prisma.buyer.findUnique({ where: { userId } });
+    if (!buyer) throw new NotFoundException('Buyer profile not found');
+    const seller = await this.prisma.seller.findUnique({
+      where: { id: sellerId },
+      select: { id: true, status: true },
+    });
+    if (!seller) throw new NotFoundException('Seller not found');
+    if (seller.status !== VerificationStatus.VERIFIED) {
+      throw new BadRequestException('This store is not available to follow yet');
+    }
+    await this.prisma.buyerSellerFollow.upsert({
+      where: {
+        buyerId_sellerId: { buyerId: buyer.id, sellerId: seller.id },
+      },
+      create: { buyerId: buyer.id, sellerId: seller.id },
+      update: {},
+    });
+    return { followed: true, sellerId: seller.id };
   }
 
   async getSellerPublicProfile(sellerId: string) {

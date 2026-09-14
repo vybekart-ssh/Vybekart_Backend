@@ -130,6 +130,22 @@ export class BuyersController {
     return this.buyersService.listFollowing(req.user.id);
   }
 
+  /** Verified seller stores for explore / trending (not limited to live streams). */
+  @UseGuards(JwtAuthGuard)
+  @Get('stores')
+  listDiscoverStores(@Request() req: { user: { id: string } }) {
+    return this.buyersService.listDiscoverStores(req.user.id);
+  }
+
+  @UseGuards(JwtAuthGuard)
+  @Post('following/:sellerId')
+  followSeller(
+    @Request() req: { user: { id: string } },
+    @Param('sellerId') sellerId: string,
+  ) {
+    return this.buyersService.followSeller(req.user.id, sellerId);
+  }
+
   @UseGuards(JwtAuthGuard)
   @Delete('following/:sellerId')
   unfollow(
