@@ -694,8 +694,16 @@ export class OrdersService {
       working = { items: [] };
     }
 
-    const items = [...working.items];
     const streamId = working.streamId ?? dto.streamId;
+    if (!streamId) {
+      throw new BadRequestException(
+        'streamId is required — add products from a live stream.',
+      );
+    }
+    // Block cart lines that are not on this live listing (store API used to expose full catalog).
+    await this.assertStreamAndProducts(streamId, [dto.productId]);
+
+    const items = [...working.items];
     const streamTitle =
       working.streamTitle?.trim() ||
       dto.streamTitle?.trim() ||

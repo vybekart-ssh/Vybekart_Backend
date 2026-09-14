@@ -1535,9 +1535,23 @@ export class StreamsService {
     const sellerId = stream.seller?.id;
     if (!sellerId) throw new NotFoundException('Seller not found');
 
+    // Only products attached to this live listing — full seller catalog broke checkout
+    // with "Product is not part of this live stream listing".
+    const listedIds = (stream.streamProducts ?? [])
+      .map((sp) => sp.productId)
+      .filter(Boolean);
+    if (listedIds.length === 0) {
+      return {
+        seller: stream.seller,
+        streamId,
+        products: [],
+      };
+    }
+
     const products = await this.prisma.product.findMany({
       where: {
         sellerId,
+        id: { in: listedIds },
         status: 'ACTIVE',
         ...(query?.search
           ? { name: { contains: query.search, mode: 'insensitive' } }
@@ -1559,10 +1573,18 @@ export class StreamsService {
             : { createdAt: 'desc' },
       take: 60,
     });
+
+    // Preserve stream listing order when no explicit sort is requested.
+    const byId = new Map(products.map((p) => [p.id, p]));
+    const ordered =
+      query?.sort != null
+        ? products
+        : listedIds.map((id) => byId.get(id)).filter(Boolean);
+
     return {
       seller: stream.seller,
       streamId,
-      products,
+      products: ordered,
     };
   }
 

@@ -34,6 +34,10 @@ type BuyerOrderRow = {
       id: string;
       name: string;
       images: string[];
+      brand?: string | null;
+      description?: string | null;
+      price?: number | null;
+      mrp?: number | null;
       seller?: { businessName: string; logoUrl: string | null } | null;
     };
   }>;
@@ -156,6 +160,10 @@ export function mapBuyerOrderListItem(order: BuyerOrderRow) {
         id: i.product.id,
         name: i.product.name,
         images: i.product.images ?? [],
+        brand: i.product.brand ?? null,
+        description: i.product.description ?? null,
+        price: i.product.price ?? i.price,
+        mrp: i.product.mrp ?? null,
       },
     })),
   };
