@@ -693,6 +693,62 @@ export class StreamsService {
     };
   }
 
+  /** Minimal public payload for link unfurling (WhatsApp / Open Graph). */
+  async getSharePreview(id: string) {
+    const stream = await this.prisma.stream.findUnique({
+      where: { id },
+      select: {
+        id: true,
+        title: true,
+        description: true,
+        thumbnailUrl: true,
+        isLive: true,
+        endedAt: true,
+        seller: {
+          select: {
+            businessName: true,
+            user: { select: { name: true } },
+          },
+        },
+        streamProducts: {
+          orderBy: { sortOrder: 'asc' },
+          take: 1,
+          select: {
+            product: { select: { images: true, name: true } },
+          },
+        },
+      },
+    });
+    if (!stream) throw new NotFoundException(`Stream with ID ${id} not found`);
+    const sellerName =
+      stream.seller?.businessName?.trim() ||
+      stream.seller?.user?.name?.trim() ||
+      'Vybekart store';
+    const firstProduct = stream.streamProducts[0]?.product;
+    const thumb =
+      stream.thumbnailUrl?.trim() ||
+      firstProduct?.images?.[0]?.trim() ||
+      null;
+    const title =
+      stream.title?.trim() ||
+      firstProduct?.name?.trim() ||
+      `${sellerName} live`;
+    const description =
+      stream.description?.trim() ||
+      (stream.isLive
+        ? `Watch ${sellerName} live on Vybekart`
+        : `Watch ${sellerName}'s archived live on Vybekart`);
+    return {
+      id: stream.id,
+      title,
+      description,
+      thumbnailUrl: thumb,
+      sellerName,
+      isLive: stream.isLive,
+      hasEnded: stream.endedAt != null,
+    };
+  }
+
   private async assertStreamOwnership(streamId: string, userId: string) {
     const stream = await this.prisma.stream.findUnique({
       where: { id: streamId },

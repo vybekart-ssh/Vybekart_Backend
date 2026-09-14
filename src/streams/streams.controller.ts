@@ -101,6 +101,13 @@ export class StreamsController {
     return this.streamsService.getLiveState(id);
   }
 
+  /** Public share card for WhatsApp / OG previews (no auth). */
+  @Get(':id/share-preview')
+  @SkipThrottle()
+  getSharePreview(@Param('id') id: string) {
+    return this.streamsService.getSharePreview(id);
+  }
+
   @Get(':id/archive')
   @UseGuards(JwtAuthGuard)
   getArchive(
