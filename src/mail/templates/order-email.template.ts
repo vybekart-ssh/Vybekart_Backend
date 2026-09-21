@@ -27,7 +27,10 @@ export type OrderEmailPayload = {
   shippingAddressLine: string;
   streamTitle: string | null;
   subtotal: number;
+  /** Buyer-facing shipping line (0 when seller pays). */
   deliveryFee: number;
+  /** Actual Delhivery fee for seller visibility. */
+  actualDeliveryFee?: number;
   totalAmount: number;
   deliveryProvider: string | null;
   items: OrderEmailLine[];
@@ -222,7 +225,7 @@ export function buildSellerNewOrderEmail(
         : []),
     ])}
     ${lineItemsHtml(order.items)}
-    ${totalsBlock(order.subtotal, order.deliveryFee, order.totalAmount)}
+    ${totalsBlock(order.subtotal, order.actualDeliveryFee ?? order.deliveryFee, order.totalAmount)}
     <p style="margin:0;font-size:13px;color:#64748b;line-height:1.5;">Open the <strong>Vybekart Seller Partner</strong> app → Orders to accept, pack, and request delivery.</p>
   `;
 

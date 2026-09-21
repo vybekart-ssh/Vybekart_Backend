@@ -109,6 +109,7 @@ export class OrderNotificationService {
     shippingAddress: string | null;
     totalAmount: number;
     deliveryFee: number;
+    shippingPayer?: string | null;
     deliveryProvider: string | null;
     razorpayPaymentId: string | null;
     items: Array<{
@@ -128,7 +129,9 @@ export class OrderNotificationService {
       (sum, i) => sum + i.price * i.quantity,
       0,
     );
-    const deliveryFee = order.deliveryFee ?? 0;
+    const actualDeliveryFee = order.deliveryFee ?? 0;
+    const buyerDeliveryFee =
+      order.shippingPayer === 'BUYER_PAYS' ? actualDeliveryFee : 0;
     const shippingSnapshot = order.shippingAddress?.trim() || '—';
     const shippingParts = parseShippingAddressSnapshot(shippingSnapshot);
 
@@ -149,7 +152,10 @@ export class OrderNotificationService {
       shippingAddressLine: shippingParts.shippingAddressLine,
       streamTitle: order.stream?.title ?? null,
       subtotal: itemsSubtotal,
-      deliveryFee,
+      /** Buyer-facing shipping (Free when seller pays). */
+      deliveryFee: buyerDeliveryFee,
+      /** Actual Delhivery fee for seller-facing emails. */
+      actualDeliveryFee,
       totalAmount: order.totalAmount,
       deliveryProvider: order.deliveryProvider,
       buyerName: order.buyer?.user?.name?.trim() || 'Customer',

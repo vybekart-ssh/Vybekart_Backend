@@ -103,11 +103,15 @@ export class InvoicesService {
       const sellerAddress = await this.resolveSellerAddress(seller);
       this.assertSellerInvoiceReady(seller.businessName, sellerAddress);
 
+      const actualDeliveryFee = order.deliveryFee;
+      const buyerFacingDeliveryFee =
+        order.shippingPayer === 'BUYER_PAYS' ? actualDeliveryFee : 0;
       const deliveryShare =
         grouped.size === 1
-          ? order.deliveryFee
+          ? buyerFacingDeliveryFee
           : roundInr(
-              (order.deliveryFee * items.reduce((s, i) => s + i.price * i.quantity, 0)) /
+              (buyerFacingDeliveryFee *
+                items.reduce((s, i) => s + i.price * i.quantity, 0)) /
                 Math.max(
                   order.items.reduce((s, i) => s + i.price * i.quantity, 0),
                   1,

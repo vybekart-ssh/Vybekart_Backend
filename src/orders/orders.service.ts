@@ -9,7 +9,7 @@ import {
 import { PrismaService } from '../prisma/prisma.service';
 import { CreateOrderDto } from './dto/create-order.dto';
 import { ShipOrderDto } from './dto/ship-order.dto';
-import { Address, AddressType, OrderStatus, Prisma } from '@prisma/client';
+import { Address, AddressType, OrderStatus, Prisma, ShippingPayer } from '@prisma/client';
 import { RedisService } from '../redis/redis.service';
 import { CartItemDto } from './dto/cart-item.dto';
 import { CheckoutOrderDto } from './dto/checkout-order.dto';
@@ -41,6 +41,7 @@ import {
   mapBuyerOrderDetail,
   mapBuyerOrderListItem,
 } from './buyer-order.mapper';
+import { AppConfigService } from '../app-config/app-config.service';
 
 const POST_LIVE_CART_HOURS = 24;
 
@@ -64,7 +65,16 @@ export class OrdersService {
     private delhivery: DelhiveryService,
     private ratings: RatingsService,
     private orderNotifications: OrderNotificationService,
+    private appConfig: AppConfigService,
   ) {}
+
+  /** Fee charged to the buyer given who pays shipping. */
+  private buyerDeliveryFeeFor(
+    shippingPayer: ShippingPayer,
+    actualFee: number,
+  ): number {
+    return shippingPayer === ShippingPayer.BUYER_PAYS ? actualFee : 0;
+  }
 
   private async assertStreamAndProducts(streamId: string, productIds: string[]) {
     const stream = await this.prisma.stream.findUnique({
@@ -815,26 +825,36 @@ export class OrdersService {
     const { formatted: shippingAddress } =
       await this.resolveShippingAddressOrThrow(userId, addressId);
 
-    let deliveryFee = 0;
+    const shippingPayer = await this.appConfig.getShippingPayer();
+
+    let actualDeliveryFee = 0;
     let deliveryProvider: string | null = null;
     try {
       const quote = await this.getDeliveryQuoteFromCart(userId, addressId);
-      deliveryFee = quote?.fee ?? 0;
+      actualDeliveryFee = quote?.fee ?? 0;
       deliveryProvider = quote?.provider ?? null;
     } catch (e) {
       if (e instanceof BadRequestException) throw e;
-      deliveryFee = 0;
+      actualDeliveryFee = 0;
     }
 
+    const buyerDeliveryFee = this.buyerDeliveryFeeFor(
+      shippingPayer,
+      actualDeliveryFee,
+    );
     const subtotal = cart.subtotal ?? 0;
-    const total = subtotal + deliveryFee;
+    const total = subtotal + buyerDeliveryFee;
     if (total <= 0) {
       throw new BadRequestException('Cart total must be greater than zero');
     }
 
     return {
       subtotal,
-      deliveryFee,
+      /** Actual Delhivery fee (always stored on the order). */
+      deliveryFee: actualDeliveryFee,
+      /** Amount charged to the buyer (0 when seller pays). */
+      buyerDeliveryFee,
+      shippingPayer,
       total,
       streamId,
       shippingAddress,
@@ -851,6 +871,8 @@ export class OrdersService {
     return {
       subtotal: prep.subtotal,
       deliveryFee: prep.deliveryFee,
+      buyerDeliveryFee: prep.buyerDeliveryFee,
+      shippingPayer: prep.shippingPayer,
       total: prep.total,
       streamId: prep.streamId,
     };
@@ -861,13 +883,18 @@ export class OrdersService {
     status: OrderStatus;
     totalAmount: number;
     deliveryFee?: number | null;
+    shippingPayer?: ShippingPayer | null;
     shippingAddress?: string | null;
   }) {
+    const shippingPayer = order.shippingPayer ?? ShippingPayer.SELLER_PAYS;
+    const actualFee = order.deliveryFee ?? 0;
     return {
       orderId: order.id,
       status: order.status,
       totalAmount: order.totalAmount,
-      deliveryFee: order.deliveryFee ?? 0,
+      deliveryFee: actualFee,
+      buyerDeliveryFee: this.buyerDeliveryFeeFor(shippingPayer, actualFee),
+      shippingPayer,
       estimatedDelivery: 'October 20, 2024',
       shippingAddress: order.shippingAddress ?? '',
       paymentMethod: 'RAZORPAY',
@@ -889,8 +916,11 @@ export class OrdersService {
       markPaid?: boolean;
       razorpayOrderId?: string;
       razorpayPaymentId?: string;
-      /** When set (Razorpay verify), skip re-quote and use this fee. */
+      /** Actual Delhivery fee (always persisted). */
       deliveryFee?: number;
+      /** Amount charged to buyer; when omitted, derived from shippingPayer. */
+      buyerDeliveryFee?: number;
+      shippingPayer?: ShippingPayer;
       deliveryProvider?: string | null;
     },
   ) {
@@ -931,6 +961,9 @@ export class OrdersService {
       throw new BadRequestException('Shipping address is required');
     }
 
+    const shippingPayer =
+      options?.shippingPayer ?? (await this.appConfig.getShippingPayer());
+
     const quote =
       dto.addressId?.trim() && options?.deliveryFee === undefined
         ? await this.getDeliveryQuoteFromCart(userId, dto.addressId).catch(
@@ -943,14 +976,18 @@ export class OrdersService {
       throw new BadRequestException('Order creation failed');
     }
 
-    const deliveryFee = options?.deliveryFee ?? quote?.fee ?? 0;
-    const updateData: Prisma.OrderUpdateInput = {};
-    if (deliveryFee > 0) {
-      updateData.deliveryFee = deliveryFee;
-      updateData.deliveryProvider =
-        options?.deliveryProvider ?? quote?.provider ?? undefined;
-      updateData.totalAmount = order.totalAmount + deliveryFee;
-    }
+    const actualDeliveryFee = options?.deliveryFee ?? quote?.fee ?? 0;
+    const buyerDeliveryFee =
+      options?.buyerDeliveryFee ??
+      this.buyerDeliveryFeeFor(shippingPayer, actualDeliveryFee);
+
+    const updateData: Prisma.OrderUpdateInput = {
+      deliveryFee: actualDeliveryFee,
+      shippingPayer,
+      deliveryProvider:
+        options?.deliveryProvider ?? quote?.provider ?? undefined,
+      totalAmount: order.totalAmount + buyerDeliveryFee,
+    };
     if (options?.markPaid) {
       updateData.status = OrderStatus.PAID;
       if (options.razorpayOrderId) {
@@ -961,28 +998,22 @@ export class OrdersService {
       }
     }
 
-    let orderId = order.id;
-    let orderStatus = order.status;
-    let orderTotal = order.totalAmount;
-    if (Object.keys(updateData).length > 0) {
-      const updated = await this.prisma.order.update({
-        where: { id: order.id },
-        data: updateData,
-      });
-      orderId = updated.id;
-      orderStatus = updated.status;
-      orderTotal = updated.totalAmount;
-    }
+    const updated = await this.prisma.order.update({
+      where: { id: order.id },
+      data: updateData,
+    });
 
     await this.clearCart(userId, streamId ?? undefined, 'checkout completed');
 
-    void this.orderNotifications.sendOrderPlacedEmails(orderId);
+    void this.orderNotifications.sendOrderPlacedEmails(updated.id);
 
     return {
-      orderId,
-      status: orderStatus,
-      totalAmount: orderTotal,
-      deliveryFee,
+      orderId: updated.id,
+      status: updated.status,
+      totalAmount: updated.totalAmount,
+      deliveryFee: actualDeliveryFee,
+      buyerDeliveryFee,
+      shippingPayer,
       estimatedDelivery: 'October 20, 2024',
       shippingAddress: createDto.shippingAddress ?? dto.shippingAddress ?? '',
       paymentMethod: dto.paymentMethod ?? 'CARD',
@@ -1034,9 +1065,12 @@ export class OrdersService {
     const originPin = pickup.zip?.trim();
     const destPin = buyerAddr.zip?.trim();
     if (!originPin || !destPin) {
+      const shippingPayer = await this.appConfig.getShippingPayer();
       return {
         provider: this.delhivery.isConfigured() ? 'DELHIVERY' : null,
         fee: 0,
+        buyerDeliveryFee: 0,
+        shippingPayer,
         configured: this.delhivery.isConfigured(),
         message: 'PIN codes required for delivery quote',
       };
@@ -1049,18 +1083,25 @@ export class OrdersService {
       paymentMode: 'Pre-paid',
     });
 
+    const shippingPayer = await this.appConfig.getShippingPayer();
+
     if (!quote) {
       return {
         provider: null,
         fee: 0,
+        buyerDeliveryFee: 0,
+        shippingPayer,
         configured: false,
         message: 'Delivery partner not configured — shipping fee waived for now',
       };
     }
 
+    const actualFee = quote.fee;
     return {
       provider: 'DELHIVERY',
-      fee: quote.fee,
+      fee: actualFee,
+      buyerDeliveryFee: this.buyerDeliveryFeeFor(shippingPayer, actualFee),
+      shippingPayer,
       configured: true,
       raw: quote.raw,
     };

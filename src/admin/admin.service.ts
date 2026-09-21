@@ -85,7 +85,8 @@ export class AdminService {
       dto.latestAndroidVersionName !== undefined ||
       dto.productGstPriceThresholdInr !== undefined ||
       dto.productGstPercentBelow !== undefined ||
-      dto.productGstPercentAtOrAbove !== undefined;
+      dto.productGstPercentAtOrAbove !== undefined ||
+      dto.shippingPayer !== undefined;
     if (!hasUpdate) {
       return this.appConfig.getPublicAndroid();
     }
@@ -95,6 +96,7 @@ export class AdminService {
       productGstPriceThresholdInr: dto.productGstPriceThresholdInr,
       productGstPercentBelow: dto.productGstPercentBelow,
       productGstPercentAtOrAbove: dto.productGstPercentAtOrAbove,
+      shippingPayer: dto.shippingPayer,
     });
     return this.appConfig.getPublicAndroid();
   }

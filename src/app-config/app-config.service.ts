@@ -1,5 +1,6 @@
 import { Injectable } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
+import { ShippingPayer } from '@prisma/client';
 
 const GLOBAL_CONFIG_ID = 'global';
 
@@ -21,12 +22,18 @@ export class AppConfigService {
       productGstPriceThresholdInr: row.productGstPriceThresholdInr,
       productGstPercentBelow: row.productGstPercentBelow,
       productGstPercentAtOrAbove: row.productGstPercentAtOrAbove,
+      shippingPayer: row.shippingPayer,
     };
   }
 
   async getMinAndroidVersionCode(): Promise<number> {
     const row = await this.ensureRow();
     return row.minAndroidVersionCode;
+  }
+
+  async getShippingPayer(): Promise<ShippingPayer> {
+    const row = await this.ensureRow();
+    return row.shippingPayer;
   }
 
   async getProductGstSlabRules(): Promise<ProductGstSlabRules> {
@@ -58,6 +65,7 @@ export class AppConfigService {
     productGstPriceThresholdInr?: number;
     productGstPercentBelow?: number;
     productGstPercentAtOrAbove?: number;
+    shippingPayer?: ShippingPayer;
   }) {
     await this.ensureRow();
     return this.prisma.appConfig.update({
@@ -78,6 +86,9 @@ export class AppConfigService {
         ...(data.productGstPercentAtOrAbove !== undefined && {
           productGstPercentAtOrAbove: data.productGstPercentAtOrAbove,
         }),
+        ...(data.shippingPayer !== undefined && {
+          shippingPayer: data.shippingPayer,
+        }),
       },
     });
   }
@@ -92,6 +103,7 @@ export class AppConfigService {
         productGstPriceThresholdInr: 1000,
         productGstPercentBelow: 5,
         productGstPercentAtOrAbove: 12,
+        shippingPayer: ShippingPayer.SELLER_PAYS,
       },
       update: {},
     });

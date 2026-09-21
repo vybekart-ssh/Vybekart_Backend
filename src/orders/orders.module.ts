@@ -7,9 +7,18 @@ import { MockDeliveryService } from './mock-delivery.service';
 import { DelhiveryModule } from '../delhivery/delhivery.module';
 import { AuthModule } from '../auth/auth.module';
 import { RatingsModule } from '../ratings/ratings.module';
+import { AppConfigModule } from '../app-config/app-config.module';
+import { MailModule } from '../mail/mail.module';
 
 @Module({
-  imports: [PrismaModule, AuthModule, DelhiveryModule, RatingsModule],
+  imports: [
+    PrismaModule,
+    AuthModule,
+    DelhiveryModule,
+    RatingsModule,
+    AppConfigModule,
+    MailModule,
+  ],
   controllers: [OrdersController],
   providers: [OrdersService, MockDeliveryService, CartExpirySweepService],
   exports: [OrdersService],

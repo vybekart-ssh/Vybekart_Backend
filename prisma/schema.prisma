@@ -31,6 +31,12 @@ enum VerificationStatus {
   NEEDS_CHANGES
 }
 
+/// Who pays Delhivery shipping at checkout (Master Console toggle).
+enum ShippingPayer {
+  BUYER_PAYS
+  SELLER_PAYS
+}
+
 /// Singleton row (`id = "global"`): min Android version gate + product GST slab rules for the seller app.
 model AppConfig {
   id                       String   @id
@@ -40,6 +46,8 @@ model AppConfig {
   productGstPriceThresholdInr Float @default(1000)
   productGstPercentBelow      Float @default(5)
   productGstPercentAtOrAbove  Float @default(12)
+  /// Who is charged Delhivery shipping at checkout. Default: seller absorbs fee.
+  shippingPayer            ShippingPayer @default(SELLER_PAYS)
   updatedAt                DateTime @updatedAt
 }
 
@@ -475,8 +483,11 @@ model Order {
   status      OrderStatus @default(PENDING)
   totalAmount Float
 
-  /// Delivery fee charged to buyer at checkout (₹)
+  /// Actual Delhivery fee at checkout (₹). Always stored even when seller pays.
   deliveryFee Float @default(0)
+
+  /// Snapshot of who paid shipping when the order was placed.
+  shippingPayer ShippingPayer @default(SELLER_PAYS)
 
   /// Delivery provider integration (e.g., BORZO)
   deliveryProvider String?

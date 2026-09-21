@@ -14,6 +14,7 @@ import { PrismaService } from '../prisma/prisma.service';
 import {
   BalancePaymentStatus,
   ReplacementStatus,
+  ShippingPayer,
 } from '@prisma/client';
 import { CreateRazorpayOrderDto } from './dto/create-razorpay-order.dto';
 import { VerifyRazorpayPaymentDto } from './dto/verify-razorpay-payment.dto';
@@ -27,7 +28,11 @@ type PendingPayment = {
   shippingAddress: string;
   amountPaise: number;
   subtotal: number;
+  /** Actual Delhivery fee. */
   deliveryFee: number;
+  /** Amount charged to buyer (0 when seller pays). Absent on legacy pending sessions. */
+  buyerDeliveryFee?: number;
+  shippingPayer?: ShippingPayer;
   deliveryProvider: string | null;
   streamId: string;
 };
@@ -185,6 +190,8 @@ export class PaymentsService {
       amountPaise,
       subtotal: prep.subtotal,
       deliveryFee: prep.deliveryFee,
+      buyerDeliveryFee: prep.buyerDeliveryFee,
+      shippingPayer: prep.shippingPayer,
       deliveryProvider: prep.deliveryProvider,
       streamId: prep.streamId,
     };
@@ -200,7 +207,7 @@ export class PaymentsService {
     });
 
     this.logger.log(
-      `Razorpay order created user=${userId} rz=${rzOrder.id} address=${dto.addressId} total=${prep.total}`,
+      `Razorpay order created user=${userId} rz=${rzOrder.id} address=${dto.addressId} total=${prep.total} shippingPayer=${prep.shippingPayer}`,
     );
 
     return {
@@ -210,6 +217,8 @@ export class PaymentsService {
       keyId: this.config.get<string>('RAZORPAY_KEY_ID'),
       subtotal: prep.subtotal,
       deliveryFee: prep.deliveryFee,
+      buyerDeliveryFee: prep.buyerDeliveryFee,
+      shippingPayer: prep.shippingPayer,
       total: prep.total,
       prefill: {
         name: user?.name ?? '',
@@ -290,6 +299,12 @@ export class PaymentsService {
           razorpayOrderId: dto.razorpayOrderId,
           razorpayPaymentId: dto.razorpayPaymentId,
           deliveryFee: pending.deliveryFee,
+          buyerDeliveryFee:
+            pending.buyerDeliveryFee ??
+            (pending.shippingPayer === ShippingPayer.SELLER_PAYS
+              ? 0
+              : pending.deliveryFee),
+          shippingPayer: pending.shippingPayer,
           deliveryProvider: pending.deliveryProvider,
         },
       );

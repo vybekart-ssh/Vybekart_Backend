@@ -137,8 +137,8 @@ export function calculateSellerPayout(
   ];
 
   const disclaimers = [
-    'Product price is what shoppers pay. Delivery is added separately at checkout.',
-    `Logistics deduction is estimated (₹${logisticsBase} + GST). Actual shipping may differ.`,
+    'Product price is what shoppers pay. Delivery may be charged to the buyer or deducted from your settlement depending on Master Console settings.',
+    `Logistics deduction is estimated (₹${logisticsBase} + GST). When seller pays shipping, the real Delhivery fee at order time is deducted from settlement.`,
     'TDS and TCS are statutory withholdings shown for transparency.',
   ];
 

@@ -1,4 +1,4 @@
-import { OrderStatus } from '@prisma/client';
+import { OrderStatus, ShippingPayer } from '@prisma/client';
 import type { ReplacementTimelineStep } from '../replacements/replacement.mapper';
 
 export type BuyerTimelineStepState = 'done' | 'active' | 'upcoming';
@@ -15,6 +15,7 @@ type BuyerOrderRow = {
   status: OrderStatus;
   totalAmount: number;
   deliveryFee: number;
+  shippingPayer?: ShippingPayer | null;
   shippingAddress: string | null;
   createdAt: Date;
   packedAt: Date | null;
@@ -43,6 +44,11 @@ type BuyerOrderRow = {
   }>;
   replacementRequests?: Array<{ id: string; status: string }>;
 };
+
+function buyerFacingDeliveryFee(order: BuyerOrderRow): number {
+  const payer = order.shippingPayer ?? ShippingPayer.SELLER_PAYS;
+  return payer === ShippingPayer.BUYER_PAYS ? order.deliveryFee : 0;
+}
 
 export function buildBuyerOrderTimeline(
   order: Pick<
@@ -141,7 +147,9 @@ export function mapBuyerOrderListItem(order: BuyerOrderRow) {
     id: order.id,
     status: order.status,
     totalAmount: order.totalAmount,
-    deliveryFee: order.deliveryFee,
+    deliveryFee: buyerFacingDeliveryFee(order),
+    buyerDeliveryFee: buyerFacingDeliveryFee(order),
+    shippingPayer: order.shippingPayer ?? ShippingPayer.SELLER_PAYS,
     createdAt: order.createdAt.toISOString(),
     deliveredAt: order.deliveredAt?.toISOString() ?? null,
     itemCount,

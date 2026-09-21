@@ -1,4 +1,5 @@
 import {
+  IsEnum,
   IsInt,
   IsNumber,
   IsOptional,
@@ -8,6 +9,7 @@ import {
   Min,
 } from 'class-validator';
 import { Type } from 'class-transformer';
+import { ShippingPayer } from '@prisma/client';
 
 export class UpdateAppConfigDto {
   @IsOptional()
@@ -41,4 +43,9 @@ export class UpdateAppConfigDto {
   @Min(0)
   @Max(100)
   productGstPercentAtOrAbove?: number;
+
+  /** Who pays Delhivery shipping at checkout. */
+  @IsOptional()
+  @IsEnum(ShippingPayer)
+  shippingPayer?: ShippingPayer;
 }
