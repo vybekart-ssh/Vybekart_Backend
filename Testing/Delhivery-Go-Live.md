@@ -15,7 +15,7 @@ Set these, then **redeploy** the backend.
 | `DELHIVERY_ENV` | `prod` | Uses `https://track.delhivery.com` |
 | `DELHIVERY_API_TOKEN_PROD` | Your live API token | From Delhivery One → Settings → API Setup |
 | `DELHIVERY_CLIENT_NAME` | Exact HQ/client name | Case-sensitive — from Delhivery account manager |
-| `DELHIVERY_PICKUP_LOCATION` | Exact warehouse name | Must match registered warehouse in Delhivery |
+| `DELHIVERY_PICKUP_LOCATION` | *(optional / unused)* | Per-seller warehouses are auto-registered via Client Warehouse Create API |
 | `DELHIVERY_AUTO_PICKUP_REQUEST` | `true` | Schedules pickup after AWB creation (recommended) |
 | `DELHIVERY_PICKUP_TIME` | `15:00:00` | IST pickup slot (hh:mm:ss) |
 
@@ -45,7 +45,7 @@ See `Testing/Invoice-Setup.md` — defaults work without extra vars.
 
 1. **Live API token** — Delhivery One → Settings → API Setup  
 2. **Client name** (`DELHIVERY_CLIENT_NAME`) — exact string Delhivery uses for your account  
-3. **Warehouse / pickup location name** (`DELHIVERY_PICKUP_LOCATION`) — exact registered name  
+3. **Per-seller warehouses** — auto-created via Client Warehouse Create API when pickup is saved / seller approved / first request-delivery (no manual panel per seller)  
 4. Confirm **Express** mode is enabled on your account (app sends `shipping_mode: Express`)  
 5. Optional: ask BD manager to schedule **daily auto-pickup** if you prefer panel over API
 

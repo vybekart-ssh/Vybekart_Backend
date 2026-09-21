@@ -9,10 +9,13 @@ import { firstValueFrom } from 'rxjs';
 import type {
   DelhiveryCreateShipmentParams,
   DelhiveryCreateShipmentResult,
+  DelhiveryCreateWarehouseParams,
+  DelhiveryEditWarehouseParams,
   DelhiveryEnv,
   DelhiveryPickupRequestResult,
   DelhiveryShippingCostParams,
   DelhiveryShippingCostResult,
+  DelhiveryWarehouseResult,
 } from './delhivery.types';
 
 @Injectable()
@@ -378,6 +381,152 @@ export class DelhiveryService {
     } catch {
       return 'no waybill returned';
     }
+  }
+
+  /**
+   * Register a pickup warehouse on the Delhivery client account.
+   * @see https://delhivery-express-api-doc.readme.io/reference/clientwarehouse-create-api
+   */
+  async createClientWarehouse(
+    params: DelhiveryCreateWarehouseParams,
+  ): Promise<DelhiveryWarehouseResult> {
+    if (!this.isConfigured()) {
+      return {
+        success: false,
+        name: null,
+        error: 'Delhivery is not configured',
+        raw: null,
+      };
+    }
+
+    const name = params.name.trim();
+    const registeredName = (params.registeredName ?? name).trim();
+    const country = params.country?.trim() || 'India';
+    const body = {
+      phone: params.phone.replace(/\D/g, ''),
+      city: params.city.trim(),
+      name,
+      pin: params.pin.trim(),
+      address: params.address.trim(),
+      country,
+      email: params.email.trim(),
+      registered_name: registeredName,
+      return_address: (params.returnAddress ?? params.address).trim(),
+      return_pin: (params.returnPin ?? params.pin).trim(),
+      return_city: (params.returnCity ?? params.city).trim(),
+      return_state: (params.returnState ?? params.city).trim(),
+      return_country: (params.returnCountry ?? country).trim(),
+    };
+
+    const url = `${this.baseUrl()}/api/backend/clientwarehouse/create/`;
+    try {
+      const res = await firstValueFrom(
+        this.http.post(url, body, {
+          headers: {
+            ...this.authHeaders(),
+            'Content-Type': 'application/json',
+            Accept: 'application/json',
+          },
+        }),
+      );
+      const data = res.data as Record<string, unknown>;
+      const success = data?.success === true || data?.success === 'true';
+      const error =
+        typeof data?.error === 'string' && data.error.trim()
+          ? data.error.trim()
+          : null;
+      if (!success) {
+        this.logger.warn(
+          `Delhivery createClientWarehouse failed name=${name} error=${error ?? JSON.stringify(data).slice(0, 200)}`,
+        );
+        return { success: false, name, error: error ?? 'Warehouse create failed', raw: data };
+      }
+      this.logger.log(`Delhivery warehouse created name=${name}`);
+      return { success: true, name, error: null, raw: data };
+    } catch (e: unknown) {
+      return this.warehouseHttpError('createClientWarehouse', name, e);
+    }
+  }
+
+  /**
+   * Update an existing Delhivery warehouse (address / pin / phone).
+   * @see https://delhivery-express-api-doc.readme.io/reference/clientwarehouse-edit-api
+   */
+  async editClientWarehouse(
+    params: DelhiveryEditWarehouseParams,
+  ): Promise<DelhiveryWarehouseResult> {
+    if (!this.isConfigured()) {
+      return {
+        success: false,
+        name: null,
+        error: 'Delhivery is not configured',
+        raw: null,
+      };
+    }
+
+    const name = params.name.trim();
+    const body: Record<string, string> = {
+      name,
+      pin: params.pin.trim(),
+    };
+    if (params.registeredName?.trim()) {
+      body.registered_name = params.registeredName.trim();
+    }
+    if (params.address?.trim()) body.address = params.address.trim();
+    if (params.phone?.trim()) body.phone = params.phone.replace(/\D/g, '');
+
+    const url = `${this.baseUrl()}/api/backend/clientwarehouse/edit/`;
+    try {
+      const res = await firstValueFrom(
+        this.http.post(url, body, {
+          headers: {
+            ...this.authHeaders(),
+            'Content-Type': 'application/json',
+            Accept: 'application/json',
+          },
+        }),
+      );
+      const data = res.data as Record<string, unknown>;
+      const success = data?.success === true || data?.success === 'true';
+      const error =
+        typeof data?.error === 'string' && data.error.trim()
+          ? data.error.trim()
+          : null;
+      if (!success) {
+        this.logger.warn(
+          `Delhivery editClientWarehouse failed name=${name} error=${error ?? JSON.stringify(data).slice(0, 200)}`,
+        );
+        return { success: false, name, error: error ?? 'Warehouse edit failed', raw: data };
+      }
+      this.logger.log(`Delhivery warehouse updated name=${name}`);
+      return { success: true, name, error: null, raw: data };
+    } catch (e: unknown) {
+      return this.warehouseHttpError('editClientWarehouse', name, e);
+    }
+  }
+
+  private warehouseHttpError(
+    op: string,
+    name: string,
+    e: unknown,
+  ): DelhiveryWarehouseResult {
+    const axiosData =
+      e &&
+      typeof e === 'object' &&
+      'response' in e &&
+      (e as { response?: { data?: unknown } }).response?.data;
+    let error =
+      e instanceof Error ? e.message : String(e);
+    if (axiosData && typeof axiosData === 'object') {
+      const obj = axiosData as Record<string, unknown>;
+      if (typeof obj.error === 'string' && obj.error.trim()) {
+        error = obj.error.trim();
+      } else if (typeof obj.detail === 'string' && obj.detail.trim()) {
+        error = obj.detail.trim();
+      }
+    }
+    this.logger.warn(`Delhivery ${op} failed name=${name} error=${error}`);
+    return { success: false, name, error, raw: axiosData ?? { error } };
   }
 
   /** Admin / health: verify token + optional pincode without creating shipments. */

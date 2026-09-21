@@ -19,6 +19,7 @@ import { PrismaService } from '../prisma/prisma.service';
 import { MailService } from '../mail/mail.service';
 import { RatingsService } from '../ratings/ratings.service';
 import { DelhiveryService } from '../delhivery/delhivery.service';
+import { DelhiveryWarehouseService } from '../delhivery/delhivery-warehouse.service';
 import { CreateReplacementDto } from './dto/create-replacement.dto';
 import { DecideReplacementDto } from './dto/decide-replacement.dto';
 import {
@@ -58,6 +59,7 @@ export class ReplacementsService {
     private readonly ratings: RatingsService,
     private readonly config: ConfigService,
     private readonly delhivery: DelhiveryService,
+    private readonly delhiveryWarehouses: DelhiveryWarehouseService,
   ) {}
 
   private assertSellerCanFulfill(req: {
@@ -732,10 +734,15 @@ export class ReplacementsService {
       );
     }
 
-    const pickupLocationName =
-      this.config.get<string>('DELHIVERY_PICKUP_LOCATION')?.trim() ||
-      seller.businessName?.trim() ||
-      '';
+    const pickupLocationName = await this.delhiveryWarehouses.ensureForSeller(
+      seller.id,
+      { throwOnFailure: true },
+    );
+    if (!pickupLocationName) {
+      throw new BadRequestException(
+        'Could not register seller pickup with Delhivery. Update pickup address and try again.',
+      );
+    }
 
     const shipmentData = await this.delhivery.createShipment({
       orderId: id.replace(/-/g, '').slice(0, 32),

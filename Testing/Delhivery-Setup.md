@@ -14,7 +14,7 @@ Production setup for express delivery via Delhivery CMU API.
 | `DELHIVERY_ENV` | `prod` | `prod` = live API (`track.delhivery.com`) |
 | `DELHIVERY_API_TOKEN_PROD` | `<live token>` | From Delhivery One → API Setup |
 | `DELHIVERY_CLIENT_NAME` | Exact client name | Must match Delhivery account (case-sensitive) |
-| `DELHIVERY_PICKUP_LOCATION` | Warehouse name | **Exact** registered warehouse name |
+| `DELHIVERY_PICKUP_LOCATION` | *(optional legacy)* | No longer required — each seller warehouse is auto-created via API |
 | `DELHIVERY_AUTO_PICKUP_REQUEST` | `true` | Auto-schedule pickup after AWB creation |
 | `DELHIVERY_PICKUP_TIME` | `15:00:00` | IST pickup slot (hh:mm:ss) |
 
@@ -26,6 +26,21 @@ Also required for full E2E: `RAZORPAY_KEY_ID`, `RAZORPAY_KEY_SECRET`.
 GET /admin/delhivery/status?pin=400001
 Authorization: Bearer <admin_jwt>
 ```
+
+---
+
+## Per-seller warehouses (automated)
+
+Vybekart registers each seller’s pickup address as a Delhivery **client warehouse** via API:
+
+- On seller **approve** and pickup **address save** (best-effort)
+- On **Request delivery** (required — blocks with a clear error if sync fails)
+
+Stored on `Seller.delhiveryWarehouseName` (stable id like `VKa1b2c3d4…`). That name is what CMU uses as `pickup_location.name`.
+
+You do **not** need to set `DELHIVERY_PICKUP_LOCATION` per seller. Global env still needs API token + `DELHIVERY_CLIENT_NAME`.
+
+Seller must have: pickup pin (6 digits), phone (10 digits), email.
 
 ---
 

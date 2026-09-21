@@ -184,6 +184,11 @@ model Seller {
   /// Phase 2: 0% commission while live-stream reward active
   commissionWaiverActive Boolean @default(false)
 
+  /// Exact Delhivery client-warehouse name used as pickup_location.name (auto-synced).
+  delhiveryWarehouseName      String?
+  delhiveryWarehouseSyncedAt  DateTime?
+  delhiveryWarehouseLastError String? @db.Text
+
   rating                SellerRating?
   replacementRequests   ReplacementRequest[]
   followers             BuyerSellerFollow[]

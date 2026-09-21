@@ -42,6 +42,7 @@ import {
   mapBuyerOrderListItem,
 } from './buyer-order.mapper';
 import { AppConfigService } from '../app-config/app-config.service';
+import { DelhiveryWarehouseService } from '../delhivery/delhivery-warehouse.service';
 
 const POST_LIVE_CART_HOURS = 24;
 
@@ -66,6 +67,7 @@ export class OrdersService {
     private ratings: RatingsService,
     private orderNotifications: OrderNotificationService,
     private appConfig: AppConfigService,
+    private delhiveryWarehouses: DelhiveryWarehouseService,
   ) {}
 
   /** Fee charged to the buyer given who pays shipping. */
@@ -1921,20 +1923,13 @@ export class OrdersService {
       );
     }
 
-    const configuredPickup =
-      this.config.get<string>('DELHIVERY_PICKUP_LOCATION')?.trim() || '';
-    const pickupLocationName =
-      configuredPickup || seller.businessName?.trim() || '';
-
-    if (!configuredPickup) {
-      this.logger.warn(
-        `request-delivery order=${orderId}: DELHIVERY_PICKUP_LOCATION unset; using seller businessName="${pickupLocationName}" (must match Delhivery warehouse name exactly)`,
-      );
-    }
-
+    const pickupLocationName = await this.delhiveryWarehouses.ensureForSeller(
+      seller.id,
+      { throwOnFailure: true },
+    );
     if (!pickupLocationName) {
       throw new BadRequestException(
-        'Delhivery pickup location is not configured. Set DELHIVERY_PICKUP_LOCATION to the warehouse name registered in Delhivery.',
+        'Could not register seller pickup with Delhivery. Update pickup address and try again.',
       );
     }
 

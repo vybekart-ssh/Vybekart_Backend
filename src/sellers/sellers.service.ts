@@ -3,6 +3,7 @@ import {
   NotFoundException,
   BadRequestException,
   ConflictException,
+  Logger,
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { PrismaService } from '../prisma/prisma.service';
@@ -19,6 +20,7 @@ import { FirebasePushService } from '../notifications/firebase-push.service';
 import { RatingsService } from '../ratings/ratings.service';
 import { calculateSellerPayout } from '../pricing/seller-payout-calculator';
 import { PricingPreviewQueryDto } from './dto/pricing-preview.dto';
+import { DelhiveryWarehouseService } from '../delhivery/delhivery-warehouse.service';
 
 const STORE_IMAGE_MIME_EXT: Record<string, string> = {
   'image/jpeg': '.jpg',
@@ -32,12 +34,15 @@ const STORE_IMAGE_MIME_EXT: Record<string, string> = {
 
 @Injectable()
 export class SellersService {
+  private readonly logger = new Logger(SellersService.name);
+
   constructor(
     private prisma: PrismaService,
     private config: ConfigService,
     private supabaseStorage: SupabaseStorageService,
     private firebasePush: FirebasePushService,
     private ratings: RatingsService,
+    private delhiveryWarehouses: DelhiveryWarehouseService,
   ) {}
 
   private async bestEffortPushToSellerUser(
@@ -286,6 +291,12 @@ export class SellersService {
       'Your seller account is verified. You can now start selling on Vybekart.',
       { type: 'SELLER_VERIFICATION', status: 'VERIFIED', sellerId },
     );
+    // Best-effort: register pickup as Delhivery warehouse (does not block approval).
+    void this.delhiveryWarehouses.ensureForSeller(sellerId).catch((e) => {
+      this.logger.warn(
+        `Delhivery warehouse sync on approve failed seller=${sellerId}: ${e instanceof Error ? e.message : e}`,
+      );
+    });
     return updated;
   }
 
@@ -1109,6 +1120,13 @@ export class SellersService {
     await this.prisma.seller.update({
       where: { userId },
       data: { businessAddress: legacy },
+    });
+
+    // Sync pickup → Delhivery warehouse (create/update). Non-blocking for the seller UI.
+    void this.delhiveryWarehouses.ensureForSeller(seller.id).catch((e) => {
+      this.logger.warn(
+        `Delhivery warehouse sync on pickup update failed seller=${seller.id}: ${e instanceof Error ? e.message : e}`,
+      );
     });
 
     return {
