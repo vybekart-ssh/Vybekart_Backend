@@ -89,19 +89,58 @@ export class DelhiveryService {
       const res = await firstValueFrom(
         this.http.get(url.toString(), { headers: this.authHeaders() }),
       );
-      const data = res.data as Record<string, unknown>;
-      const total =
-        Number(data?.total_amount) ||
-        Number((data?.[0] as Record<string, unknown>)?.total_amount) ||
-        Number((data?.[0] as Record<string, unknown>)?.charge) ||
-        0;
-      const fee = Number.isFinite(total) && total >= 0 ? total : 0;
+      const data = res.data as unknown;
+      const fee = this.parseInvoiceChargesFee(data);
       return { fee, currency: 'INR', raw: data };
     } catch (e: unknown) {
       const msg = e instanceof Error ? e.message : String(e);
       this.logger.warn(`Delhivery rate quote failed: ${msg}`);
       return { fee: 0, currency: 'INR', raw: { error: msg } };
     }
+  }
+
+  /** Parse Delhivery kinko invoice/charges response into a total INR fee. */
+  private parseInvoiceChargesFee(data: unknown): number {
+    const pick = (obj: Record<string, unknown> | null | undefined): number => {
+      if (!obj) return NaN;
+      const keys = [
+        'total_amount',
+        'total_charge',
+        'charged_weight_amount',
+        'charge',
+        'amount',
+        'gross_amount',
+      ];
+      for (const k of keys) {
+        const n = Number(obj[k]);
+        if (Number.isFinite(n) && n >= 0) return n;
+      }
+      return NaN;
+    };
+
+    if (Array.isArray(data) && data.length > 0) {
+      const first = data[0] as Record<string, unknown>;
+      const fromFirst = pick(first);
+      if (Number.isFinite(fromFirst)) return fromFirst;
+    }
+    if (data && typeof data === 'object') {
+      const obj = data as Record<string, unknown>;
+      const direct = pick(obj);
+      if (Number.isFinite(direct)) return direct;
+      if (Array.isArray(obj[0] as unknown)) {
+        // unlikely
+      }
+      const nested = obj.data ?? obj.result ?? obj.charges;
+      if (Array.isArray(nested) && nested[0]) {
+        const fromNested = pick(nested[0] as Record<string, unknown>);
+        if (Number.isFinite(fromNested)) return fromNested;
+      }
+      if (nested && typeof nested === 'object') {
+        const fromObj = pick(nested as Record<string, unknown>);
+        if (Number.isFinite(fromObj)) return fromObj;
+      }
+    }
+    return 0;
   }
 
   async checkPincodeServiceable(pin: string): Promise<boolean | null> {

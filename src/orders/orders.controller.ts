@@ -160,6 +160,17 @@ export class OrdersController {
     return this.ordersService.getSellerOrderDetail(id, req.user.id);
   }
 
+  /** Live Delhivery wallet charge quote for this order (seller). */
+  @Get(':id/delhivery-quote')
+  @UseGuards(JwtAuthGuard, RolesGuard, SellerVerifiedGuard)
+  @Roles(Role.SELLER)
+  getSellerDelhiveryQuote(
+    @Request() req: { user: { id: string } },
+    @Param('id') id: string,
+  ) {
+    return this.ordersService.getSellerDelhiveryQuote(id, req.user.id);
+  }
+
   @Get(':id/buyer-detail')
   @UseGuards(JwtAuthGuard, BuyerAccessGuard)
   getBuyerOrderDetail(

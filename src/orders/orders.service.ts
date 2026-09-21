@@ -1512,6 +1512,72 @@ export class OrdersService {
     return mapSellerOrder(order);
   }
 
+  /**
+   * Live Delhivery shipping charge for this order (wallet deduction estimate).
+   * Uses Delhivery invoice/charges API only — not Order.deliveryFee snapshot.
+   */
+  async getSellerDelhiveryQuote(orderId: string, userId: string) {
+    const seller = await this.prisma.seller.findUnique({ where: { userId } });
+    if (!seller) {
+      throw new ForbiddenException('User is not a registered seller');
+    }
+    const order = await this.prisma.order.findUnique({
+      where: { id: orderId },
+      include: { items: { include: { product: true } } },
+    });
+    if (!order) throw new NotFoundException('Order not found');
+    const hasSellerProduct = order.items.some(
+      (item) => item.product.sellerId === seller.id,
+    );
+    if (!hasSellerProduct) {
+      throw new ForbiddenException('This order does not contain your products');
+    }
+
+    const pickup = await this.prisma.address.findFirst({
+      where: { userId, type: AddressType.PICKUP },
+      orderBy: { createdAt: 'desc' },
+    });
+    const originPin = pickup?.zip?.trim() ?? '';
+    const destPinMatch = order.shippingAddress?.match(/\b(\d{6})\b/);
+    const destinationPin = destPinMatch?.[1] ?? '';
+
+    if (!originPin || originPin.length !== 6) {
+      throw new BadRequestException(
+        'Pickup pincode is missing. Update pickup address in store profile.',
+      );
+    }
+    if (!destinationPin) {
+      throw new BadRequestException(
+        'Could not find a valid 6-digit pincode in the shipping address.',
+      );
+    }
+    if (!this.delhivery.isConfigured()) {
+      throw new ServiceUnavailableException(
+        'Delhivery is not configured on the server.',
+      );
+    }
+
+    const weightGrams = estimateCartWeightGrams(order.items.length);
+    const quote = await this.delhivery.calculateShippingCost({
+      originPin,
+      destinationPin,
+      weightGrams,
+      paymentMode: 'Pre-paid',
+    });
+
+    const fee = quote?.fee ?? 0;
+    return {
+      fee,
+      currency: quote?.currency ?? 'INR',
+      originPin,
+      destinationPin,
+      weightGrams,
+      source: 'DELHIVERY',
+      note:
+        'Live charge from Delhivery invoice API. This is what Delhivery typically deducts from the prepaid wallet when the shipment is manifested.',
+    };
+  }
+
   /** Seller: get order counts by status for tab badges */
   async getSellerOrderCounts(userId: string, dateParam?: string) {
     const seller = await this.prisma.seller.findUnique({
