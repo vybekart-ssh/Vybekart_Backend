@@ -1921,10 +1921,22 @@ export class OrdersService {
       );
     }
 
+    const configuredPickup =
+      this.config.get<string>('DELHIVERY_PICKUP_LOCATION')?.trim() || '';
     const pickupLocationName =
-      this.config.get<string>('DELHIVERY_PICKUP_LOCATION')?.trim() ||
-      seller.businessName?.trim() ||
-      '';
+      configuredPickup || seller.businessName?.trim() || '';
+
+    if (!configuredPickup) {
+      this.logger.warn(
+        `request-delivery order=${orderId}: DELHIVERY_PICKUP_LOCATION unset; using seller businessName="${pickupLocationName}" (must match Delhivery warehouse name exactly)`,
+      );
+    }
+
+    if (!pickupLocationName) {
+      throw new BadRequestException(
+        'Delhivery pickup location is not configured. Set DELHIVERY_PICKUP_LOCATION to the warehouse name registered in Delhivery.',
+      );
+    }
 
     shipmentData = await this.delhivery.createShipment({
       orderId: orderId.replace(/-/g, '').slice(0, 32),
@@ -1940,10 +1952,10 @@ export class OrdersService {
     });
 
     if (!shipmentData?.waybill) {
-      const detail =
-        typeof shipmentData?.raw === 'object' && shipmentData?.raw !== null
-          ? JSON.stringify(shipmentData.raw).slice(0, 300)
-          : 'no waybill returned';
+      const detail = this.delhivery.formatCreateShipmentFailure(shipmentData?.raw);
+      this.logger.warn(
+        `request-delivery failed order=${orderId} pickup=${pickupLocationName} detail=${detail}`,
+      );
       throw new BadRequestException(
         `Delhivery could not create shipment. ${detail}`,
       );

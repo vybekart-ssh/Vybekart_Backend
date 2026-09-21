@@ -751,10 +751,7 @@ export class ReplacementsService {
     });
 
     if (!shipmentData?.waybill) {
-      const detail =
-        typeof shipmentData?.raw === 'object' && shipmentData?.raw !== null
-          ? JSON.stringify(shipmentData.raw).slice(0, 300)
-          : 'no waybill returned';
+      const detail = this.delhivery.formatCreateShipmentFailure(shipmentData?.raw);
       throw new BadRequestException(
         `Delhivery could not create shipment. ${detail}`,
       );

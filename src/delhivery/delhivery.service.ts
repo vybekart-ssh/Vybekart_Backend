@@ -193,7 +193,16 @@ export class DelhiveryService {
       this.logger.warn(
         'Delhivery createShipment skipped: DELHIVERY_CLIENT_NAME or pickup location missing',
       );
-      return null;
+      return {
+        waybill: null,
+        trackingUrl: null,
+        status: null,
+        raw: {
+          error: !client
+            ? 'DELHIVERY_CLIENT_NAME is not set on the server'
+            : 'Delhivery pickup location name is missing. Set DELHIVERY_PICKUP_LOCATION to the exact warehouse name registered in Delhivery.',
+        },
+      };
     }
 
     const shipment: Record<string, unknown> = {
@@ -230,16 +239,37 @@ export class DelhiveryService {
       const data = res.data as Record<string, unknown>;
       const packages = (data?.packages as unknown[]) ?? [];
       const first = (packages[0] as Record<string, unknown>) ?? {};
-      const waybill =
+      const packageStatus = String(first?.status ?? data?.status ?? '').trim();
+      const waybillRaw =
         (first?.waybill as string) ??
         (data?.waybill as string) ??
         null;
+      const waybill =
+        waybillRaw && String(waybillRaw).trim() && packageStatus.toLowerCase() !== 'fail'
+          ? String(waybillRaw).trim()
+          : null;
+
+      if (!waybill) {
+        const remarks = this.extractPackageRemarks(first, data);
+        this.logger.warn(
+          `Delhivery createShipment rejected pickup=${pickup} status=${packageStatus || 'n/a'} remarks=${remarks}`,
+        );
+        return {
+          waybill: null,
+          trackingUrl: null,
+          status: packageStatus || 'Fail',
+          raw: {
+            ...(typeof data === 'object' && data !== null ? data : {}),
+            error: remarks,
+            pickupLocationUsed: pickup,
+          },
+        };
+      }
+
       const result: DelhiveryCreateShipmentResult = {
-        waybill: waybill ? String(waybill) : null,
-        trackingUrl: waybill
-          ? `https://www.delhivery.com/track/package/${waybill}`
-          : null,
-        status: (first?.status as string) ?? 'Created',
+        waybill,
+        trackingUrl: `https://www.delhivery.com/track/package/${waybill}`,
+        status: packageStatus || 'Created',
         raw: data,
       };
 
@@ -258,9 +288,95 @@ export class DelhiveryService {
 
       return result;
     } catch (e: unknown) {
-      const msg = e instanceof Error ? e.message : String(e);
-      this.logger.warn(`Delhivery createShipment failed: ${msg}`);
-      return { waybill: null, trackingUrl: null, status: null, raw: { error: msg } };
+      const axiosData =
+        e &&
+        typeof e === 'object' &&
+        'response' in e &&
+        (e as { response?: { data?: unknown } }).response?.data;
+      const remarks =
+        this.extractPackageRemarks(
+          {},
+          typeof axiosData === 'object' && axiosData !== null
+            ? (axiosData as Record<string, unknown>)
+            : {},
+        ) || (e instanceof Error ? e.message : String(e));
+      this.logger.warn(`Delhivery createShipment failed: ${remarks}`);
+      return {
+        waybill: null,
+        trackingUrl: null,
+        status: null,
+        raw: { error: remarks, pickupLocationUsed: pickup, axiosData },
+      };
+    }
+  }
+
+  /** Pull human-readable Fail remarks from Delhivery CMU / packages payload. */
+  private extractPackageRemarks(
+    first: Record<string, unknown>,
+    data: Record<string, unknown>,
+  ): string {
+    const candidates: unknown[] = [
+      first?.remarks,
+      first?.remark,
+      first?.error,
+      first?.message,
+      data?.rmk,
+      data?.remarks,
+      data?.remark,
+      data?.error,
+      data?.message,
+      data?.Error,
+    ];
+    for (const c of candidates) {
+      if (typeof c === 'string' && c.trim()) return c.trim();
+      if (Array.isArray(c) && c.length > 0) {
+        const joined = c
+          .map((x) => (typeof x === 'string' ? x : JSON.stringify(x)))
+          .filter(Boolean)
+          .join('; ');
+        if (joined) return joined;
+      }
+    }
+    try {
+      const slice = JSON.stringify(first?.status ? first : data).slice(0, 280);
+      return slice && slice !== '{}' ? slice : 'no waybill returned';
+    } catch {
+      return 'no waybill returned';
+    }
+  }
+
+  /** Prefer Delhivery remarks / error over dumping the full raw payload. */
+  formatCreateShipmentFailure(raw: unknown): string {
+    if (!raw) return 'no waybill returned';
+    if (typeof raw === 'string' && raw.trim()) return raw.trim().slice(0, 280);
+    if (typeof raw !== 'object') return 'no waybill returned';
+    const obj = raw as Record<string, unknown>;
+    const direct = obj.error ?? obj.message ?? obj.remarks ?? obj.remark ?? obj.rmk;
+    if (typeof direct === 'string' && direct.trim()) return direct.trim().slice(0, 280);
+    if (Array.isArray(direct) && direct.length > 0) {
+      return direct
+        .map((x) => (typeof x === 'string' ? x : JSON.stringify(x)))
+        .filter(Boolean)
+        .join('; ')
+        .slice(0, 280);
+    }
+    const packages = obj.packages;
+    if (Array.isArray(packages) && packages[0] && typeof packages[0] === 'object') {
+      const first = packages[0] as Record<string, unknown>;
+      const remarks = first.remarks ?? first.remark ?? first.error ?? first.message;
+      if (typeof remarks === 'string' && remarks.trim()) return remarks.trim().slice(0, 280);
+      if (Array.isArray(remarks) && remarks.length > 0) {
+        return remarks
+          .map((x) => (typeof x === 'string' ? x : JSON.stringify(x)))
+          .filter(Boolean)
+          .join('; ')
+          .slice(0, 280);
+      }
+    }
+    try {
+      return JSON.stringify(obj).slice(0, 280);
+    } catch {
+      return 'no waybill returned';
     }
   }
 
