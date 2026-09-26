@@ -34,7 +34,9 @@ export function parseVariantOptions(raw: unknown): VariantOption[] {
     const name = String(o['optionName'] ?? '').trim();
     const valsRaw = o['optionValues'];
     const optionValues = Array.isArray(valsRaw)
-      ? valsRaw.map((x) => String(x).trim()).filter(Boolean)
+      ? valsRaw
+          .map((x) => String(x).trim().toUpperCase())
+          .filter(Boolean)
       : [];
     if (name && optionValues.length) out.push({ optionName: name, optionValues });
   }
@@ -56,7 +58,7 @@ export function parseVariantItems(raw: unknown): VariantItem[] {
     const selection: Record<string, string> = {};
     if (isRecord(selRaw)) {
       for (const [k, v] of Object.entries(selRaw)) {
-        selection[k] = String(v);
+        selection[k] = String(v).trim().toUpperCase();
       }
     }
     const mrp = row['mrp'] != null ? Number(row['mrp']) : undefined;
@@ -111,7 +113,9 @@ function combinations(options: VariantOption[]): Array<Record<string, string>> {
 }
 
 function selectionKey(sel: Record<string, string>, optionNames: string[]): string {
-  return optionNames.map((n) => `${n}=${sel[n] ?? ''}`).join('|');
+  return optionNames
+    .map((n) => `${n}=${String(sel[n] ?? '').trim().toUpperCase()}`)
+    .join('|');
 }
 
 /**

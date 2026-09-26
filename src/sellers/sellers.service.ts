@@ -18,7 +18,10 @@ import { archiveNotExpiredWhere } from '../streams/archive-retention.util';
 import { SupabaseStorageService } from '../storage/supabase-storage.service';
 import { FirebasePushService } from '../notifications/firebase-push.service';
 import { RatingsService } from '../ratings/ratings.service';
-import { calculateSellerPayout } from '../pricing/seller-payout-calculator';
+import {
+  calculateSellerPayout,
+  isSellerGstRegistered,
+} from '../pricing/seller-payout-calculator';
 import { PricingPreviewQueryDto } from './dto/pricing-preview.dto';
 import { DelhiveryWarehouseService } from '../delhivery/delhivery-warehouse.service';
 
@@ -570,17 +573,25 @@ export class SellersService {
       /** Currently live stream (if any) */
       activeLiveSession: liveNow ? mapSession(liveNow) : null,
       /** Seller's ended streams with replay available (last 24h) */
-      archivedLiveSessions: archivedLiveSessions.map((s) => ({
-        id: s.id,
-        title: s.title,
-        description: s.description,
-        thumbnailUrl: s.thumbnailUrl?.trim() || s.seller?.logoUrl?.trim() || null,
-        endedAt: s.endedAt,
-        replayUrl: s.replayUrl,
-        replayDurationSec: s.replayDurationSec,
-        replayStatus: s.replayStatus,
-        viewCount: s.viewCount,
-      })),
+      archivedLiveSessions: archivedLiveSessions.map((s) => {
+        const productImage =
+          s.streamProducts?.[0]?.product?.images?.[0]?.trim() || null;
+        return {
+          id: s.id,
+          title: s.title,
+          description: s.description,
+          thumbnailUrl:
+            s.thumbnailUrl?.trim() ||
+            productImage ||
+            s.seller?.logoUrl?.trim() ||
+            null,
+          endedAt: s.endedAt,
+          replayUrl: s.replayUrl,
+          replayDurationSec: s.replayDurationSec,
+          replayStatus: s.replayStatus,
+          viewCount: s.viewCount,
+        };
+      }),
       /** @deprecated First scheduled session only — use `scheduledLiveSessions` */
       nextLiveSession: upcomingScheduled[0] ? mapSession(upcomingScheduled[0]) : null,
     };
@@ -656,6 +667,13 @@ export class SellersService {
         archiveExpiresAt: true,
         archiveRetentionHours: true,
         seller: { select: { logoUrl: true } },
+        streamProducts: {
+          orderBy: { sortOrder: 'asc' },
+          take: 1,
+          select: {
+            product: { select: { images: true } },
+          },
+        },
       },
     });
   }
@@ -669,17 +687,25 @@ export class SellersService {
 
     const sessions = await this.getArchivedStreamsForSeller(seller.id, 50);
     return {
-      archivedLiveSessions: sessions.map((s) => ({
-        id: s.id,
-        title: s.title,
-        description: s.description,
-        thumbnailUrl: s.thumbnailUrl?.trim() || s.seller?.logoUrl?.trim() || null,
-        endedAt: s.endedAt,
-        replayUrl: s.replayUrl,
-        replayDurationSec: s.replayDurationSec,
-        replayStatus: s.replayStatus,
-        viewCount: s.viewCount,
-      })),
+      archivedLiveSessions: sessions.map((s) => {
+        const productImage =
+          s.streamProducts?.[0]?.product?.images?.[0]?.trim() || null;
+        return {
+          id: s.id,
+          title: s.title,
+          description: s.description,
+          thumbnailUrl:
+            s.thumbnailUrl?.trim() ||
+            productImage ||
+            s.seller?.logoUrl?.trim() ||
+            null,
+          endedAt: s.endedAt,
+          replayUrl: s.replayUrl,
+          replayDurationSec: s.replayDurationSec,
+          replayStatus: s.replayStatus,
+          viewCount: s.viewCount,
+        };
+      }),
     };
   }
 
@@ -1143,7 +1169,7 @@ export class SellersService {
   async getPricingPreview(userId: string, query: PricingPreviewQueryDto) {
     const seller = await this.prisma.seller.findUnique({
       where: { userId },
-      select: { id: true, commissionWaiverActive: true },
+      select: { id: true, commissionWaiverActive: true, gstNumber: true },
     });
     if (!seller) throw new NotFoundException('Seller profile not found');
 
@@ -1151,10 +1177,11 @@ export class SellersService {
       query.logisticsBase ??
       Number(this.config.get('LOGISTICS_BASE_INR') ?? 75);
 
+    const gstRegistered = isSellerGstRegistered(seller.gstNumber);
     const breakdown = calculateSellerPayout(
       query.customerPrice,
       seller.commissionWaiverActive,
-      { logisticsBaseInr: logisticsBase },
+      { logisticsBaseInr: logisticsBase, gstRegistered },
     );
 
     return {

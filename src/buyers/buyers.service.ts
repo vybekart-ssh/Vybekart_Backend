@@ -192,6 +192,13 @@ export class BuyersService {
             archiveExpiresAt: true,
             archiveRetentionHours: true,
             seller: { select: { id: true, businessName: true, logoUrl: true } },
+            streamProducts: {
+              orderBy: { sortOrder: 'asc' },
+              take: 1,
+              select: {
+                product: { select: { images: true } },
+              },
+            },
           },
         }),
       this.prisma.recentlyViewedProduct.findMany({
@@ -240,10 +247,19 @@ export class BuyersService {
 
     return {
       upcomingLive,
-      archivedLives: archivedLives.map((s) => ({
-        ...s,
-        thumbnailUrl: s.thumbnailUrl?.trim() || s.seller?.logoUrl?.trim() || null,
-      })),
+      archivedLives: archivedLives.map((s) => {
+        const { streamProducts, ...rest } = s;
+        const productImage =
+          streamProducts?.[0]?.product?.images?.[0]?.trim() || null;
+        return {
+          ...rest,
+          thumbnailUrl:
+            s.thumbnailUrl?.trim() ||
+            productImage ||
+            s.seller?.logoUrl?.trim() ||
+            null,
+        };
+      }),
       recentlyViewed: recentlyViewed.map((rv) => ({
         id: rv.id,
         viewedAt: rv.viewedAt,

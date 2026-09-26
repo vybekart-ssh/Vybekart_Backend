@@ -663,7 +663,11 @@ export class StreamsService {
     return {
       streamId: stream.id,
       title: stream.title,
-      thumbnailUrl: stream.thumbnailUrl?.trim() || stream.seller?.logoUrl?.trim() || null,
+      thumbnailUrl:
+        stream.thumbnailUrl?.trim() ||
+        stream.streamProducts?.[0]?.product?.images?.[0]?.trim() ||
+        stream.seller?.logoUrl?.trim() ||
+        null,
       replayUrl: replayReady ? stream.replayUrl : null,
       replayStatus: stream.replayStatus,
       replayDurationSec: stream.replayDurationSec,

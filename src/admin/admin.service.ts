@@ -409,7 +409,7 @@ export class AdminService {
       id: s.id,
       title: s.title,
       description: s.description,
-      thumbnailUrl: s.thumbnailUrl?.trim() || logoUrl,
+      thumbnailUrl: s.thumbnailUrl?.trim() || products[0]?.imageUrl || logoUrl,
       startedAt: s.startedAt?.toISOString() ?? null,
       endedAt: s.endedAt?.toISOString() ?? null,
       createdAt: s.createdAt.toISOString(),
