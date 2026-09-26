@@ -137,11 +137,8 @@ export function validateAndNormalizeSellerVariants(
   }
 
   const items = parseVariantItems(variants);
-  const expected = expectedCombinationCount(options);
-  if (items.length !== expected) {
-    throw new BadRequestException(
-      `Variant rows must match all combinations (${expected} rows, got ${items.length})`,
-    );
+  if (!items.length) {
+    throw new BadRequestException('At least one variant pricing row is required');
   }
 
   const optionNames = options.map((o) => o.optionName);
@@ -149,9 +146,11 @@ export function validateAndNormalizeSellerVariants(
   const comboKeys = new Set(combos.map((c) => selectionKey(c, optionNames)));
 
   const seenIds = new Set<string>();
+  const seenSelections = new Set<string>();
   let minPrice = Number.POSITIVE_INFINITY;
   let totalStock = 0;
 
+  // Sparse matrix allowed: sellers may omit specific cross-join SKUs they do not sell.
   for (const item of items) {
     if (seenIds.has(item.id)) {
       throw new BadRequestException(`Duplicate variant id: ${item.id}`);
@@ -161,13 +160,12 @@ export function validateAndNormalizeSellerVariants(
     if (!comboKeys.has(key)) {
       throw new BadRequestException(`Variant selection does not match options: ${item.label}`);
     }
-    comboKeys.delete(key);
+    if (seenSelections.has(key)) {
+      throw new BadRequestException(`Duplicate variant selection: ${item.label}`);
+    }
+    seenSelections.add(key);
     minPrice = Math.min(minPrice, item.sellingPrice);
     totalStock += item.stock;
-  }
-
-  if (comboKeys.size > 0) {
-    throw new BadRequestException('Missing variant rows for some option combinations');
   }
 
   if (!Number.isFinite(minPrice)) minPrice = 0;

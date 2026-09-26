@@ -4,9 +4,10 @@ import { PaymentsService } from './payments.service';
 import { OrdersModule } from '../orders/orders.module';
 import { PrismaModule } from '../prisma/prisma.module';
 import { AuthModule } from '../auth/auth.module';
+import { CouponsModule } from '../coupons/coupons.module';
 
 @Module({
-  imports: [OrdersModule, PrismaModule, AuthModule],
+  imports: [OrdersModule, PrismaModule, AuthModule, CouponsModule],
   controllers: [PaymentsController],
   providers: [PaymentsService],
   exports: [PaymentsService],

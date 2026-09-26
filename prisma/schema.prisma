@@ -523,6 +523,11 @@ model Order {
 
   invoiceNumber String? @unique
 
+  /// Coupon snapshot applied at paid checkout (null if none).
+  couponId       String?
+  couponCode     String?
+  couponDiscount Float  @default(0)
+
   items OrderItem[]
 
   replacementRequests ReplacementRequest[]
@@ -568,6 +573,39 @@ model Faq {
   answer    String   @db.Text
   sortOrder Int      @default(0)
   createdAt DateTime @default(now())
+}
+
+enum CouponVisibility {
+  PUBLIC
+  PRIVATE
+}
+
+enum CouponDiscountType {
+  FLAT
+  PERCENT
+}
+
+/// One-time global checkout coupons (burned after first PAID order).
+model Coupon {
+  id                String              @id @default(uuid())
+  code              String              @unique // UPPERCASE trimmed
+  title             String // admin label / public display name
+  description       String?             @db.Text
+  visibility        CouponVisibility
+  discountType      CouponDiscountType
+  discountValue     Float // ₹ for FLAT, percent for PERCENT
+  maxDiscountAmount Float? // optional cap for PERCENT
+  minOrderAmount    Float               @default(0) // vs subtotal + buyerDeliveryFee
+  isActive          Boolean             @default(true)
+  startsAt          DateTime?
+  endsAt            DateTime?
+  redeemedAt        DateTime? // set when burned on PAID order
+  redeemedOrderId   String?             @unique
+  createdAt         DateTime            @default(now())
+  updatedAt         DateTime            @updatedAt
+
+  @@index([visibility, isActive])
+  @@index([isActive, redeemedAt])
 }
 
 /// Explore promo / about-app YouTube videos curated from Master Console.

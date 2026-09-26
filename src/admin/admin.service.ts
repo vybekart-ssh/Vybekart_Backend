@@ -4,7 +4,13 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
-import { StreamReplayStatus, StreamVisibility, VerificationStatus } from '@prisma/client';
+import {
+  CouponDiscountType,
+  Prisma,
+  StreamReplayStatus,
+  StreamVisibility,
+  VerificationStatus,
+} from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { SellersService } from '../sellers/sellers.service';
 import { AppConfigService } from '../app-config/app-config.service';
@@ -17,11 +23,16 @@ import {
   youtubeThumbnailUrl,
 } from './dto/promo-video.dto';
 import {
+  assertCouponDiscountShape,
+  CreateCouponDto,
+  normalizeCouponCode,
+  UpdateCouponDto,
+} from './dto/coupon.dto';
+import {
   assertDirectReplayUrl,
   CreateArchiveFromUrlDto,
 } from './dto/create-archive-from-url.dto';
 import { RatingsService } from '../ratings/ratings.service';
-import { Prisma } from '@prisma/client';
 import { SupabaseStorageService } from '../storage/supabase-storage.service';
 import {
   ARCHIVE_RETENTION_OPTIONS,
@@ -878,6 +889,115 @@ export class AdminService {
     const existing = await this.prisma.promoVideo.findUnique({ where: { id } });
     if (!existing) throw new NotFoundException('Promo video not found');
     await this.prisma.promoVideo.delete({ where: { id } });
+    return { deleted: true, id };
+  }
+
+  listCoupons() {
+    return this.prisma.coupon.findMany({
+      orderBy: { createdAt: 'desc' },
+    });
+  }
+
+  async createCoupon(dto: CreateCouponDto) {
+    const code = normalizeCouponCode(dto.code);
+    if (!code) throw new BadRequestException('Coupon code is required');
+    assertCouponDiscountShape({
+      discountType: dto.discountType,
+      discountValue: dto.discountValue,
+    });
+
+    const duplicate = await this.prisma.coupon.findUnique({ where: { code } });
+    if (duplicate) {
+      throw new BadRequestException(`Coupon code "${code}" already exists`);
+    }
+
+    return this.prisma.coupon.create({
+      data: {
+        code,
+        title: dto.title.trim(),
+        description: dto.description?.trim() || null,
+        visibility: dto.visibility,
+        discountType: dto.discountType,
+        discountValue: dto.discountValue,
+        maxDiscountAmount:
+          dto.discountType === CouponDiscountType.PERCENT
+            ? (dto.maxDiscountAmount ?? null)
+            : null,
+        minOrderAmount: dto.minOrderAmount ?? 0,
+        isActive: dto.isActive ?? true,
+        startsAt: dto.startsAt ? new Date(dto.startsAt) : null,
+        endsAt: dto.endsAt ? new Date(dto.endsAt) : null,
+      },
+    });
+  }
+
+  async updateCoupon(id: string, dto: UpdateCouponDto) {
+    const existing = await this.prisma.coupon.findUnique({ where: { id } });
+    if (!existing) throw new NotFoundException('Coupon not found');
+
+    let code = existing.code;
+    if (dto.code != null) {
+      code = normalizeCouponCode(dto.code);
+      if (!code) throw new BadRequestException('Coupon code is required');
+      if (code !== existing.code) {
+        const duplicate = await this.prisma.coupon.findUnique({
+          where: { code },
+        });
+        if (duplicate) {
+          throw new BadRequestException(`Coupon code "${code}" already exists`);
+        }
+      }
+    }
+
+    const discountType = dto.discountType ?? existing.discountType;
+    const discountValue = dto.discountValue ?? existing.discountValue;
+    assertCouponDiscountShape({ discountType, discountValue });
+
+    const maxDiscountAmount =
+      dto.maxDiscountAmount !== undefined
+        ? dto.maxDiscountAmount
+        : existing.maxDiscountAmount;
+
+    return this.prisma.coupon.update({
+      where: { id },
+      data: {
+        ...(dto.code != null ? { code } : {}),
+        ...(dto.title != null ? { title: dto.title.trim() } : {}),
+        ...(dto.description !== undefined
+          ? { description: dto.description?.trim() || null }
+          : {}),
+        ...(dto.visibility != null ? { visibility: dto.visibility } : {}),
+        ...(dto.discountType != null ? { discountType: dto.discountType } : {}),
+        ...(dto.discountValue != null
+          ? { discountValue: dto.discountValue }
+          : {}),
+        maxDiscountAmount:
+          discountType === CouponDiscountType.PERCENT
+            ? maxDiscountAmount
+            : null,
+        ...(dto.minOrderAmount != null
+          ? { minOrderAmount: dto.minOrderAmount }
+          : {}),
+        ...(dto.isActive != null ? { isActive: dto.isActive } : {}),
+        ...(dto.startsAt !== undefined
+          ? { startsAt: dto.startsAt ? new Date(dto.startsAt) : null }
+          : {}),
+        ...(dto.endsAt !== undefined
+          ? { endsAt: dto.endsAt ? new Date(dto.endsAt) : null }
+          : {}),
+      },
+    });
+  }
+
+  async deleteCoupon(id: string) {
+    const existing = await this.prisma.coupon.findUnique({ where: { id } });
+    if (!existing) throw new NotFoundException('Coupon not found');
+    if (existing.redeemedAt != null) {
+      throw new BadRequestException(
+        'Cannot delete a coupon that has already been redeemed',
+      );
+    }
+    await this.prisma.coupon.delete({ where: { id } });
     return { deleted: true, id };
   }
 }

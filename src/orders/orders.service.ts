@@ -5,6 +5,8 @@ import {
   BadRequestException,
   Logger,
   ServiceUnavailableException,
+  Inject,
+  forwardRef,
 } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import { CreateOrderDto } from './dto/create-order.dto';
@@ -43,6 +45,7 @@ import {
 } from './buyer-order.mapper';
 import { AppConfigService } from '../app-config/app-config.service';
 import { DelhiveryWarehouseService } from '../delhivery/delhivery-warehouse.service';
+import { CouponsService } from '../coupons/coupons.service';
 
 const POST_LIVE_CART_HOURS = 24;
 
@@ -68,6 +71,8 @@ export class OrdersService {
     private orderNotifications: OrderNotificationService,
     private appConfig: AppConfigService,
     private delhiveryWarehouses: DelhiveryWarehouseService,
+    @Inject(forwardRef(() => CouponsService))
+    private coupons: CouponsService,
   ) {}
 
   /** Fee charged to the buyer given who pays shipping. */
@@ -809,8 +814,13 @@ export class OrdersService {
   /**
    * Full pre-payment validation: cart, stream, address, delivery quote, totals.
    * Call before opening Razorpay so payment success never hits a failed checkout.
+   * Optional couponCode applies discount to payable total (subtotal + buyerDeliveryFee).
    */
-  async prepareCheckoutForPayment(userId: string, addressId: string) {
+  async prepareCheckoutForPayment(
+    userId: string,
+    addressId: string,
+    couponCode?: string | null,
+  ) {
     await this.validateCartForCheckout(userId);
 
     const cart = await this.getCart(userId);
@@ -845,7 +855,22 @@ export class OrdersService {
       actualDeliveryFee,
     );
     const subtotal = cart.subtotal ?? 0;
-    const total = subtotal + buyerDeliveryFee;
+    const eligibleBase = subtotal + buyerDeliveryFee;
+
+    let couponId: string | null = null;
+    let appliedCouponCode: string | null = null;
+    let couponDiscount = 0;
+
+    const rawCode = couponCode?.trim();
+    if (rawCode) {
+      const coupon = await this.coupons.findActiveByCode(rawCode);
+      this.coupons.assertApplicable(coupon, eligibleBase);
+      couponDiscount = this.coupons.computeDiscount(coupon, eligibleBase);
+      couponId = coupon.id;
+      appliedCouponCode = coupon.code;
+    }
+
+    const total = Math.round((eligibleBase - couponDiscount) * 100) / 100;
     if (total <= 0) {
       throw new BadRequestException('Cart total must be greater than zero');
     }
@@ -861,15 +886,26 @@ export class OrdersService {
       streamId,
       shippingAddress,
       deliveryProvider,
+      couponId,
+      couponCode: appliedCouponCode,
+      couponDiscount,
     };
   }
 
   /** Subtotal + delivery + total for Razorpay order creation. */
-  async getCheckoutTotals(userId: string, addressId?: string) {
+  async getCheckoutTotals(
+    userId: string,
+    addressId?: string,
+    couponCode?: string | null,
+  ) {
     if (!addressId?.trim()) {
       throw new BadRequestException('Shipping address is required');
     }
-    const prep = await this.prepareCheckoutForPayment(userId, addressId);
+    const prep = await this.prepareCheckoutForPayment(
+      userId,
+      addressId,
+      couponCode,
+    );
     return {
       subtotal: prep.subtotal,
       deliveryFee: prep.deliveryFee,
@@ -877,6 +913,9 @@ export class OrdersService {
       shippingPayer: prep.shippingPayer,
       total: prep.total,
       streamId: prep.streamId,
+      couponId: prep.couponId,
+      couponCode: prep.couponCode,
+      couponDiscount: prep.couponDiscount,
     };
   }
 
@@ -924,6 +963,9 @@ export class OrdersService {
       buyerDeliveryFee?: number;
       shippingPayer?: ShippingPayer;
       deliveryProvider?: string | null;
+      couponId?: string | null;
+      couponCode?: string | null;
+      couponDiscount?: number;
     },
   ) {
     if (!options?.markPaid) {
@@ -983,12 +1025,27 @@ export class OrdersService {
       options?.buyerDeliveryFee ??
       this.buyerDeliveryFeeFor(shippingPayer, actualDeliveryFee);
 
+    const couponDiscount =
+      options?.markPaid && options.couponId
+        ? Math.max(0, options.couponDiscount ?? 0)
+        : 0;
+    const couponId = couponDiscount > 0 ? options?.couponId ?? null : null;
+    const couponCode = couponId ? options?.couponCode ?? null : null;
+
+    const payableTotal =
+      Math.round(
+        (order.totalAmount + buyerDeliveryFee - couponDiscount) * 100,
+      ) / 100;
+
     const updateData: Prisma.OrderUpdateInput = {
       deliveryFee: actualDeliveryFee,
       shippingPayer,
       deliveryProvider:
         options?.deliveryProvider ?? quote?.provider ?? undefined,
-      totalAmount: order.totalAmount + buyerDeliveryFee,
+      totalAmount: payableTotal,
+      couponId,
+      couponCode,
+      couponDiscount,
     };
     if (options?.markPaid) {
       updateData.status = OrderStatus.PAID;
@@ -1000,9 +1057,21 @@ export class OrdersService {
       }
     }
 
-    const updated = await this.prisma.order.update({
-      where: { id: order.id },
-      data: updateData,
+    const updated = await this.prisma.$transaction(async (tx) => {
+      if (options?.markPaid && couponId) {
+        await this.coupons.burnOnPaidOrder(tx, couponId, order.id);
+      }
+      return tx.order.update({
+        where: { id: order.id },
+        data: updateData,
+      });
+    }).catch(async (err) => {
+      if (options?.markPaid) {
+        await this.prisma.order
+          .delete({ where: { id: order.id } })
+          .catch(() => undefined);
+      }
+      throw err;
     });
 
     await this.clearCart(userId, streamId ?? undefined, 'checkout completed');
@@ -1016,6 +1085,8 @@ export class OrdersService {
       deliveryFee: actualDeliveryFee,
       buyerDeliveryFee,
       shippingPayer,
+      couponCode: updated.couponCode,
+      couponDiscount: updated.couponDiscount,
       estimatedDelivery: 'October 20, 2024',
       shippingAddress: createDto.shippingAddress ?? dto.shippingAddress ?? '',
       paymentMethod: dto.paymentMethod ?? 'CARD',

@@ -38,6 +38,7 @@ import { PaymentsModule } from './payments/payments.module';
 import { InvoicesModule } from './invoices/invoices.module';
 import { SellerOutreachModule } from './seller-outreach/seller-outreach.module';
 import { SellerEmailsModule } from './seller-emails/seller-emails.module';
+import { CouponsModule } from './coupons/coupons.module';
 
 @Module({
   imports: [
@@ -64,6 +65,7 @@ import { SellerEmailsModule } from './seller-emails/seller-emails.module';
     InvoicesModule,
     SellerOutreachModule,
     SellerEmailsModule,
+    CouponsModule,
     LiveKitModule,
     WebhooksModule,
     AppConfigModule,

@@ -11,6 +11,7 @@ import * as crypto from 'crypto';
 import { RedisService } from '../redis/redis.service';
 import { OrdersService } from '../orders/orders.service';
 import { PrismaService } from '../prisma/prisma.service';
+import { CouponsService } from '../coupons/coupons.service';
 import {
   BalancePaymentStatus,
   ReplacementStatus,
@@ -35,6 +36,9 @@ type PendingPayment = {
   shippingPayer?: ShippingPayer;
   deliveryProvider: string | null;
   streamId: string;
+  couponId?: string | null;
+  couponCode?: string | null;
+  couponDiscount?: number;
 };
 
 type RefundAttempt = {
@@ -52,6 +56,7 @@ export class PaymentsService {
     private readonly redis: RedisService,
     private readonly orders: OrdersService,
     private readonly prisma: PrismaService,
+    private readonly coupons: CouponsService,
   ) {
     const keyId = this.config.get<string>('RAZORPAY_KEY_ID')?.trim();
     const keySecret = this.config.get<string>('RAZORPAY_KEY_SECRET')?.trim();
@@ -164,6 +169,7 @@ export class PaymentsService {
     const prep = await this.orders.prepareCheckoutForPayment(
       userId,
       dto.addressId,
+      dto.couponCode,
     );
 
     const amountPaise = Math.round(prep.total * 100);
@@ -180,6 +186,7 @@ export class PaymentsService {
         userId,
         streamId: prep.streamId,
         addressId: dto.addressId,
+        ...(prep.couponCode ? { couponCode: prep.couponCode } : {}),
       },
     });
 
@@ -194,6 +201,9 @@ export class PaymentsService {
       shippingPayer: prep.shippingPayer,
       deliveryProvider: prep.deliveryProvider,
       streamId: prep.streamId,
+      couponId: prep.couponId,
+      couponCode: prep.couponCode,
+      couponDiscount: prep.couponDiscount,
     };
     await this.redis.set(
       this.pendingKey(rzOrder.id),
@@ -207,7 +217,7 @@ export class PaymentsService {
     });
 
     this.logger.log(
-      `Razorpay order created user=${userId} rz=${rzOrder.id} address=${dto.addressId} total=${prep.total} shippingPayer=${prep.shippingPayer}`,
+      `Razorpay order created user=${userId} rz=${rzOrder.id} address=${dto.addressId} total=${prep.total} shippingPayer=${prep.shippingPayer} coupon=${prep.couponCode ?? 'none'}`,
     );
 
     return {
@@ -220,6 +230,8 @@ export class PaymentsService {
       buyerDeliveryFee: prep.buyerDeliveryFee,
       shippingPayer: prep.shippingPayer,
       total: prep.total,
+      couponCode: prep.couponCode,
+      couponDiscount: prep.couponDiscount,
       prefill: {
         name: user?.name ?? '',
         email: user?.email ?? '',
@@ -286,7 +298,24 @@ export class PaymentsService {
       );
     }
 
+    const buyerDeliveryFee =
+      pending.buyerDeliveryFee ??
+      (pending.shippingPayer === ShippingPayer.SELLER_PAYS
+        ? 0
+        : pending.deliveryFee);
+
     try {
+      // Re-validate coupon before placing order. Failure triggers auto-refund.
+      if (pending.couponCode) {
+        await this.coupons.assertStillApplicableForPending({
+          couponCode: pending.couponCode,
+          couponId: pending.couponId,
+          expectedDiscount: pending.couponDiscount ?? 0,
+          subtotal: pending.subtotal,
+          buyerDeliveryFee,
+        });
+      }
+
       const result = await this.orders.checkoutFromCart(
         userId,
         {
@@ -299,13 +328,12 @@ export class PaymentsService {
           razorpayOrderId: dto.razorpayOrderId,
           razorpayPaymentId: dto.razorpayPaymentId,
           deliveryFee: pending.deliveryFee,
-          buyerDeliveryFee:
-            pending.buyerDeliveryFee ??
-            (pending.shippingPayer === ShippingPayer.SELLER_PAYS
-              ? 0
-              : pending.deliveryFee),
+          buyerDeliveryFee,
           shippingPayer: pending.shippingPayer,
           deliveryProvider: pending.deliveryProvider,
+          couponId: pending.couponId ?? null,
+          couponCode: pending.couponCode ?? null,
+          couponDiscount: pending.couponDiscount ?? 0,
         },
       );
 

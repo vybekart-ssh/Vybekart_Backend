@@ -25,6 +25,7 @@ import {
   CreatePromoVideoDto,
   UpdatePromoVideoDto,
 } from './dto/promo-video.dto';
+import { CreateCouponDto, UpdateCouponDto } from './dto/coupon.dto';
 import { CreateArchiveFromUrlDto } from './dto/create-archive-from-url.dto';
 
 @Controller('admin')
@@ -289,5 +290,25 @@ export class AdminController {
   @Delete('promo-videos/:id')
   deletePromoVideo(@Param('id') id: string) {
     return this.adminService.deletePromoVideo(id);
+  }
+
+  @Get('coupons')
+  listCoupons() {
+    return this.adminService.listCoupons();
+  }
+
+  @Post('coupons')
+  createCoupon(@Body() body: CreateCouponDto) {
+    return this.adminService.createCoupon(body);
+  }
+
+  @Patch('coupons/:id')
+  updateCoupon(@Param('id') id: string, @Body() body: UpdateCouponDto) {
+    return this.adminService.updateCoupon(id, body ?? {});
+  }
+
+  @Delete('coupons/:id')
+  deleteCoupon(@Param('id') id: string) {
+    return this.adminService.deleteCoupon(id);
   }
 }

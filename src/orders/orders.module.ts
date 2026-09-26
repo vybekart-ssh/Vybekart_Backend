@@ -1,4 +1,4 @@
-import { Module } from '@nestjs/common';
+import { Module, forwardRef } from '@nestjs/common';
 import { OrdersController } from './orders.controller';
 import { OrdersService } from './orders.service';
 import { CartExpirySweepService } from './cart-expiry-sweep.service';
@@ -9,6 +9,7 @@ import { AuthModule } from '../auth/auth.module';
 import { RatingsModule } from '../ratings/ratings.module';
 import { AppConfigModule } from '../app-config/app-config.module';
 import { MailModule } from '../mail/mail.module';
+import { CouponsModule } from '../coupons/coupons.module';
 
 @Module({
   imports: [
@@ -18,6 +19,7 @@ import { MailModule } from '../mail/mail.module';
     RatingsModule,
     AppConfigModule,
     MailModule,
+    forwardRef(() => CouponsModule),
   ],
   controllers: [OrdersController],
   providers: [OrdersService, MockDeliveryService, CartExpirySweepService],
