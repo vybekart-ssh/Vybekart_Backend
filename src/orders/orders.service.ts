@@ -46,8 +46,19 @@ import {
 import { AppConfigService } from '../app-config/app-config.service';
 import { DelhiveryWarehouseService } from '../delhivery/delhivery-warehouse.service';
 import { CouponsService } from '../coupons/coupons.service';
+import {
+  ARCHIVE_RETENTION_FOREVER,
+  computeArchiveExpiresAt,
+  normalizeArchiveRetentionHours,
+} from '../streams/archive-retention.util';
 
+/** Minimum post-live cart window; longer archive retention extends it. */
 const POST_LIVE_CART_HOURS = 24;
+
+type StreamArchiveWindow = {
+  archiveRetentionHours?: number | null;
+  archiveExpiresAt?: Date | null;
+};
 
 type CartState = {
   items: CartItemDto[];
@@ -95,14 +106,10 @@ export class OrdersService {
       throw new BadRequestException('This stream has not started yet');
     }
     if (!stream.isLive && stream.endedAt) {
-      const expiry = new Date(stream.endedAt);
-      expiry.setHours(expiry.getHours() + POST_LIVE_CART_HOURS);
+      const expiry = this.computeExpiryFromEnd(stream.endedAt, stream);
       if (new Date() > expiry) {
-        throw new BadRequestException(
-          'Your cart from this live stream has expired.',
-        );
+        throw new BadRequestException('This live stream archive has expired.');
       }
-      // Within 24h post-live window — allow checkout.
     } else if (!stream.isLive) {
       throw new BadRequestException(
         'This stream has ended; you cannot purchase from a replay.',
@@ -288,14 +295,29 @@ export class OrdersService {
     return this.getCart(userId);
   }
 
-  private computeExpiryFromEnd(effectiveEnd: Date): Date {
-    const expires = new Date(effectiveEnd);
-    expires.setHours(expires.getHours() + POST_LIVE_CART_HOURS);
-    return expires;
+  /**
+   * Post-live cart deadline: the later of 24h after the stream ended and the
+   * archive expiry. Archives kept forever get a rolling 24h from cart activity.
+   */
+  private computeExpiryFromEnd(
+    effectiveEnd: Date,
+    archive?: StreamArchiveWindow | null,
+  ): Date {
+    const windowMs = POST_LIVE_CART_HOURS * 60 * 60 * 1000;
+    const minExpiry = new Date(effectiveEnd.getTime() + windowMs);
+    if (!archive) return minExpiry;
+
+    const hours = normalizeArchiveRetentionHours(archive.archiveRetentionHours);
+    const archiveExpiry =
+      hours === ARCHIVE_RETENTION_FOREVER
+        ? new Date(Date.now() + windowMs)
+        : (archive.archiveExpiresAt ??
+          computeArchiveExpiresAt(effectiveEnd, hours));
+    return archiveExpiry && archiveExpiry > minExpiry ? archiveExpiry : minExpiry;
   }
 
   /**
-   * Enforce 24h post-live cart TTL. Persists Redis EXPIRE when still valid.
+   * Enforce the post-live cart TTL. Persists Redis EXPIRE when still valid.
    * Returns empty items when expired or stream context is invalid.
    */
   async enforceCartExpiry(userId: string, state: CartState): Promise<CartState> {
@@ -338,6 +360,8 @@ export class OrdersService {
         endedAt: true,
         startedAt: true,
         createdAt: true,
+        archiveRetentionHours: true,
+        archiveExpiresAt: true,
         session: { select: { endedAt: true } },
       },
     });
@@ -363,7 +387,7 @@ export class OrdersService {
       stream.startedAt ??
       stream.createdAt;
 
-    const expires = this.computeExpiryFromEnd(effectiveEnd);
+    const expires = this.computeExpiryFromEnd(effectiveEnd, stream);
     const ttlSeconds = Math.floor((expires.getTime() - now) / 1000);
 
     if (ttlSeconds <= 0) {
@@ -390,7 +414,11 @@ export class OrdersService {
 
   /** Called when a stream ends — refresh TTL on all indexed buyer carts. */
   async onStreamEnded(streamId: string, endedAt: Date) {
-    const expires = this.computeExpiryFromEnd(endedAt);
+    const archive = await this.prisma.stream.findUnique({
+      where: { id: streamId },
+      select: { archiveRetentionHours: true, archiveExpiresAt: true },
+    });
+    const expires = this.computeExpiryFromEnd(endedAt, archive);
     const ttlSeconds = Math.max(
       1,
       Math.floor((expires.getTime() - Date.now()) / 1000),
