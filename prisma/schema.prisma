@@ -508,6 +508,8 @@ model Order {
   carrierName String?
   shippedAt   DateTime?
   deliveredAt DateTime?
+  /// Delhivery delivery estimate (expected TAT, then tracking EDD once shipped)
+  expectedDeliveryAt DateTime?
 
   /// Seller packing proof (D.4)
   packingVideoUrl String?

@@ -10,6 +10,8 @@ import { RatingsModule } from '../ratings/ratings.module';
 import { AppConfigModule } from '../app-config/app-config.module';
 import { MailModule } from '../mail/mail.module';
 import { CouponsModule } from '../coupons/coupons.module';
+import { StorageModule } from '../storage/storage.module';
+import { NotificationsModule } from '../notifications/notifications.module';
 
 @Module({
   imports: [
@@ -19,6 +21,8 @@ import { CouponsModule } from '../coupons/coupons.module';
     RatingsModule,
     AppConfigModule,
     MailModule,
+    StorageModule,
+    NotificationsModule,
     forwardRef(() => CouponsModule),
   ],
   controllers: [OrdersController],

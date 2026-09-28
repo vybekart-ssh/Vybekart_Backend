@@ -21,6 +21,7 @@ type BuyerOrderRow = {
   packedAt: Date | null;
   shippedAt: Date | null;
   deliveredAt: Date | null;
+  expectedDeliveryAt?: Date | null;
   trackingId: string | null;
   carrierName: string | null;
   borzoTrackingUrl: string | null;
@@ -48,6 +49,20 @@ type BuyerOrderRow = {
 function buyerFacingDeliveryFee(order: BuyerOrderRow): number {
   const payer = order.shippingPayer ?? ShippingPayer.SELLER_PAYS;
   return payer === ShippingPayer.BUYER_PAYS ? order.deliveryFee : 0;
+}
+
+/** Delivery estimate (ISO) while the order is still on its way; null otherwise. */
+export function openOrderExpectedDelivery(order: {
+  status: OrderStatus;
+  expectedDeliveryAt?: Date | null;
+}): string | null {
+  const open: OrderStatus[] = [
+    OrderStatus.PAID,
+    OrderStatus.PACKED,
+    OrderStatus.SHIPPED,
+  ];
+  if (!order.expectedDeliveryAt || !open.includes(order.status)) return null;
+  return order.expectedDeliveryAt.toISOString();
 }
 
 export function buildBuyerOrderTimeline(
@@ -152,6 +167,7 @@ export function mapBuyerOrderListItem(order: BuyerOrderRow) {
     shippingPayer: order.shippingPayer ?? ShippingPayer.SELLER_PAYS,
     createdAt: order.createdAt.toISOString(),
     deliveredAt: order.deliveredAt?.toISOString() ?? null,
+    expectedDeliveryAt: openOrderExpectedDelivery(order),
     itemCount,
     primaryProductName: first?.product.name ?? 'Order',
     primaryProductImage: first?.product.images?.[0] ?? null,

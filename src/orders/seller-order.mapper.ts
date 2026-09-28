@@ -1,4 +1,5 @@
 import { OrderStatus } from '@prisma/client';
+import { openOrderExpectedDelivery } from './buyer-order.mapper';
 
 export type TimelineStepState = 'done' | 'active' | 'upcoming';
 
@@ -25,6 +26,8 @@ type OrderWithRelations = {
   status: OrderStatus;
   totalAmount: number;
   deliveryFee: number;
+  shippingPayer?: string | null;
+  expectedDeliveryAt?: Date | null;
   shippingAddress: string | null;
   streamId: string | null;
   packingVideoUrl: string | null;
@@ -170,13 +173,15 @@ export function mapSellerOrder(order: OrderWithRelations) {
     id: order.id,
     status: order.status,
     totalAmount: order.totalAmount,
-    deliveryFee: order.deliveryFee,
+    /** Buyer-paid shipping only — the Delhivery charge is not shown to sellers. */
+    deliveryFee: order.shippingPayer === 'SELLER_PAYS' ? 0 : order.deliveryFee,
     shippingAddress: order.shippingAddress,
     streamId: order.streamId,
     packingVideoUrl: order.packingVideoUrl,
     packedAt: order.packedAt?.toISOString() ?? null,
     shippedAt: order.shippedAt?.toISOString() ?? null,
     deliveredAt: order.deliveredAt?.toISOString() ?? null,
+    expectedDeliveryAt: openOrderExpectedDelivery(order),
     trackingId: order.trackingId,
     carrierName: order.carrierName,
     trackingUrl: order.borzoTrackingUrl,
@@ -232,8 +237,9 @@ export function resolveSellerDateRange(
 }
 
 export function isDelhiveryDeliveredStatus(status: string | null | undefined): boolean {
-  if (!status) return false;
+  if (typeof status !== 'string' || !status.trim()) return false;
   const s = status.trim().toLowerCase();
+  if (s.includes('undelivered') || s.includes('not delivered')) return false;
   return (
     s === 'delivered' ||
     s === 'dto' ||

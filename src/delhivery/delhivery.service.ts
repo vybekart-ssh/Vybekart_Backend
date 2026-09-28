@@ -157,6 +157,76 @@ export class DelhiveryService {
     }
   }
 
+  /**
+   * Delhivery expected turnaround (days from pickup to delivery) for a lane.
+   * Returns null when Delhivery is unreachable or the response has no TAT.
+   */
+  async getExpectedTatDays(params: {
+    originPin: string;
+    destinationPin: string;
+    pickupAt?: Date;
+  }): Promise<number | null> {
+    if (!this.isConfigured()) return null;
+    const url = new URL(`${this.baseUrl()}/api/dc/expected_tat`);
+    url.searchParams.set('origin_pin', params.originPin);
+    url.searchParams.set('destination_pin', params.destinationPin);
+    url.searchParams.set('mot', 'E');
+    url.searchParams.set('pdt', 'B2C');
+    const pickup = params.pickupAt ?? new Date();
+    const ist = new Intl.DateTimeFormat('en-CA', {
+      timeZone: 'Asia/Kolkata',
+      year: 'numeric',
+      month: '2-digit',
+      day: '2-digit',
+      hour: '2-digit',
+      minute: '2-digit',
+      hourCycle: 'h23',
+    }).formatToParts(pickup);
+    const part = (t: string) => ist.find((p) => p.type === t)?.value ?? '';
+    url.searchParams.set(
+      'expected_pickup_date',
+      `${part('year')}-${part('month')}-${part('day')} ${part('hour')}:${part('minute')}`,
+    );
+    try {
+      const res = await firstValueFrom(
+        this.http.get(url.toString(), {
+          headers: this.authHeaders(),
+          timeout: 8000,
+        }),
+      );
+      const tat = this.findTatDays(res.data);
+      if (tat == null) {
+        this.logger.warn(
+          `Delhivery expected_tat returned no TAT ${params.originPin}->${params.destinationPin}: ${JSON.stringify(res.data)?.slice(0, 300)}`,
+        );
+      }
+      return tat;
+    } catch (e: unknown) {
+      const msg = e instanceof Error ? e.message : String(e);
+      this.logger.warn(
+        `Delhivery expected_tat failed ${params.originPin}->${params.destinationPin}: ${msg}`,
+      );
+      return null;
+    }
+  }
+
+  private findTatDays(data: unknown, depth = 0): number | null {
+    if (!data || typeof data !== 'object' || depth > 3) return null;
+    const obj = data as Record<string, unknown>;
+    for (const key of ['tat', 'TAT', 'expected_tat', 'tat_days']) {
+      const v = obj[key];
+      const n = typeof v === 'string' ? Number(v) : v;
+      if (typeof n === 'number' && Number.isFinite(n) && n >= 0 && n < 30) {
+        return Math.ceil(n);
+      }
+    }
+    for (const v of Object.values(obj)) {
+      const nested = this.findTatDays(v, depth + 1);
+      if (nested != null) return nested;
+    }
+    return null;
+  }
+
   /** Next pickup slot date/time in IST (Delhivery expects YYYY-MM-DD + hh:mm:ss). */
   private defaultPickupSchedule(): { pickupDate: string; pickupTime: string } {
     const pickupTime =
@@ -608,7 +678,12 @@ export class DelhiveryService {
     };
   }
 
-  async trackShipment(waybill: string): Promise<{ status: string | null; raw: unknown } | null> {
+  async trackShipment(waybill: string): Promise<{
+    status: string | null;
+    statusType: string | null;
+    expectedDeliveryDate: Date | null;
+    raw: unknown;
+  } | null> {
     if (!this.isConfigured() || !waybill) return null;
     const url = `${this.baseUrl()}/api/v1/packages/json/?waybill=${encodeURIComponent(waybill)}`;
     try {
@@ -616,15 +691,41 @@ export class DelhiveryService {
         this.http.get(url, { headers: this.authHeaders() }),
       );
       const data = res.data as Record<string, unknown>;
-      const shipmentData = (data?.ShipmentData as unknown[]) ?? [];
-      const first = (shipmentData[0] as Record<string, unknown>)?.Shipment as Record<string, unknown>;
-      const status =
-        (first?.Status as string) ??
-        (first?.status as string) ??
-        null;
-      return { status, raw: data };
-    } catch {
+      const shipmentData = Array.isArray(data?.ShipmentData)
+        ? (data.ShipmentData as unknown[])
+        : [];
+      const first = (shipmentData[0] as Record<string, unknown> | undefined)
+        ?.Shipment as Record<string, unknown> | undefined;
+      // Delhivery returns Shipment.Status as an object: { Status, StatusType, StatusDateTime, ... }.
+      const rawStatus = first?.Status ?? first?.status;
+      const statusObj =
+        rawStatus && typeof rawStatus === 'object'
+          ? (rawStatus as Record<string, unknown>)
+          : null;
+      const pickString = (v: unknown): string | null =>
+        typeof v === 'string' && v.trim() ? v.trim() : null;
+      const status = statusObj
+        ? pickString(statusObj.Status) ?? pickString(statusObj.status)
+        : pickString(rawStatus);
+      const statusType = statusObj
+        ? pickString(statusObj.StatusType) ?? pickString(statusObj.statusType)
+        : null;
+      const expectedDeliveryDate = this.parseDate(
+        first?.ExpectedDeliveryDate ??
+          first?.PromisedDeliveryDate ??
+          first?.expectedDeliveryDate,
+      );
+      return { status, statusType, expectedDeliveryDate, raw: data };
+    } catch (e: unknown) {
+      const msg = e instanceof Error ? e.message : String(e);
+      this.logger.warn(`Delhivery track failed waybill=${waybill}: ${msg}`);
       return null;
     }
+  }
+
+  private parseDate(v: unknown): Date | null {
+    if (typeof v !== 'string' || !v.trim()) return null;
+    const d = new Date(v);
+    return Number.isNaN(d.getTime()) ? null : d;
   }
 }

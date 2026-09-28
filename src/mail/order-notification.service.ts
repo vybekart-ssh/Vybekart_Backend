@@ -10,6 +10,7 @@ import {
   OrderEmailPayload,
 } from './templates/order-email.template';
 import { parseShippingAddressSnapshot } from './templates/shipping-address.util';
+import { DelhiveryShippingCostResult } from '../delhivery/delhivery.types';
 
 @Injectable()
 export class OrderNotificationService {
@@ -85,6 +86,7 @@ export class OrderNotificationService {
         text: buyerMail.text,
       });
       this.logger.log(`Buyer order email sent order=${orderId} to=${buyerEmail}`);
+      await this.sendRecordsCopy(orderId, 'buyer', buyerEmail, buyerMail);
     }
 
     if (sellerEmail) {
@@ -99,6 +101,102 @@ export class OrderNotificationService {
         text: sellerMail.text,
       });
       this.logger.log(`Seller order email sent order=${orderId} to=${sellerEmail}`);
+      await this.sendRecordsCopy(orderId, 'seller', sellerEmail, sellerMail);
+    }
+  }
+
+  /** Copy of a sent order email to the internal records inbox (never throws). */
+  private async sendRecordsCopy(
+    orderId: string,
+    audience: 'buyer' | 'seller',
+    originalTo: string,
+    mail: { subject: string; html: string; text: string },
+  ): Promise<void> {
+    const recordsTo = this.mail.recordsEmail();
+    if (recordsTo.toLowerCase() === originalTo.toLowerCase()) return;
+    try {
+      const note = `Copy of the ${audience} email sent to ${originalTo}`;
+      await this.mail.sendTransactional(recordsTo, {
+        subject: `[Copy: ${audience}] ${mail.subject}`,
+        html: `<p style="font-family:Arial,sans-serif;font-size:12px;color:#64748b;">${note}</p>${mail.html}`,
+        text: `${note}\n\n${mail.text}`,
+      });
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e);
+      this.logger.warn(
+        `Records copy of ${audience} order email failed order=${orderId}: ${msg}`,
+      );
+    }
+  }
+
+  /**
+   * Internal record of the Delhivery charge for a pickup request. Sellers never
+   * see this amount. Never throws to caller.
+   */
+  async sendDelhiveryChargeRecord(input: {
+    kind: 'ORDER' | 'REPLACEMENT';
+    referenceId: string;
+    orderId: string;
+    sellerName: string;
+    waybill: string;
+    originPin: string;
+    destinationPin: string;
+    weightGrams: number;
+    quote: DelhiveryShippingCostResult | null;
+  }): Promise<void> {
+    try {
+      const raw = input.quote?.raw as Record<string, unknown> | null | undefined;
+      const quoteFailed = !input.quote || (raw != null && 'error' in raw);
+      const fee = quoteFailed ? null : input.quote!.fee;
+      const amount =
+        fee != null ? `₹${fee.toFixed(2)}` : 'Not available (Delhivery quote failed)';
+      const shortId = input.orderId.slice(-8).toUpperCase();
+      const label = input.kind === 'REPLACEMENT' ? 'Replacement' : 'Order';
+      const placedAt = new Date().toLocaleString('en-IN', {
+        dateStyle: 'medium',
+        timeStyle: 'short',
+        timeZone: 'Asia/Kolkata',
+      });
+      const rows: Array<[string, string]> = [
+        ['Type', label],
+        ['Order ID', input.orderId],
+        ...(input.kind === 'REPLACEMENT'
+          ? ([['Replacement ID', input.referenceId]] as Array<[string, string]>)
+          : []),
+        ['Seller partner', input.sellerName],
+        ['Waybill (AWB)', input.waybill],
+        ['Pickup pincode', input.originPin],
+        ['Delivery pincode', input.destinationPin],
+        ['Billed weight (est.)', `${input.weightGrams} g`],
+        ['Delhivery charge to be deducted', amount],
+        ['Pickup requested at', placedAt],
+      ];
+      const esc = (s: string) =>
+        s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+      const html = `<p>A Delhivery pickup was requested. The following amount will be deducted from the Delhivery wallet for this shipment:</p>
+<table cellpadding="6" cellspacing="0" border="1" style="border-collapse:collapse;font-family:Arial,sans-serif;font-size:14px;">
+${rows.map(([k, v]) => `<tr><td><strong>${esc(k)}</strong></td><td>${esc(v)}</td></tr>`).join('\n')}
+</table>
+<p style="color:#64748b;font-size:12px;">Live quote from Delhivery's rate API at pickup time. This amount is not shown to the seller partner.</p>`;
+      const text = [
+        'A Delhivery pickup was requested. The following amount will be deducted from the Delhivery wallet:',
+        '',
+        ...rows.map(([k, v]) => `${k}: ${v}`),
+      ].join('\n');
+
+      await this.mail.sendTransactional(this.mail.recordsEmail(), {
+        subject: `Delhivery charge ${fee != null ? `₹${fee.toFixed(2)}` : '(unavailable)'} — ${label} #${shortId}`,
+        html,
+        text,
+      });
+      this.logger.log(
+        `Delhivery charge record sent ${label.toLowerCase()}=${input.referenceId} fee=${fee ?? 'n/a'}`,
+      );
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e);
+      this.logger.error(
+        `Delhivery charge record email failed for ${input.referenceId}: ${msg}`,
+      );
     }
   }
 

@@ -202,7 +202,7 @@ export class OrdersController {
   @Post(':id/packing-video')
   @UseGuards(JwtAuthGuard, RolesGuard, SellerVerifiedGuard)
   @Roles(Role.SELLER)
-  @UseInterceptors(FileInterceptor('video', { limits: { fileSize: 80 * 1024 * 1024 } }))
+  @UseInterceptors(FileInterceptor('video', { limits: { fileSize: 120 * 1024 * 1024 } }))
   uploadPackingVideo(
     @Request() req: { user: { id: string } },
     @Param('id') id: string,

@@ -13,10 +13,11 @@ import {
   ReplacementStatus,
   Role,
 } from '@prisma/client';
-import * as fs from 'fs/promises';
 import * as path from 'path';
+import { PackingVideoStorageService } from '../storage/packing-video-storage.service';
 import { PrismaService } from '../prisma/prisma.service';
 import { MailService } from '../mail/mail.service';
+import { OrderNotificationService } from '../mail/order-notification.service';
 import { RatingsService } from '../ratings/ratings.service';
 import { DelhiveryService } from '../delhivery/delhivery.service';
 import { DelhiveryWarehouseService } from '../delhivery/delhivery-warehouse.service';
@@ -32,7 +33,6 @@ import {
   parseVariantItems,
   productHasVariantItems,
 } from '../products/product-variants.util';
-import { resolvePublicBaseUrl } from '../common/utils/public-base-url';
 import {
   isDelhiveryDeliveredStatus,
   resolveSellerDateRange,
@@ -60,6 +60,8 @@ export class ReplacementsService {
     private readonly config: ConfigService,
     private readonly delhivery: DelhiveryService,
     private readonly delhiveryWarehouses: DelhiveryWarehouseService,
+    private readonly packingVideos: PackingVideoStorageService,
+    private readonly orderNotifications: OrderNotificationService,
   ) {}
 
   private assertSellerCanFulfill(req: {
@@ -653,13 +655,11 @@ export class ReplacementsService {
     }
     this.assertSellerCanFulfill(req);
 
-    const dir = path.join(process.cwd(), 'uploads', 'packing', 'replacements');
-    await fs.mkdir(dir, { recursive: true });
     const ext = path.extname(file.originalname) || '.mp4';
-    const fname = `repl_${id}${ext}`;
-    await fs.writeFile(path.join(dir, fname), file.buffer);
-    const base = resolvePublicBaseUrl(this.config);
-    const packingVideoUrl = `${base}/uploads/packing/replacements/${fname}`;
+    const packingVideoUrl = await this.packingVideos.save(
+      `packing/replacements/repl_${id}${ext}`,
+      file,
+    );
 
     const updated = await this.prisma.replacementRequest.update({
       where: { id },
@@ -780,6 +780,28 @@ export class ReplacementsService {
         buyer: { include: { user: true } },
       },
     });
+    const waybill = shipmentData.waybill;
+    void this.delhivery
+      .calculateShippingCost({
+        originPin,
+        destinationPin: destPin,
+        weightGrams: 500,
+        paymentMode: 'Pre-paid',
+      })
+      .catch(() => null)
+      .then((quote) =>
+        this.orderNotifications.sendDelhiveryChargeRecord({
+          kind: 'REPLACEMENT',
+          referenceId: id,
+          orderId: order.id,
+          sellerName: seller.businessName?.trim() || seller.id,
+          waybill,
+          originPin,
+          destinationPin: destPin,
+          weightGrams: 500,
+          quote,
+        }),
+      );
     return mapReplacementDetail(updated, 'seller');
   }
 

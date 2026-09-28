@@ -64,6 +64,13 @@ export class MailService {
     );
   }
 
+  /** Internal records inbox (order copies, Delhivery charges). */
+  recordsEmail(): string {
+    return (
+      this.config.get<string>('RECORDS_EMAIL')?.trim() || MAIL_DEFAULTS.records
+    );
+  }
+
   async sendToSupport(input: Omit<SendEmailInput, 'from' | 'to'>): Promise<void> {
     const to =
       this.config.get<string>('SUPPORT_EMAIL')?.trim() ||

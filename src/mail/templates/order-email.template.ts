@@ -225,7 +225,7 @@ export function buildSellerNewOrderEmail(
         : []),
     ])}
     ${lineItemsHtml(order.items)}
-    ${totalsBlock(order.subtotal, order.actualDeliveryFee ?? order.deliveryFee, order.totalAmount)}
+    ${totalsBlock(order.subtotal, order.deliveryFee, order.totalAmount)}
     <p style="margin:0;font-size:13px;color:#64748b;line-height:1.5;">Open the <strong>Vybekart Seller Partner</strong> app → Orders to accept, pack, and request delivery.</p>
   `;
 

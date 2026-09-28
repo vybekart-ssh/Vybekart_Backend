@@ -9,6 +9,7 @@ export const MAIL_DEFAULTS = {
   contact: 'contact@vybekart.co.in',
   support: 'support@vybekart.co.in',
   noreply: 'noreply@vybekart.co.in',
+  records: 'vybekart88@gmail.com',
 } as const;
 
 /** Extract bare email from `Name <email>` or return trimmed input. */

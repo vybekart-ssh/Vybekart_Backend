@@ -24,8 +24,8 @@ import { SellerOrdersQueryDto } from './dto/seller-orders-query.dto';
 import { BuyerOrdersQueryDto } from './dto/buyer-orders-query.dto';
 import { MockDeliveryService } from './mock-delivery.service';
 import { DelhiveryService } from '../delhivery/delhivery.service';
-import { resolvePublicBaseUrl } from '../common/utils/public-base-url';
-import * as fs from 'fs/promises';
+import { PackingVideoStorageService } from '../storage/packing-video-storage.service';
+import { FirebasePushService } from '../notifications/firebase-push.service';
 import * as path from 'path';
 import {
   applyVariantStockDelta,
@@ -84,6 +84,8 @@ export class OrdersService {
     private delhiveryWarehouses: DelhiveryWarehouseService,
     @Inject(forwardRef(() => CouponsService))
     private coupons: CouponsService,
+    private packingVideos: PackingVideoStorageService,
+    private firebasePush: FirebasePushService,
   ) {}
 
   /** Fee charged to the buyer given who pays shipping. */
@@ -1105,6 +1107,10 @@ export class OrdersService {
     await this.clearCart(userId, streamId ?? undefined, 'checkout completed');
 
     void this.orderNotifications.sendOrderPlacedEmails(updated.id);
+    if (updated.status === OrderStatus.PAID) {
+      void this.refreshExpectedDelivery(updated.id);
+      void this.notifySellerNewOrder(updated.id);
+    }
 
     return {
       orderId: updated.id,
@@ -1437,6 +1443,7 @@ export class OrdersService {
       },
     });
     if (!order) throw new NotFoundException('Order not found');
+    this.ensureExpectedDelivery(order);
     return mapBuyerOrderDetail(order);
   }
 
@@ -1608,12 +1615,142 @@ export class OrdersService {
     if (!hasSellerProduct) {
       throw new ForbiddenException('This order does not contain your products');
     }
+    this.ensureExpectedDelivery(order);
     return mapSellerOrder(order);
   }
 
+  /** FCM push to the seller partner(s) of a newly paid order. Never throws. */
+  private async notifySellerNewOrder(orderId: string): Promise<void> {
+    try {
+      if (!this.firebasePush.isEnabled()) return;
+      const order = await this.prisma.order.findUnique({
+        where: { id: orderId },
+        select: {
+          totalAmount: true,
+          items: {
+            select: {
+              quantity: true,
+              product: {
+                select: { name: true, seller: { select: { userId: true } } },
+              },
+            },
+          },
+        },
+      });
+      if (!order?.items.length) return;
+      const userIds = [
+        ...new Set(
+          order.items
+            .map((i) => i.product.seller?.userId)
+            .filter((v): v is string => !!v),
+        ),
+      ];
+      if (!userIds.length) return;
+      const devices = await this.prisma.userPushDevice.findMany({
+        where: { userId: { in: userIds } },
+        select: { fcmToken: true },
+      });
+      const tokens = devices.map((d) => d.fcmToken);
+      if (!tokens.length) return;
+
+      const units = order.items.reduce((s, i) => s + i.quantity, 0);
+      const firstName = order.items[0].product.name;
+      const more = units > 1 ? ` +${units - 1} more` : '';
+      const shortId = orderId.slice(-8).toUpperCase();
+      await this.firebasePush.sendToTokensBatched(
+        tokens,
+        'New order received',
+        `Order #${shortId}: ${firstName}${more} · ₹${Math.round(order.totalAmount)}. Open Orders to pack and ship it.`,
+        { type: 'SELLER_NEW_ORDER', orderId },
+        { android: { channelId: 'seller_orders' } },
+      );
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e);
+      this.logger.warn(`Seller new-order push failed order=${orderId}: ${msg}`);
+    }
+  }
+
+  private readonly expectedDeliveryInFlight = new Set<string>();
+
+  /** Background-fills a missing delivery estimate for an open order. */
+  private ensureExpectedDelivery(order: {
+    id: string;
+    status: OrderStatus;
+    expectedDeliveryAt?: Date | null;
+  }): void {
+    if (order.expectedDeliveryAt) return;
+    const open: OrderStatus[] = [
+      OrderStatus.PAID,
+      OrderStatus.PACKED,
+      OrderStatus.SHIPPED,
+    ];
+    if (!open.includes(order.status)) return;
+    void this.refreshExpectedDelivery(order.id);
+  }
+
   /**
-   * Live Delhivery shipping charge for this order (wallet deduction estimate).
-   * Uses Delhivery invoice/charges API only — not Order.deliveryFee snapshot.
+   * Computes the delivery estimate from Delhivery's expected TAT for the
+   * seller-pickup → buyer lane and stores it on the order. Never throws.
+   */
+  private async refreshExpectedDelivery(orderId: string): Promise<void> {
+    if (this.expectedDeliveryInFlight.has(orderId)) return;
+    this.expectedDeliveryInFlight.add(orderId);
+    try {
+      const order = await this.prisma.order.findUnique({
+        where: { id: orderId },
+        select: {
+          status: true,
+          shippedAt: true,
+          shippingAddress: true,
+          items: { select: { product: { select: { sellerId: true } } }, take: 1 },
+        },
+      });
+      if (!order) return;
+      const sellerId = order.items[0]?.product.sellerId;
+      const destinationPin =
+        order.shippingAddress?.match(/\b(\d{6})\b/)?.[1] ?? '';
+      if (!sellerId || !destinationPin) return;
+      const seller = await this.prisma.seller.findUnique({
+        where: { id: sellerId },
+        select: { userId: true },
+      });
+      if (!seller) return;
+      const pickup = await this.prisma.address.findFirst({
+        where: { userId: seller.userId, type: AddressType.PICKUP },
+        orderBy: { createdAt: 'desc' },
+        select: { zip: true },
+      });
+      const originPin = pickup?.zip?.trim() ?? '';
+      if (originPin.length !== 6) return;
+
+      const pickupAt =
+        order.shippedAt ??
+        new Date(Date.now() + PRE_PICKUP_DAYS * 24 * 60 * 60 * 1000);
+      const tatDays =
+        (await this.delhivery.getExpectedTatDays({
+          originPin,
+          destinationPin,
+          pickupAt,
+        })) ?? fallbackTatDays(originPin, destinationPin);
+      const expectedDeliveryAt = new Date(
+        pickupAt.getTime() + tatDays * 24 * 60 * 60 * 1000,
+      );
+      await this.prisma.order.update({
+        where: { id: orderId },
+        data: { expectedDeliveryAt },
+      });
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e);
+      this.logger.warn(`Expected delivery estimate failed order=${orderId}: ${msg}`);
+    } finally {
+      this.expectedDeliveryInFlight.delete(orderId);
+    }
+  }
+
+  /**
+   * Seller-facing pickup pre-check. The Delhivery charge itself is never sent to
+   * sellers (it is emailed to the records inbox on pickup); `fee` is always null
+   * so older app versions don't display it.
    */
   async getSellerDelhiveryQuote(orderId: string, userId: string) {
     const seller = await this.prisma.seller.findUnique({ where: { userId } });
@@ -1657,23 +1794,14 @@ export class OrdersService {
     }
 
     const weightGrams = estimateCartWeightGrams(order.items.length);
-    const quote = await this.delhivery.calculateShippingCost({
-      originPin,
-      destinationPin,
-      weightGrams,
-      paymentMode: 'Pre-paid',
-    });
-
-    const fee = quote?.fee ?? 0;
     return {
-      fee,
-      currency: quote?.currency ?? 'INR',
+      fee: null,
+      currency: 'INR',
       originPin,
       destinationPin,
       weightGrams,
       source: 'DELHIVERY',
-      note:
-        'Live charge from Delhivery invoice API. This is what Delhivery typically deducts from the prepaid wallet when the shipment is manifested.',
+      note: 'Pickup details verified.',
     };
   }
 
@@ -1990,14 +2118,11 @@ export class OrdersService {
         'Order must be accepted (paid) before packing. Status: ' + order.status,
       );
     }
-    const dir = path.join(process.cwd(), 'uploads', 'packing');
-    await fs.mkdir(dir, { recursive: true });
     const ext = path.extname(file.originalname) || '.mp4';
-    const fname = `${orderId}${ext}`;
-    const dest = path.join(dir, fname);
-    await fs.writeFile(dest, file.buffer);
-    const base = resolvePublicBaseUrl(this.config);
-    const packingVideoUrl = `${base}/uploads/packing/${fname}`;
+    const packingVideoUrl = await this.packingVideos.save(
+      `packing/${orderId}${ext}`,
+      file,
+    );
     const updated = await this.prisma.order.update({
       where: { id: orderId },
       data: {
@@ -2098,6 +2223,7 @@ export class OrdersService {
       );
     }
 
+    const weightGrams = estimateCartWeightGrams(order.items.length);
     shipmentData = await this.delhivery.createShipment({
       orderId: orderId.replace(/-/g, '').slice(0, 32),
       pickupLocationName,
@@ -2106,7 +2232,7 @@ export class OrdersService {
       consigneeName: order.buyer?.user?.name ?? 'Buyer',
       consigneePhone: normalizeInPhone(buyerPhone),
       consigneeAddress: dropAddress,
-      weightGrams: estimateCartWeightGrams(order.items.length),
+      weightGrams,
       paymentMode: 'Pre-paid',
       shippingMode: 'Express',
     });
@@ -2144,6 +2270,29 @@ export class OrdersService {
         },
       },
     });
+    void this.refreshExpectedDelivery(orderId);
+    const waybill = shipmentData.waybill;
+    void this.delhivery
+      .calculateShippingCost({
+        originPin,
+        destinationPin: destPin,
+        weightGrams,
+        paymentMode: 'Pre-paid',
+      })
+      .catch(() => null)
+      .then((quote) =>
+        this.orderNotifications.sendDelhiveryChargeRecord({
+          kind: 'ORDER',
+          referenceId: orderId,
+          orderId,
+          sellerName: seller.businessName?.trim() || seller.id,
+          waybill,
+          originPin,
+          destinationPin: destPin,
+          weightGrams,
+          quote,
+        }),
+      );
     return mapSellerOrder(updated);
   }
 
@@ -2174,6 +2323,9 @@ export class OrdersService {
         data: {
           deliveryStatus: status ?? order.deliveryStatus,
           borzoOrderStatus: status ?? order.borzoOrderStatus,
+          ...(track?.expectedDeliveryDate
+            ? { expectedDeliveryAt: track.expectedDeliveryDate }
+            : {}),
           ...(markDelivered
             ? {
                 status: OrderStatus.DELIVERED,
@@ -2192,6 +2344,7 @@ export class OrdersService {
           },
         },
       });
+      this.ensureExpectedDelivery(updated);
       return {
         deliveryStatus: updated.deliveryStatus,
         trackingId: updated.trackingId,
@@ -2231,6 +2384,17 @@ function normalizeInPhone(raw: string): string {
   if (digits.length === 10) return `91${digits}`;
   if (digits.startsWith('91') && digits.length === 12) return digits;
   return digits;
+}
+
+/** Packing + pickup lead time before Delhivery collects a newly paid order. */
+const PRE_PICKUP_DAYS = 1;
+
+/** Used only when Delhivery's expected TAT API gives no answer. */
+function fallbackTatDays(originPin: string, destinationPin: string): number {
+  if (originPin.slice(0, 3) === destinationPin.slice(0, 3)) return 2;
+  if (originPin.slice(0, 2) === destinationPin.slice(0, 2)) return 3;
+  if (originPin[0] === destinationPin[0]) return 4;
+  return 6;
 }
 
 /** Rough weight for Delhivery quotes (500g per line, min 500g). */
