@@ -583,8 +583,9 @@ export class AdminService {
     endedAt?: string;
     durationSec?: number;
     productIds?: string[];
-    video: { buffer: Buffer; mimetype: string; originalname: string };
-    thumbnail?: { buffer: Buffer; mimetype: string } | null;
+    /** Temp file paths (multer disk storage); caller deletes them. */
+    video: { path: string; mimetype: string; originalname: string };
+    thumbnail?: { path: string; mimetype: string } | null;
   }) {
     const seller = await this.prisma.seller.findUnique({
       where: { id: input.sellerId },
@@ -606,16 +607,16 @@ export class AdminService {
     const objectKey = `vybekart-replays/${streamId}.mp4`;
     const contentType =
       input.video.mimetype?.trim() || 'video/mp4';
-    const uploaded = await this.supabase.uploadPublicObject({
+    const uploaded = await this.supabase.uploadPublicObjectFromFile({
       bucket,
       objectKey,
       contentType,
-      bytes: input.video.buffer,
+      filePath: input.video.path,
       upsert: true,
     });
 
     let thumbnailUrl: string | null = null;
-    if (input.thumbnail?.buffer?.length) {
+    if (input.thumbnail?.path) {
       const ext =
         input.thumbnail.mimetype?.includes('png')
           ? 'png'
@@ -623,11 +624,11 @@ export class AdminService {
             ? 'webp'
             : 'jpg';
       const thumbKey = `vybekart-replays/thumbs/${streamId}.${ext}`;
-      const thumb = await this.supabase.uploadPublicObject({
+      const thumb = await this.supabase.uploadPublicObjectFromFile({
         bucket,
         objectKey: thumbKey,
         contentType: input.thumbnail.mimetype || 'image/jpeg',
-        bytes: input.thumbnail.buffer,
+        filePath: input.thumbnail.path,
         upsert: true,
       });
       thumbnailUrl = thumb.publicUrl;

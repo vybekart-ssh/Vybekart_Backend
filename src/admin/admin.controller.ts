@@ -14,6 +14,10 @@ import {
   UseInterceptors,
 } from '@nestjs/common';
 import { FileFieldsInterceptor } from '@nestjs/platform-express';
+import { diskStorage } from 'multer';
+import { randomUUID } from 'crypto';
+import { tmpdir } from 'os';
+import { unlink } from 'fs/promises';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
 import { RolesGuard } from '../auth/roles.guard';
 import { Roles } from '../auth/roles.decorator';
@@ -139,10 +143,17 @@ export class AdminController {
         { name: 'video', maxCount: 1 },
         { name: 'thumbnail', maxCount: 1 },
       ],
-      { limits: { fileSize: 512 * 1024 * 1024 } },
+      {
+        // Disk, not memory: a 150 MB video in RAM exceeds the 512 MB instance.
+        storage: diskStorage({
+          destination: tmpdir(),
+          filename: (_req, _file, cb) => cb(null, `archive-${randomUUID()}`),
+        }),
+        limits: { fileSize: 512 * 1024 * 1024 },
+      },
     ),
   )
-  createArchive(
+  async createArchive(
     @UploadedFiles()
     files: {
       video?: Express.Multer.File[];
@@ -158,10 +169,18 @@ export class AdminController {
     @Body('productIds') productIdsRaw?: string,
   ) {
     const video = files?.video?.[0];
-    if (!video?.buffer?.length) {
+    const thumb = files?.thumbnail?.[0];
+    const tempPaths = [video?.path, thumb?.path].filter(
+      (p): p is string => !!p,
+    );
+    const cleanup = () =>
+      Promise.all(tempPaths.map((p) => unlink(p).catch(() => undefined)));
+    if (!video?.path || !video.size) {
+      await cleanup();
       throw new BadRequestException('video file is required');
     }
     if (!sellerId?.trim()) {
+      await cleanup();
       throw new BadRequestException('sellerId is required');
     }
     const retentionHours = retentionHoursRaw
@@ -170,7 +189,6 @@ export class AdminController {
     const durationSec = durationSecRaw
       ? parseInt(durationSecRaw, 10)
       : undefined;
-    const thumb = files?.thumbnail?.[0];
     let productIds: string[] | undefined;
     if (productIdsRaw?.trim()) {
       try {
@@ -186,24 +204,28 @@ export class AdminController {
           .filter(Boolean);
       }
     }
-    return this.adminService.createArchiveFromUpload({
-      sellerId: sellerId.trim(),
-      title,
-      description,
-      retentionHours,
-      startedAt,
-      endedAt,
-      durationSec,
-      productIds,
-      video: {
-        buffer: video.buffer,
-        mimetype: video.mimetype,
-        originalname: video.originalname,
-      },
-      thumbnail: thumb
-        ? { buffer: thumb.buffer, mimetype: thumb.mimetype }
-        : null,
-    });
+    try {
+      return await this.adminService.createArchiveFromUpload({
+        sellerId: sellerId.trim(),
+        title,
+        description,
+        retentionHours,
+        startedAt,
+        endedAt,
+        durationSec,
+        productIds,
+        video: {
+          path: video.path,
+          mimetype: video.mimetype,
+          originalname: video.originalname,
+        },
+        thumbnail: thumb?.path && thumb.size
+          ? { path: thumb.path, mimetype: thumb.mimetype }
+          : null,
+      });
+    } finally {
+      await cleanup();
+    }
   }
 
   /** Create an archive from an external direct video URL (MP4 / HLS) — no Supabase upload. */

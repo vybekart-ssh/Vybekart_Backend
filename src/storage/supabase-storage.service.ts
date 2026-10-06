@@ -1,5 +1,8 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
+import { createReadStream } from 'fs';
+import { stat } from 'fs/promises';
+import { Readable } from 'stream';
 
 type SupabaseObjectRow = {
   name: string;
@@ -85,6 +88,49 @@ export class SupabaseStorageService {
     if (!res.ok) {
       const body = await res.text().catch(() => '');
       throw new Error(`Supabase upload failed (${res.status}): ${body}`);
+    }
+    const publicUrl =
+      this.buildPublicUrl(bucket, key) ||
+      `${base}/storage/v1/object/public/${bucket}/${key}`;
+    return { publicUrl, key };
+  }
+
+  /**
+   * Streams a file from disk to Storage so large videos never sit in memory
+   * (the Render instance has 512 MB RAM).
+   */
+  async uploadPublicObjectFromFile(params: {
+    bucket: string;
+    objectKey: string;
+    contentType: string;
+    filePath: string;
+    cacheControlSeconds?: number;
+    upsert?: boolean;
+  }): Promise<{ publicUrl: string; key: string }> {
+    const base = this.supabaseUrl();
+    if (!base) throw new Error('SUPABASE_URL is required for Storage uploads');
+    const { bucket } = params;
+    const key = params.objectKey.replace(/^\/+/, '');
+    const url = `${base}/storage/v1/object/${encodeURIComponent(bucket)}/${key}`;
+    const { size } = await stat(params.filePath);
+    const body = Readable.toWeb(createReadStream(params.filePath));
+    const res = await fetch(url, {
+      method: 'POST',
+      headers: {
+        ...this.headers(),
+        'Content-Type': params.contentType,
+        'Content-Length': String(size),
+        ...(params.cacheControlSeconds != null
+          ? { 'cache-control': String(params.cacheControlSeconds) }
+          : {}),
+        ...(params.upsert ? { 'x-upsert': 'true' } : {}),
+      },
+      body: body as unknown as BodyInit,
+      duplex: 'half',
+    } as RequestInit & { duplex: 'half' });
+    if (!res.ok) {
+      const text = await res.text().catch(() => '');
+      throw new Error(`Supabase upload failed (${res.status}): ${text}`);
     }
     const publicUrl =
       this.buildPublicUrl(bucket, key) ||
