@@ -5,6 +5,7 @@ import {
   VerificationStatus,
 } from '@prisma/client';
 import { archiveNotExpiredWhere } from '../streams/archive-retention.util';
+import { resolveStreamThumbnail } from '../streams/stream-thumbnail.util';
 import { PrismaService } from '../prisma/prisma.service';
 import { UpdateBuyerProfileDto } from './dto/update-buyer-profile.dto';
 import { CreateAddressDto } from './dto/create-address.dto';
@@ -249,15 +250,13 @@ export class BuyersService {
       upcomingLive,
       archivedLives: archivedLives.map((s) => {
         const { streamProducts, ...rest } = s;
-        const productImage =
-          streamProducts?.[0]?.product?.images?.[0]?.trim() || null;
         return {
           ...rest,
-          thumbnailUrl:
-            s.thumbnailUrl?.trim() ||
-            productImage ||
-            s.seller?.logoUrl?.trim() ||
-            null,
+          thumbnailUrl: resolveStreamThumbnail({
+            firstProductImages: streamProducts?.[0]?.product?.images,
+            thumbnailUrl: s.thumbnailUrl,
+            sellerLogoUrl: s.seller?.logoUrl,
+          }),
         };
       }),
       recentlyViewed: recentlyViewed.map((rv) => ({

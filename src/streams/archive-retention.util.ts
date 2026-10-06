@@ -1,22 +1,16 @@
 /** Hours an archive stays public after `endedAt`. `-1` means forever. */
 export const ARCHIVE_RETENTION_FOREVER = -1;
-export const DEFAULT_ARCHIVE_RETENTION_HOURS = 24;
+export const DEFAULT_ARCHIVE_RETENTION_HOURS = ARCHIVE_RETENTION_FOREVER;
 
+/** Archives are never removed automatically — forever is the only retention. */
 export const ARCHIVE_RETENTION_OPTIONS = [
-  { label: '24 hours', hours: 24 },
-  { label: '48 hours', hours: 48 },
-  { label: '72 hours', hours: 72 },
-  { label: '7 days', hours: 168 },
-  { label: '30 days', hours: 720 },
   { label: 'Forever', hours: ARCHIVE_RETENTION_FOREVER },
 ] as const;
 
 export function normalizeArchiveRetentionHours(
-  hours: number | null | undefined,
+  _hours?: number | null,
 ): number {
-  if (hours == null || Number.isNaN(hours)) return DEFAULT_ARCHIVE_RETENTION_HOURS;
-  if (hours < 0) return ARCHIVE_RETENTION_FOREVER;
-  return Math.floor(hours);
+  return ARCHIVE_RETENTION_FOREVER;
 }
 
 export function computeArchiveExpiresAt(
@@ -31,18 +25,9 @@ export function computeArchiveExpiresAt(
   return d;
 }
 
-/** Prisma `where` fragment: archive still within its configured retention window. */
-export function archiveNotExpiredWhere(now: Date = new Date()) {
-  return {
-    OR: [
-      { archiveRetentionHours: ARCHIVE_RETENTION_FOREVER },
-      { archiveExpiresAt: { gt: now } },
-      // Legacy rows without expiry yet — treat as still valid until backfilled/cleanup
-      {
-        AND: [{ archiveExpiresAt: null }, { archiveRetentionHours: { gt: 0 } }],
-      },
-    ],
-  };
+/** Prisma `where` fragment for live archives. Archives never expire, so nothing is filtered out. */
+export function archiveNotExpiredWhere(_now?: Date): Record<string, never> {
+  return {};
 }
 
 export function isArchiveExpired(params: {

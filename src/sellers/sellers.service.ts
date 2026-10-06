@@ -15,6 +15,7 @@ import { UpdatePickupAddressDto } from './dto/pickup-address.dto';
 import { AddressType } from '@prisma/client';
 import { OrderStatus, StreamReplayStatus, VerificationStatus } from '@prisma/client';
 import { archiveNotExpiredWhere } from '../streams/archive-retention.util';
+import { resolveStreamThumbnail } from '../streams/stream-thumbnail.util';
 import { SupabaseStorageService } from '../storage/supabase-storage.service';
 import { FirebasePushService } from '../notifications/firebase-push.service';
 import { RatingsService } from '../ratings/ratings.service';
@@ -574,17 +575,15 @@ export class SellersService {
       activeLiveSession: liveNow ? mapSession(liveNow) : null,
       /** Seller's ended streams with replay available (last 24h) */
       archivedLiveSessions: archivedLiveSessions.map((s) => {
-        const productImage =
-          s.streamProducts?.[0]?.product?.images?.[0]?.trim() || null;
         return {
           id: s.id,
           title: s.title,
           description: s.description,
-          thumbnailUrl:
-            s.thumbnailUrl?.trim() ||
-            productImage ||
-            s.seller?.logoUrl?.trim() ||
-            null,
+          thumbnailUrl: resolveStreamThumbnail({
+            firstProductImages: s.streamProducts?.[0]?.product?.images,
+            thumbnailUrl: s.thumbnailUrl,
+            sellerLogoUrl: s.seller?.logoUrl,
+          }),
           endedAt: s.endedAt,
           replayUrl: s.replayUrl,
           replayDurationSec: s.replayDurationSec,
@@ -688,17 +687,15 @@ export class SellersService {
     const sessions = await this.getArchivedStreamsForSeller(seller.id, 50);
     return {
       archivedLiveSessions: sessions.map((s) => {
-        const productImage =
-          s.streamProducts?.[0]?.product?.images?.[0]?.trim() || null;
         return {
           id: s.id,
           title: s.title,
           description: s.description,
-          thumbnailUrl:
-            s.thumbnailUrl?.trim() ||
-            productImage ||
-            s.seller?.logoUrl?.trim() ||
-            null,
+          thumbnailUrl: resolveStreamThumbnail({
+            firstProductImages: s.streamProducts?.[0]?.product?.images,
+            thumbnailUrl: s.thumbnailUrl,
+            sellerLogoUrl: s.seller?.logoUrl,
+          }),
           endedAt: s.endedAt,
           replayUrl: s.replayUrl,
           replayDurationSec: s.replayDurationSec,

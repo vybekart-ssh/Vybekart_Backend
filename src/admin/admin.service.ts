@@ -40,6 +40,7 @@ import {
   computeArchiveExpiresAt,
   normalizeArchiveRetentionHours,
 } from '../streams/archive-retention.util';
+import { resolveStreamThumbnail } from '../streams/stream-thumbnail.util';
 import { randomUUID } from 'crypto';
 
 @Injectable()
@@ -409,7 +410,11 @@ export class AdminService {
       id: s.id,
       title: s.title,
       description: s.description,
-      thumbnailUrl: s.thumbnailUrl?.trim() || products[0]?.imageUrl || logoUrl,
+      thumbnailUrl: resolveStreamThumbnail({
+        firstProductImages: [products[0]?.imageUrl ?? null],
+        thumbnailUrl: s.thumbnailUrl,
+        sellerLogoUrl: logoUrl,
+      }),
       startedAt: s.startedAt?.toISOString() ?? null,
       endedAt: s.endedAt?.toISOString() ?? null,
       createdAt: s.createdAt.toISOString(),
@@ -632,9 +637,6 @@ export class AdminService {
         upsert: true,
       });
       thumbnailUrl = thumb.publicUrl;
-    } else {
-      // Admin uploads often have no thumb — use store logo so cards aren't blank.
-      thumbnailUrl = seller.logoUrl?.trim() || null;
     }
 
     const created = await this.prisma.stream.create({
@@ -687,8 +689,7 @@ export class AdminService {
       input.retentionHours ?? DEFAULT_ARCHIVE_RETENTION_HOURS,
     );
     const archiveExpiresAt = computeArchiveExpiresAt(endedAt, hours);
-    const thumbnailUrl =
-      input.thumbnailUrl?.trim() || seller.logoUrl?.trim() || null;
+    const thumbnailUrl = input.thumbnailUrl?.trim() || null;
 
     const created = await this.prisma.stream.create({
       data: {
@@ -765,14 +766,7 @@ export class AdminService {
         ? new Date(Math.max(endedAt.getTime(), Date.now()))
         : endedAt;
 
-    let thumbnailUrl = input.thumbnailUrl;
-    if (thumbnailUrl === undefined && !existing.thumbnailUrl?.trim()) {
-      const seller = await this.prisma.seller.findUnique({
-        where: { id: nextSellerId },
-        select: { logoUrl: true },
-      });
-      thumbnailUrl = seller?.logoUrl?.trim() || null;
-    }
+    const thumbnailUrl = input.thumbnailUrl;
 
     const data: Prisma.StreamUpdateInput = {
       ...(input.title !== undefined ? { title: input.title.trim() } : {}),

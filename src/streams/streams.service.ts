@@ -20,6 +20,7 @@ import {
   isArchiveExpired,
   normalizeArchiveRetentionHours,
 } from './archive-retention.util';
+import { resolveStreamThumbnail } from './stream-thumbnail.util';
 import {
   PaginationQueryDto,
   PaginatedResult,
@@ -48,8 +49,26 @@ const streamWithSellerInclude = {
   category: { select: { id: true, name: true, slug: true } },
 } as const;
 
-/** Ephemeral live engagement cache; TTL is a safety net if cleanup is missed. */
-const STREAM_ENGAGEMENT_TTL_SECONDS = 48 * 60 * 60;
+/** Latest comments returned to the live / archive comment feed. */
+const STREAM_COMMENTS_FEED_LIMIT = 50;
+
+function toStreamCommentDto(c: {
+  id: string;
+  userId: string;
+  userName: string;
+  text: string;
+  isSeller: boolean;
+  createdAt: Date;
+}) {
+  return {
+    id: c.id,
+    userId: c.userId,
+    userName: c.userName,
+    text: c.text,
+    createdAt: c.createdAt.toISOString(),
+    isSeller: c.isSeller,
+  };
+}
 
 @Injectable()
 export class StreamsService {
@@ -107,15 +126,6 @@ export class StreamsService {
       );
   }
 
-  private likesKey(streamId: string) {
-    return this.redis.streamLikesKey(streamId);
-  }
-  private commentsKey(streamId: string) {
-    return this.redis.streamCommentsKey(streamId);
-  }
-  private bidsKey(streamId: string) {
-    return this.redis.streamBidsKey(streamId);
-  }
   private followsKey(userId: string) {
     return `buyer:${userId}:follows`;
   }
@@ -663,11 +673,11 @@ export class StreamsService {
     return {
       streamId: stream.id,
       title: stream.title,
-      thumbnailUrl:
-        stream.thumbnailUrl?.trim() ||
-        stream.streamProducts?.[0]?.product?.images?.[0]?.trim() ||
-        stream.seller?.logoUrl?.trim() ||
-        null,
+      thumbnailUrl: resolveStreamThumbnail({
+        firstProductImages: stream.streamProducts?.[0]?.product?.images,
+        thumbnailUrl: stream.thumbnailUrl,
+        sellerLogoUrl: stream.seller?.logoUrl,
+      }),
       replayUrl: replayReady ? stream.replayUrl : null,
       replayStatus: stream.replayStatus,
       replayDurationSec: stream.replayDurationSec,
@@ -752,10 +762,10 @@ export class StreamsService {
       stream.seller?.user?.name?.trim() ||
       'Vybekart store';
     const firstProduct = stream.streamProducts[0]?.product;
-    const thumb =
-      stream.thumbnailUrl?.trim() ||
-      firstProduct?.images?.[0]?.trim() ||
-      null;
+    const thumb = resolveStreamThumbnail({
+      firstProductImages: firstProduct?.images,
+      thumbnailUrl: stream.thumbnailUrl,
+    });
     const title =
       stream.title?.trim() ||
       firstProduct?.name?.trim() ||
@@ -992,7 +1002,6 @@ export class StreamsService {
       updated.replayUrl,
       updated.replayStatus,
     );
-    // Keep likes/comments in Redis for archive replay (48h TTL); cleared on stream delete only.
     return { ...updated, summary };
   }
 
@@ -1303,24 +1312,20 @@ export class StreamsService {
   }
 
   private async getEngagementSummary(streamId: string) {
-    const [likesRaw, commentsRaw, bidsRaw] = await Promise.all([
-      this.redis.get(this.likesKey(streamId)),
-      this.redis.get(this.commentsKey(streamId)),
-      this.redis.get(this.bidsKey(streamId)),
+    const [likes, comments, bidAgg] = await Promise.all([
+      this.prisma.streamLike.count({ where: { streamId } }),
+      this.prisma.streamComment.count({ where: { streamId } }),
+      this.prisma.streamBid.aggregate({
+        where: { streamId },
+        _count: { _all: true },
+        _max: { amount: true },
+      }),
     ]);
-    const likedBy: string[] = likesRaw ? JSON.parse(likesRaw) : [];
-    const comments: Array<Record<string, unknown>> = commentsRaw
-      ? JSON.parse(commentsRaw)
-      : [];
-    const bids: Array<{ amount: number }> = bidsRaw ? JSON.parse(bidsRaw) : [];
-    const topBid = bids.length
-      ? bids.reduce((max, x) => (x.amount > max ? x.amount : max), 0)
-      : 0;
     return {
-      likes: likedBy.length,
-      comments: comments.length,
-      bids: bids.length,
-      topBid,
+      likes,
+      comments,
+      bids: bidAgg._count._all,
+      topBid: bidAgg._max.amount ?? 0,
     };
   }
 
@@ -1351,23 +1356,18 @@ export class StreamsService {
         throw new BadRequestException('This archived live is no longer available');
       }
     }
-    const raw = await this.redis.get(this.likesKey(streamId));
-    const likedBy: string[] = raw ? JSON.parse(raw) : [];
-    const index = likedBy.indexOf(userId);
-    let liked: boolean;
-    if (index >= 0) {
-      likedBy.splice(index, 1);
-      liked = false;
-    } else {
-      likedBy.push(userId);
-      liked = true;
+    const removed = await this.prisma.streamLike.deleteMany({
+      where: { streamId, userId },
+    });
+    const liked = removed.count === 0;
+    if (liked) {
+      await this.prisma.streamLike.createMany({
+        data: [{ streamId, userId }],
+        skipDuplicates: true,
+      });
     }
-    await this.redis.set(
-      this.likesKey(streamId),
-      JSON.stringify(likedBy),
-      STREAM_ENGAGEMENT_TTL_SECONDS,
-    );
-    return { liked, likes: likedBy.length };
+    const likes = await this.prisma.streamLike.count({ where: { streamId } });
+    return { liked, likes };
   }
 
   async addComment(streamId: string, userId: string, text: string) {
@@ -1398,35 +1398,31 @@ export class StreamsService {
       select: { id: true, name: true },
     });
     const isSeller = stream.seller?.userId === userId;
-    const raw = await this.redis.get(this.commentsKey(streamId));
-    const comments: Array<Record<string, unknown>> = raw ? JSON.parse(raw) : [];
-    const comment = {
-      id: `cmt-${Date.now()}`,
-      userId,
-      userName: isSeller
-        ? stream.seller?.businessName?.trim() ||
-          stream.seller?.user?.name ||
-          user?.name ||
-          'Seller'
-        : user?.name ?? 'user',
-      text: text.trim(),
-      createdAt: new Date().toISOString(),
-      isSeller,
-    };
-    comments.push(comment);
-    const latest = comments.slice(-50);
-    await this.redis.set(
-      this.commentsKey(streamId),
-      JSON.stringify(latest),
-      STREAM_ENGAGEMENT_TTL_SECONDS,
-    );
-    return comment;
+    const comment = await this.prisma.streamComment.create({
+      data: {
+        streamId,
+        userId,
+        userName: isSeller
+          ? stream.seller?.businessName?.trim() ||
+            stream.seller?.user?.name ||
+            user?.name ||
+            'Seller'
+          : user?.name ?? 'user',
+        text: text.trim(),
+        isSeller,
+      },
+    });
+    return toStreamCommentDto(comment);
   }
 
   async getComments(streamId: string) {
     await this.findOne(streamId);
-    const raw = await this.redis.get(this.commentsKey(streamId));
-    return raw ? JSON.parse(raw) : [];
+    const latest = await this.prisma.streamComment.findMany({
+      where: { streamId },
+      orderBy: { createdAt: 'desc' },
+      take: STREAM_COMMENTS_FEED_LIMIT,
+    });
+    return latest.reverse().map(toStreamCommentDto);
   }
 
   async addBid(streamId: string, userId: string, amount: number) {
@@ -1438,27 +1434,26 @@ export class StreamsService {
       where: { id: userId },
       select: { id: true, name: true },
     });
-    const raw = await this.redis.get(this.bidsKey(streamId));
-    const bids: Array<Record<string, unknown>> = raw ? JSON.parse(raw) : [];
+    const created = await this.prisma.streamBid.create({
+      data: {
+        streamId,
+        userId,
+        userName: user?.name ?? 'user',
+        amount,
+      },
+    });
+    const top = await this.prisma.streamBid.aggregate({
+      where: { streamId },
+      _max: { amount: true },
+    });
     const bid = {
-      id: `bid-${Date.now()}`,
-      userId,
-      userName: user?.name ?? 'user',
-      amount,
-      createdAt: new Date().toISOString(),
+      id: created.id,
+      userId: created.userId,
+      userName: created.userName,
+      amount: created.amount,
+      createdAt: created.createdAt.toISOString(),
     };
-    bids.push(bid);
-    const latest = bids.slice(-100);
-    await this.redis.set(
-      this.bidsKey(streamId),
-      JSON.stringify(latest),
-      STREAM_ENGAGEMENT_TTL_SECONDS,
-    );
-    const topBid = latest.reduce(
-      (max, x) => ((x.amount as number) > max ? (x.amount as number) : max),
-      0,
-    );
-    return { bid, topBid };
+    return { bid, topBid: top._max.amount ?? amount };
   }
 
     async followSeller(streamId: string, userId: string) {

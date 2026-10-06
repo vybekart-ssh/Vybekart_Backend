@@ -2,6 +2,7 @@ import { Module } from '@nestjs/common';
 import { StreamsController } from './streams.controller';
 import { StreamsService } from './streams.service';
 import { StreamsGateway } from './streams.gateway';
+import { StreamEngagementImportService } from './stream-engagement-import.service';
 import { AuthModule } from '../auth/auth.module';
 import { NotificationsModule } from '../notifications/notifications.module';
 import { PrismaModule } from '../prisma/prisma.module';
@@ -11,7 +12,7 @@ import { OrdersModule } from '../orders/orders.module';
 @Module({
   imports: [AuthModule, NotificationsModule, PrismaModule, RatingsModule, OrdersModule],
   controllers: [StreamsController],
-  providers: [StreamsService, StreamsGateway],
+  providers: [StreamsService, StreamsGateway, StreamEngagementImportService],
   exports: [StreamsService],
 })
 export class StreamsModule {}
