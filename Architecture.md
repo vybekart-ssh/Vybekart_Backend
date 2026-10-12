@@ -199,6 +199,10 @@ Egress records the degraded WebRTC stream, so the Android seller app also saves 
 4. **Egress stays the fallback:** `Stream.replaySource` (`EGRESS` / `DEVICE` / `ADMIN`); stop-stream finalize and the egress webhook never overwrite a `DEVICE` replay.  
 5. Ops: Supabase bucket + project **global file-size limit** must allow multi-GB uploads.
 
+### 7.2a Packing videos (permanent)
+
+`PackingVideoStorageService` stores order (`packing/<orderId>.mp4`) and replacement (`packing/replacements/repl_<id>.mp4`) packing videos **only** in the Supabase public bucket. It retries up to 3 times and HEAD-verifies the stored size. It never writes to the Render disk (wiped on every deploy — the old silent fallback is why videos “disappeared”). On failure the request fails and the order stays `PAID`, so the seller retries: `413` when the Storage size limit rejects the file, `503` otherwise. No job ever deletes `packing/*` objects. Ops: keep the bucket / project per-file limit ≥ 50 MB (the app records ≈ 42 MB max). Legacy `/uploads/packing/*` URLs still redirect to Storage when the object exists.
+
 ### 7.3 Buyer reels feed + seller channel
 
 The Android buyer app shows lives and replays in a vertical swipe feed and **pre-connects / pre-buffers** the next and previous videos in the background.

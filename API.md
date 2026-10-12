@@ -515,6 +515,17 @@ Get order details. **Auth:** Buyer or seller (must be related to the order).
 
 ---
 
+### POST `/orders/:id/packing-video`
+
+Upload the packing video for a paid live-stream order (also `POST /replacements/:id/packing-video` for replacements). **Auth:** verified seller. **Body:** multipart `video` (≤ 120 MB request limit). On success the order becomes `PACKED` and `packingVideoUrl` points to permanent Supabase Storage.
+
+| Error | Meaning |
+|-------|---------|
+| `413` | Storage rejected the file size — record a shorter video |
+| `503` | Storage unavailable after 3 attempts — order unchanged, retry |
+
+---
+
 ### PATCH `/orders/:id/ship`
 
 Mark order as shipped. **Auth:** Seller only. Order must be PAID.
