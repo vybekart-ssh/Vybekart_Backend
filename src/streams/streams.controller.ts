@@ -23,10 +23,19 @@ import { SellerVerifiedGuard } from '../auth/seller-verified.guard';
 import { Role } from '@prisma/client';
 import { PaginationQueryDto } from '../common/dto/pagination-query.dto';
 import { SkipThrottle } from '@nestjs/throttler';
+import { StreamDeviceRecordingService } from './stream-device-recording.service';
+import {
+  DeviceRecordingCompleteDto,
+  DeviceRecordingStatusDto,
+  DeviceRecordingUploadSessionDto,
+} from './dto/device-recording.dto';
 
 @Controller('streams')
 export class StreamsController {
-  constructor(private readonly streamsService: StreamsService) {}
+  constructor(
+    private readonly streamsService: StreamsService,
+    private readonly deviceRecording: StreamDeviceRecordingService,
+  ) {}
 
   @Post()
   @UseGuards(JwtAuthGuard, RolesGuard, SellerVerifiedGuard)
@@ -217,6 +226,40 @@ export class StreamsController {
     @Param('id') id: string,
   ) {
     return this.streamsService.markBroadcastStarted(id, req.user.id);
+  }
+
+  /** Seller phone HD recording: returns a signed Supabase TUS target for the MP4. */
+  @Post(':id/device-recording/upload-session')
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles(Role.SELLER)
+  deviceRecordingUploadSession(
+    @Request() req: { user: { id: string } },
+    @Param('id') id: string,
+    @Body() dto: DeviceRecordingUploadSessionDto,
+  ) {
+    return this.deviceRecording.createUploadSession(id, req.user.id, dto);
+  }
+
+  @Post(':id/device-recording/complete')
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles(Role.SELLER)
+  deviceRecordingComplete(
+    @Request() req: { user: { id: string } },
+    @Param('id') id: string,
+    @Body() dto: DeviceRecordingCompleteDto,
+  ) {
+    return this.deviceRecording.completeUpload(id, req.user.id, dto);
+  }
+
+  @Post(':id/device-recording/status')
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles(Role.SELLER)
+  deviceRecordingStatus(
+    @Request() req: { user: { id: string } },
+    @Param('id') id: string,
+    @Body() dto: DeviceRecordingStatusDto,
+  ) {
+    return this.deviceRecording.reportStatus(id, req.user.id, dto);
   }
 
   @Patch(':id')

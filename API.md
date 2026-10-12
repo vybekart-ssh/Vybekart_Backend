@@ -356,7 +356,33 @@ Update a stream. **Auth:** Seller (owner only). **Request body:** `{ "title"?: s
 
 Stop a stream. **Auth:** Seller (owner only).
 
-Stops LiveKit egress, sets `endedAt`, begins replay processing. **Likes/comments Redis keys are retained** for archive replay (48h TTL); they are cleared on stream delete only.
+Stops LiveKit egress, sets `endedAt`, begins replay processing. **Likes/comments Redis keys are retained** for archive replay (48h TTL); they are cleared on stream delete only. If a seller-phone HD copy is already the replay (`replaySource: DEVICE`), the egress result does not replace it.
+
+---
+
+### POST `/streams/:id/device-recording/upload-session`
+
+Seller-phone HD copy: get a signed resumable (TUS) upload to Supabase Storage. **Auth:** Seller (owner only).
+
+**Body:** `{ "sizeBytes": number (int ≥ 1), "durationSec"?: number }`
+
+**Response:** `{ "alreadyUploaded": false, "endpoint": "https://<ref>.storage.supabase.co/storage/v1/upload/resumable/sign", "signature": "<token>", "bucket", "objectName": "vybekart-replays/device/<streamId>.mp4", "contentType": "video/mp4", "chunkSizeBytes": 6291456, "expiresInSeconds": 7200 }` — or `{ "alreadyUploaded": true, ... }` when the device copy is already `READY`.
+
+Client sends every TUS request with headers `x-signature: <signature>`, `Tus-Resumable: 1.0.0`; create with `x-upsert: true` and `Upload-Metadata` (`bucketName`, `objectName`, `contentType`). **Errors:** 400 too large (`DEVICE_RECORDING_MAX_BYTES`, default 10 GB), 403 not owner, 404 stream gone, 502/503 storage unavailable.
+
+---
+
+### POST `/streams/:id/device-recording/complete`
+
+Confirms the upload. **Auth:** Seller (owner only). **Body:** `{ "sizeBytes": number, "durationSec"?: number }`
+
+Verifies the object exists with the same size, then sets `replayUrl` (device copy), `replayStatus: READY`, `replaySource: DEVICE`, `deviceRecordingStatus: READY`. **400** when the object is missing / size differs (client re-uploads).
+
+---
+
+### POST `/streams/:id/device-recording/status`
+
+App-side progress for ops/admin. **Auth:** Seller (owner only). **Body:** `{ "status": "RECORDING" | "PENDING_UPLOAD" | "FAILED", "error"?: string (≤ 500) }`. Never downgrades a `READY` device copy.
 
 ---
 

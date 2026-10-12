@@ -11,7 +11,12 @@ import { CreateStreamDto } from './dto/create-stream.dto';
 import { UpdateStreamDto } from './dto/update-stream.dto';
 import { ScheduleStreamDto } from './dto/schedule-stream.dto';
 import { PrismaService } from '../prisma/prisma.service';
-import { Prisma, StreamReplayStatus, VerificationStatus } from '@prisma/client';
+import {
+  Prisma,
+  StreamReplaySource,
+  StreamReplayStatus,
+  VerificationStatus,
+} from '@prisma/client';
 import {
   ARCHIVE_RETENTION_FOREVER,
   DEFAULT_ARCHIVE_RETENTION_HOURS,
@@ -190,6 +195,24 @@ export class StreamsService {
       ? this.livekit.publicReplayUrlForStreamId(stream.id)
       : null;
 
+    const current = await this.prisma.stream.findUnique({
+      where: { id: stream.id },
+      select: { replaySource: true },
+    });
+    if (current?.replaySource === StreamReplaySource.DEVICE) {
+      // Seller-phone HD replay is already live — only stop egress and close the room.
+      if (stream.livekitEgressId) {
+        await this.livekit
+          .stopRoomRecording(stream.livekitEgressId)
+          .catch(() => undefined);
+        patch.livekitEgressId = null;
+      }
+      if (stream.livekitRoomName) {
+        await this.livekit.deleteRoom(stream.livekitRoomName).catch(() => undefined);
+      }
+      return patch;
+    }
+
     if (stream.livekitEgressId && recordingConfigured) {
       try {
         const r = await this.livekit.stopRoomRecording(stream.livekitEgressId);
@@ -224,6 +247,9 @@ export class StreamsService {
       patch.livekitEgressId = null;
     } else if (recordingConfigured) {
       patch.replayStatus = StreamReplayStatus.FAILED;
+    }
+    if (patch.replayUrl) {
+      patch.replaySource = StreamReplaySource.EGRESS;
     }
     if (stream.livekitRoomName) {
       await this.livekit.deleteRoom(stream.livekitRoomName).catch(() => undefined);

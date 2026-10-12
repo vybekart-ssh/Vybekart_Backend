@@ -7,6 +7,7 @@ import { ConfigService } from '@nestjs/config';
 import {
   CouponDiscountType,
   Prisma,
+  StreamReplaySource,
   StreamReplayStatus,
   StreamVisibility,
   VerificationStatus,
@@ -652,6 +653,7 @@ export class AdminService {
         startedAt,
         endedAt,
         replayUrl: uploaded.publicUrl,
+        replaySource: StreamReplaySource.ADMIN,
         replayStatus: StreamReplayStatus.READY,
         replayDurationSec: input.durationSec ?? null,
         archiveRetentionHours: hours,
@@ -704,6 +706,7 @@ export class AdminService {
         startedAt,
         endedAt,
         replayUrl,
+        replaySource: StreamReplaySource.ADMIN,
         replayStatus: StreamReplayStatus.READY,
         replayDurationSec: input.durationSec ?? null,
         archiveRetentionHours: hours,

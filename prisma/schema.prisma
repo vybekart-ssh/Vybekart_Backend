@@ -396,6 +396,23 @@ enum StreamReplayStatus {
   FAILED
 }
 
+/// Seller-phone HD recording uploaded after the live (separate from LiveKit egress).
+enum DeviceRecordingStatus {
+  NONE
+  RECORDING
+  PENDING_UPLOAD
+  UPLOADING
+  READY
+  FAILED
+}
+
+/// Where the current `replayUrl` came from.
+enum StreamReplaySource {
+  EGRESS
+  DEVICE
+  ADMIN
+}
+
 model Stream {
   id          String           @id @default(uuid())
   title       String
@@ -426,6 +443,15 @@ model Stream {
   archiveExpiresAt DateTime?
   /// True when admin uploaded this VOD from master console (not LiveKit egress).
   isAdminUploaded Boolean @default(false)
+  replaySource    StreamReplaySource?
+
+  deviceRecordingStatus    DeviceRecordingStatus @default(NONE)
+  /// Storage object key of the seller-phone HD upload.
+  deviceRecordingObjectKey String?
+  /// Float (not BigInt) so Stream rows stay JSON-serializable.
+  deviceRecordingBytes     Float?
+  deviceRecordingError     String?
+  deviceRecordingUpdatedAt DateTime?
 
   viewCount Int       @default(0)
   startedAt DateTime?

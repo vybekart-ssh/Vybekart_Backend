@@ -138,6 +138,71 @@ export class SupabaseStorageService {
     return { publicUrl, key };
   }
 
+  /**
+   * Signed upload token (valid ~2h) usable for standard and TUS uploads via `x-signature`.
+   * @see https://supabase.com/docs/guides/storage/uploads/resumable-uploads
+   */
+  async createSignedUploadToken(params: {
+    bucket: string;
+    objectKey: string;
+    upsert?: boolean;
+  }): Promise<string> {
+    const base = this.supabaseUrl();
+    if (!base) throw new Error('SUPABASE_URL is required for signed uploads');
+    const key = params.objectKey.replace(/^\/+/, '');
+    const url = `${base}/storage/v1/object/upload/sign/${encodeURIComponent(params.bucket)}/${key}`;
+    const res = await fetch(url, {
+      method: 'POST',
+      headers: {
+        ...this.headers(),
+        'Content-Type': 'application/json',
+        ...(params.upsert ? { 'x-upsert': 'true' } : {}),
+      },
+      body: '{}',
+    });
+    if (!res.ok) {
+      const body = await res.text().catch(() => '');
+      throw new Error(`Supabase signed upload failed (${res.status}): ${body}`);
+    }
+    const json = (await res.json()) as { url?: string; token?: string };
+    const token =
+      json.token ||
+      (json.url ? new URL(json.url, base).searchParams.get('token') : null);
+    if (!token) throw new Error('Supabase signed upload returned no token');
+    return token;
+  }
+
+  /** TUS endpoint for signed resumable uploads (direct storage hostname when available). */
+  signedResumableUploadEndpoint(): string | null {
+    const base = this.supabaseUrl();
+    if (!base) return null;
+    try {
+      const host = new URL(base).hostname;
+      const m = host.match(/^([a-z0-9-]+)\.supabase\.co$/i);
+      if (m) {
+        return `https://${m[1]}.storage.supabase.co/storage/v1/upload/resumable/sign`;
+      }
+    } catch {
+      /* fall through */
+    }
+    return `${base}/storage/v1/upload/resumable/sign`;
+  }
+
+  /** Object size in bytes, or null when the object does not exist. */
+  async headObjectSize(bucket: string, objectKey: string): Promise<number | null> {
+    const base = this.supabaseUrl();
+    if (!base) throw new Error('SUPABASE_URL is required for Storage head');
+    const key = objectKey.replace(/^\/+/, '');
+    const url = `${base}/storage/v1/object/authenticated/${encodeURIComponent(bucket)}/${key}`;
+    const res = await fetch(url, { method: 'HEAD', headers: this.headers() });
+    if (res.status === 404 || res.status === 400) return null;
+    if (!res.ok) {
+      throw new Error(`Supabase head failed (${res.status})`);
+    }
+    const len = Number(res.headers.get('content-length'));
+    return Number.isFinite(len) ? len : -1;
+  }
+
   async listObjects(params: {
     bucket: string;
     prefix: string;

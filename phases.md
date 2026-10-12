@@ -51,8 +51,11 @@ Per `Testing/Phase2.md` (historical target 14 May 2026):
 | Post-live 24h cart | Done |
 | **Archived live replay (24h VOD)** | Done — `GET /streams/:id/archive`, engagement preserved 48h, buyer feed + seller dashboard/list |
 | Admin users APIs | Done |
+| **Seller-phone HD replay (device recording)** | Implemented — migration `20261012000000_stream_device_recording`, `streams/:id/device-recording/*`, signed TUS upload, `replaySource` guard keeps egress as fallback (`Architecture.md` §7.2) |
 
 **Monitor / harden:**
+
+- Device recording: raise Supabase bucket + global upload size limit (multi-GB); watch `deviceRecordingStatus = FAILED` rows
 
 - `OTP_ENV` must be `production` with DLT when SMS is customer-facing live  
 - Email deliverability: Resend domain verified + SPF/DKIM/DMARC; code no longer falls back to `onboarding@resend.dev` (`mail-from.ts`)  

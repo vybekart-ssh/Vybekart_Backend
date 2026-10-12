@@ -189,6 +189,16 @@ No cookie sessions; no OAuth.
 
 **Share URL (client):** `https://www.vybekart.co.in/archive/{streamId}` → Android App Links via `/.well-known/assetlinks.json` on landing site.
 
+### 7.2 Seller-phone HD copy (device recording)
+
+Egress records the degraded WebRTC stream, so the Android seller app also saves a 720p copy on the phone and uploads it after the live (`StreamDeviceRecordingService`, `streams/:id/device-recording/*`).
+
+1. App reports `RECORDING` / `PENDING_UPLOAD` / `FAILED` (`Stream.deviceRecordingStatus`; `READY` is never downgraded).  
+2. `upload-session` → Supabase **signed TUS** token for `vybekart-replays/device/{streamId}.mp4` in `LIVEKIT_RECORDING_S3_BUCKET` (or public bucket); app uploads directly (6 MB chunks, 2 h token, resumable). Size cap `DEVICE_RECORDING_MAX_BYTES` (default 10 GB).  
+3. `complete` → HEAD-verifies object + size → `replayUrl` = device copy, `replayStatus READY`, `replaySource DEVICE`.  
+4. **Egress stays the fallback:** `Stream.replaySource` (`EGRESS` / `DEVICE` / `ADMIN`); stop-stream finalize and the egress webhook never overwrite a `DEVICE` replay.  
+5. Ops: Supabase bucket + project **global file-size limit** must allow multi-GB uploads.
+
 ---
 
 ## 8. Email architecture

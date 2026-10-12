@@ -1,6 +1,6 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
-import { Prisma, StreamReplayStatus } from '@prisma/client';
+import { Prisma, StreamReplaySource, StreamReplayStatus } from '@prisma/client';
 import { WebhookReceiver } from 'livekit-server-sdk';
 import { PrismaService } from '../prisma/prisma.service';
 import { LiveKitService } from '../livekit/livekit.service';
@@ -90,11 +90,19 @@ export class LivekitWebhookService {
       egressReplayUrl ||
       (!failed ? this.livekit.publicReplayUrlForStreamId(roomName) : null);
 
+    const current = await this.prisma.stream
+      .findUnique({ where: { id: roomName }, select: { replaySource: true } })
+      .catch(() => null);
+    const deviceReplayWins = current?.replaySource === StreamReplaySource.DEVICE;
+
     const data: Prisma.StreamUpdateInput = { livekitEgressId: null };
-    if (replayUrl) {
+    if (deviceReplayWins) {
+      // Seller-phone HD copy already replaced the egress replay — keep it.
+    } else if (replayUrl) {
       data.replayUrl = replayUrl;
       if (durationSec != null) data.replayDurationSec = durationSec;
       data.replayStatus = StreamReplayStatus.READY;
+      data.replaySource = StreamReplaySource.EGRESS;
     } else if (failed) {
       data.replayStatus = StreamReplayStatus.FAILED;
     }

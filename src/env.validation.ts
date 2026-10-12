@@ -76,6 +76,8 @@ export const envValidationSchema = Joi.object({
     .valid('true', 'false', '1', '0')
     .optional(),
   LIVEKIT_WEBHOOK_SKIP_VERIFY: Joi.string().valid('true', 'false', '1', '0').optional(),
+  /** Max seller-phone HD recording size accepted for upload (bytes). Default 10 GB. */
+  DEVICE_RECORDING_MAX_BYTES: Joi.number().integer().min(1).optional(),
   // Support: account manager & escalation (optional)
   SUPPORT_ACCOUNT_MANAGER_NAME: Joi.string().optional(),
   SUPPORT_ACCOUNT_MANAGER_PHONE: Joi.string().optional(),
