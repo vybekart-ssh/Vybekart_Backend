@@ -199,6 +199,14 @@ Egress records the degraded WebRTC stream, so the Android seller app also saves 
 4. **Egress stays the fallback:** `Stream.replaySource` (`EGRESS` / `DEVICE` / `ADMIN`); stop-stream finalize and the egress webhook never overwrite a `DEVICE` replay.  
 5. Ops: Supabase bucket + project **global file-size limit** must allow multi-GB uploads.
 
+### 7.3 Buyer reels feed + seller channel
+
+The Android buyer app shows lives and replays in a vertical swipe feed and **pre-connects / pre-buffers** the next and previous videos in the background.
+
+1. Background loads call `GET /streams/:id/viewer-token?prefetch=1` and `GET /streams/:id/archive?prefetch=1` — same responses, but **no `viewCount` increment**.  
+2. When the video is actually on screen the app calls `POST /streams/:id/views` once; it reuses the existing Redis dedupe keys (live: identity, 10 min; replay: buyer, 1 h), so a view is never double-counted with a non-prefetch call.  
+3. `GET /buyers/sellers/:sellerId/channel` (`BuyersService.getSellerChannel`) returns one verified seller's header + follow flag + live streams + non-expired `READY` public replays for the channel page; the channel reels swipe only through these.
+
 ---
 
 ## 8. Email architecture

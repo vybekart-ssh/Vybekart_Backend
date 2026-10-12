@@ -176,4 +176,14 @@ export class BuyersController {
   getSellerPublicProfile(@Param('sellerId') sellerId: string) {
     return this.buyersService.getSellerPublicProfile(sellerId);
   }
+
+  /** Seller channel: store header, follow flag, live streams and replays of one seller. */
+  @UseGuards(JwtAuthGuard)
+  @Get('sellers/:sellerId/channel')
+  getSellerChannel(
+    @Request() req: { user: { id: string } },
+    @Param('sellerId') sellerId: string,
+  ) {
+    return this.buyersService.getSellerChannel(req.user.id, sellerId);
+  }
 }

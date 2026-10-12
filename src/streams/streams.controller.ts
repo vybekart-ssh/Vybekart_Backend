@@ -29,6 +29,12 @@ import {
   DeviceRecordingStatusDto,
   DeviceRecordingUploadSessionDto,
 } from './dto/device-recording.dto';
+import { RecordStreamViewDto } from './dto/record-stream-view.dto';
+
+function isPrefetchFlag(value?: string): boolean {
+  const v = value?.trim().toLowerCase();
+  return v === '1' || v === 'true';
+}
 
 @Controller('streams')
 export class StreamsController {
@@ -88,8 +94,14 @@ export class StreamsController {
    * Use: GET /streams/viewer-token/:id or GET /streams/viewer-token?streamId=xxx
    */
   @Get('viewer-token/:id')
-  getViewerTokenById(@Param('id') id: string, @Query('identity') identity?: string) {
-    return this.streamsService.getViewerToken(id, identity || 'viewer-1');
+  getViewerTokenById(
+    @Param('id') id: string,
+    @Query('identity') identity?: string,
+    @Query('prefetch') prefetch?: string,
+  ) {
+    return this.streamsService.getViewerToken(id, identity || 'viewer-1', {
+      countView: !isPrefetchFlag(prefetch),
+    });
   }
 
   /**
@@ -100,8 +112,25 @@ export class StreamsController {
   getViewerToken(
     @Param('id') id: string,
     @Query('identity') identity?: string,
+    @Query('prefetch') prefetch?: string,
   ) {
-    return this.streamsService.getViewerToken(id, identity || 'viewer-1');
+    return this.streamsService.getViewerToken(id, identity || 'viewer-1', {
+      countView: !isPrefetchFlag(prefetch),
+    });
+  }
+
+  /**
+   * Counts one view when a preloaded (prefetch) live/replay actually becomes visible
+   * to the buyer (reels feed). Deduped with the same keys as viewer-token / archive.
+   */
+  @Post(':id/views')
+  @UseGuards(JwtAuthGuard)
+  recordView(
+    @Param('id') id: string,
+    @Request() req: { user: { id: string } },
+    @Body() dto: RecordStreamViewDto,
+  ) {
+    return this.streamsService.recordView(id, req.user.id, dto.identity);
   }
 
   @Get(':id/live-state')
@@ -122,9 +151,11 @@ export class StreamsController {
   getArchive(
     @Param('id') id: string,
     @Request() req: { user: { id: string; role?: Role } },
+    @Query('prefetch') prefetch?: string,
   ) {
     return this.streamsService.getArchivePlayback(id, req.user.id, {
       isSeller: req.user.role === Role.SELLER,
+      countView: !isPrefetchFlag(prefetch),
     });
   }
 

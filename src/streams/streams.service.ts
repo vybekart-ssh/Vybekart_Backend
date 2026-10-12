@@ -54,6 +54,15 @@ const streamWithSellerInclude = {
   category: { select: { id: true, name: true, slug: true } },
 } as const;
 
+function liveViewerDedupeKey(streamId: string, identity: string): string {
+  const safeId = identity.replace(/[^a-zA-Z0-9_-]/g, '').slice(0, 128) || 'viewer';
+  return `stream:viewer:join:${streamId}:${safeId}`;
+}
+
+function archiveViewDedupeKey(streamId: string, userId: string): string {
+  return `stream:archive:view:${streamId}:${userId}`;
+}
+
 /** Latest comments returned to the live / archive comment feed. */
 const STREAM_COMMENTS_FEED_LIMIT = 50;
 
@@ -634,7 +643,7 @@ export class StreamsService {
   async getArchivePlayback(
     streamId: string,
     viewerUserId?: string,
-    options?: { isSeller?: boolean },
+    options?: { isSeller?: boolean; countView?: boolean },
   ) {
     const stream = await this.prisma.stream.findUnique({
       where: { id: streamId },
@@ -675,21 +684,13 @@ export class StreamsService {
     if (!replayReady && !isOwner) {
       throw new NotFoundException('Replay is not available for this stream');
     }
-    if (viewerUserId && !isOwner) {
-      const dedupeKey = `stream:archive:view:${streamId}:${viewerUserId}`;
-      const first = await this.redis.setNx(dedupeKey, '1', 3600);
-      if (first) {
-        try {
-          await this.prisma.stream.update({
-            where: { id: streamId },
-            data: { viewCount: { increment: 1 } },
-          });
-        } catch (e) {
-          this.logger.warn(
-            `archive viewCount increment failed for ${streamId}: ${String(e)}`,
-          );
-        }
-      }
+    if (viewerUserId && !isOwner && options?.countView !== false) {
+      await this.incrementViewOnce(
+        streamId,
+        archiveViewDedupeKey(streamId, viewerUserId),
+        3600,
+        'archive',
+      );
     }
     const engagement = await this.getEngagementSummary(streamId);
     const refreshed = await this.prisma.stream.findUnique({
@@ -1296,6 +1297,7 @@ export class StreamsService {
   async getViewerToken(
     streamId: string,
     identity = 'viewer-1',
+    options?: { countView?: boolean },
   ): Promise<{ token: string; wsUrl: string; roomName: string }> {
     const stream = await this.prisma.stream.findUnique({
       where: { id: streamId },
@@ -1312,22 +1314,13 @@ export class StreamsService {
       identity,
     );
 
-    if (stream.isLive) {
-      const safeId = identity.replace(/[^a-zA-Z0-9_-]/g, '').slice(0, 128) || 'viewer';
-      const dedupeKey = `stream:viewer:join:${streamId}:${safeId}`;
-      const firstInWindow = await this.redis.setNx(dedupeKey, '1', 600);
-      if (firstInWindow) {
-        try {
-          await this.prisma.stream.update({
-            where: { id: streamId },
-            data: { viewCount: { increment: 1 } },
-          });
-        } catch (e) {
-          this.logger.warn(
-            `viewCount increment (viewer-token) failed for stream ${streamId}: ${String(e)}`,
-          );
-        }
-      }
+    if (stream.isLive && options?.countView !== false) {
+      await this.incrementViewOnce(
+        streamId,
+        liveViewerDedupeKey(streamId, identity),
+        600,
+        'viewer-token',
+      );
     }
 
     return {
@@ -1335,6 +1328,70 @@ export class StreamsService {
       wsUrl: this.livekit.getWebSocketUrl(),
       roomName: stream.livekitRoomName,
     };
+  }
+
+  /**
+   * Counts a view for a stream that was preloaded with `prefetch=1` once the buyer actually
+   * sees it. Live views dedupe on the LiveKit identity (same key as viewer-token); replays
+   * dedupe per buyer (same key as archive playback). Owners never count.
+   */
+  async recordView(
+    streamId: string,
+    userId: string,
+    identity?: string,
+  ): Promise<{ counted: boolean }> {
+    const stream = await this.prisma.stream.findUnique({
+      where: { id: streamId },
+      select: {
+        id: true,
+        isLive: true,
+        endedAt: true,
+        seller: { select: { userId: true } },
+      },
+    });
+    if (!stream) throw new NotFoundException(`Stream ${streamId} not found`);
+    if (stream.seller?.userId === userId) return { counted: false };
+    if (stream.isLive) {
+      const counted = await this.incrementViewOnce(
+        streamId,
+        liveViewerDedupeKey(streamId, identity?.trim() || `viewer-${userId}`),
+        600,
+        'views',
+      );
+      return { counted };
+    }
+    if (stream.endedAt) {
+      const counted = await this.incrementViewOnce(
+        streamId,
+        archiveViewDedupeKey(streamId, userId),
+        3600,
+        'views',
+      );
+      return { counted };
+    }
+    return { counted: false };
+  }
+
+  private async incrementViewOnce(
+    streamId: string,
+    dedupeKey: string,
+    ttlSeconds: number,
+    source: string,
+  ): Promise<boolean> {
+    const firstInWindow = await this.redis.setNx(dedupeKey, '1', ttlSeconds);
+    if (!firstInWindow) return false;
+    try {
+      await this.prisma.stream.update({
+        where: { id: streamId },
+        data: { viewCount: { increment: 1 } },
+      });
+      return true;
+    } catch (e) {
+      this.logger.warn(
+        `viewCount increment (${source}) failed for stream ${streamId}: ${String(e)}`,
+      );
+      return false;
+    }
   }
 
   private async getEngagementSummary(streamId: string) {

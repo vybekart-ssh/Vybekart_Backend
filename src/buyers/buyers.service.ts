@@ -585,4 +585,119 @@ export class BuyersService {
     const publicRating = await this.ratings.getSellerPublic(sellerId);
     return { ...seller, ...publicRating };
   }
+
+  /**
+   * Seller channel for buyers: store header + this seller's live streams and
+   * non-expired READY replays (same item shapes as `streams/active` and feed archives).
+   */
+  async getSellerChannel(userId: string, sellerId: string) {
+    const buyer = await this.prisma.buyer.findUnique({ where: { userId } });
+    if (!buyer) throw new NotFoundException('Buyer profile not found');
+    const seller = await this.prisma.seller.findUnique({
+      where: { id: sellerId },
+      select: {
+        id: true,
+        businessName: true,
+        description: true,
+        logoUrl: true,
+        bannerUrl: true,
+        status: true,
+      },
+    });
+    if (!seller || seller.status !== VerificationStatus.VERIFIED) {
+      throw new NotFoundException('Store not found');
+    }
+
+    const now = new Date();
+    const [liveStreams, archivedLives, follow, publicRating] = await Promise.all([
+      this.prisma.stream.findMany({
+        where: {
+          sellerId,
+          isLive: true,
+          endedAt: null,
+          broadcastStartedAt: { not: null },
+        },
+        orderBy: { startedAt: 'desc' },
+        take: 20,
+        select: {
+          id: true,
+          title: true,
+          viewCount: true,
+          isLive: true,
+          thumbnailUrl: true,
+          startedAt: true,
+          categoryId: true,
+          seller: { select: { id: true, businessName: true, logoUrl: true } },
+          streamProducts: {
+            orderBy: { sortOrder: 'asc' },
+            select: { product: true },
+          },
+        },
+      }),
+      this.prisma.stream.findMany({
+        where: {
+          sellerId,
+          isLive: false,
+          endedAt: { not: null },
+          replayUrl: { not: null },
+          replayStatus: StreamReplayStatus.READY,
+          visibility: StreamVisibility.PUBLIC,
+          ...archiveNotExpiredWhere(now),
+        },
+        orderBy: { endedAt: 'desc' },
+        take: 50,
+        select: {
+          id: true,
+          title: true,
+          thumbnailUrl: true,
+          endedAt: true,
+          replayUrl: true,
+          replayDurationSec: true,
+          viewCount: true,
+          seller: { select: { id: true, businessName: true, logoUrl: true } },
+          streamProducts: {
+            orderBy: { sortOrder: 'asc' },
+            take: 1,
+            select: { product: { select: { images: true } } },
+          },
+        },
+      }),
+      this.prisma.buyerSellerFollow.findUnique({
+        where: { buyerId_sellerId: { buyerId: buyer.id, sellerId } },
+        select: { sellerId: true },
+      }),
+      this.ratings.getSellerPublic(sellerId),
+    ]);
+
+    return {
+      seller: {
+        id: seller.id,
+        businessName: seller.businessName,
+        description: seller.description,
+        logoUrl: seller.logoUrl,
+        bannerUrl: seller.bannerUrl,
+        ...publicRating,
+      },
+      following: !!follow,
+      liveStreams: liveStreams.map((s) => ({
+        ...s,
+        thumbnailUrl: resolveStreamThumbnail({
+          firstProductImages: s.streamProducts?.[0]?.product?.images,
+          thumbnailUrl: s.thumbnailUrl,
+          sellerLogoUrl: s.seller?.logoUrl,
+        }),
+      })),
+      archivedLives: archivedLives.map((s) => {
+        const { streamProducts, ...rest } = s;
+        return {
+          ...rest,
+          thumbnailUrl: resolveStreamThumbnail({
+            firstProductImages: streamProducts?.[0]?.product?.images,
+            thumbnailUrl: s.thumbnailUrl,
+            sellerLogoUrl: s.seller?.logoUrl,
+          }),
+        };
+      }),
+    };
+  }
 }

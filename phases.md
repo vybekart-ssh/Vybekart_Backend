@@ -52,6 +52,7 @@ Per `Testing/Phase2.md` (historical target 14 May 2026):
 | **Archived live replay (24h VOD)** | Done — `GET /streams/:id/archive`, engagement preserved 48h, buyer feed + seller dashboard/list |
 | Admin users APIs | Done |
 | **Seller-phone HD replay (device recording)** | Implemented — migration `20261012000000_stream_device_recording`, `streams/:id/device-recording/*`, signed TUS upload, `replaySource` guard keeps egress as fallback (`Architecture.md` §7.2) |
+| **Buyer reels feed support + seller channel** | Implemented — `prefetch` flag on viewer-token / archive (no view counted), `POST streams/:id/views`, `GET buyers/sellers/:sellerId/channel`; no schema change (`Architecture.md` §7.3) |
 
 **Monitor / harden:**
 

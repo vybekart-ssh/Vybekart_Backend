@@ -421,6 +421,30 @@ Validate and return metadata for watching an **archived live replay**. **Auth:**
 }
 ```
 
+**Query:** `prefetch=1` (or `true`) — app is buffering this replay in the background (buyer reels); **no view is counted**. Count it later with `POST /streams/:id/views`.
+
+---
+
+### GET `/streams/:id/viewer-token`
+
+LiveKit subscriber token for a live stream (alias `GET /streams/viewer-token/:id`). **Auth:** none. **Query:** `identity` (LiveKit identity, e.g. `buyer-<uuid>`), `prefetch=1` (or `true`) — background pre-connect for the buyer reels feed, **no view is counted**. Without `prefetch` the first token per identity per 10 min increments `viewCount` (unchanged behavior).
+
+**Response:** `{ "token": "…", "wsUrl": "wss://…", "roomName": "…" }`. `400` if the stream is not live.
+
+---
+
+### POST `/streams/:id/views`
+
+Counts one view when a preloaded reel becomes visible. **Auth:** Required. **Body:** `{ "identity"?: string (≤ 160) }` — send the same LiveKit identity used for `viewer-token` for live streams.
+
+| Stream state | Dedupe key (same as existing counters) |
+|--------------|----------------------------------------|
+| Live | `stream:viewer:join:{id}:{identity}` for 10 min (falls back to `viewer-{userId}`) |
+| Ended (replay) | `stream:archive:view:{id}:{userId}` for 1 h |
+| Owner | never counted |
+
+**Response:** `{ "counted": true | false }`. `404` if the stream does not exist.
+
 ---
 
 ### POST `/streams/:id/comments`
@@ -548,6 +572,38 @@ Get the authenticated buyer’s profile. **Auth:** Buyer only.
 curl http://localhost:3000/buyers/profile \
   -H "Authorization: Bearer YOUR_TOKEN"
 ```
+
+---
+
+### GET `/buyers/sellers/:sellerId/channel`
+
+Seller channel page for buyers (one store's lives and replays; the app's reels feed in channel mode swipes only through these). **Auth:** Buyer. `404` if the seller does not exist or is not `VERIFIED`.
+
+**Response:**
+```json
+{
+  "seller": {
+    "id": "uuid", "businessName": "…", "description": "…", "logoUrl": "…", "bannerUrl": "…",
+    "sellerId": "uuid", "overall": 4.6, "quality": 4.5, "originality": 4.7, "valueForMoney": 4.4,
+    "replacementPercent": 2
+  },
+  "following": true,
+  "liveStreams": [
+    { "id": "uuid", "title": "…", "viewCount": 120, "isLive": true, "thumbnailUrl": "…",
+      "startedAt": "…", "categoryId": "…",
+      "seller": { "id": "uuid", "businessName": "…", "logoUrl": "…" },
+      "streamProducts": [ { "product": { … } } ] }
+  ],
+  "archivedLives": [
+    { "id": "uuid", "title": "…", "thumbnailUrl": "…", "endedAt": "…", "replayUrl": "…",
+      "replayDurationSec": 1800, "viewCount": 248,
+      "seller": { "id": "uuid", "businessName": "…", "logoUrl": "…" } }
+  ]
+}
+```
+
+- `liveStreams`: same rules as `GET /streams/active` (live, broadcasting, not ended), newest first, max 20.
+- `archivedLives`: same rules as the buyer feed (public, `READY` replay, within the archive window), newest first, max 50.
 
 ---
 
