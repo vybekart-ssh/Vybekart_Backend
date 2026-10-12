@@ -51,7 +51,7 @@ flowchart TB
 | Push | Firebase Admin |
 | Storage | Local `uploads/` + Supabase Storage (public URLs) |
 | PDF | PDFKit + DejaVu fonts |
-| Excel | `exceljs` (seller payout / GST audit workbook, `GET sellers/insights/report`) |
+| Excel | `exceljs` (seller payout / GST audit workbook `GET sellers/insights/report`; admin reports `GET admin/insights/report`) |
 | Images | sharp |
 | Validation | class-validator / class-transformer; Joi env |
 | Security | helmet, throttler, CORS |
@@ -220,9 +220,18 @@ Code: `src/sellers/insights/` (`SellerInsightsService`, `SellerPayoutReportServi
 
 1. **Windows (IST):** `daily` = today, `weekly` = last 7 days incl. today, `monthly` = 1st → today, `custom` = inclusive `from`/`to` (≤ 366 days, not future). Each is compared with the equal-length window just before it. Buckets: 3-hour (1 day), day (≤ 62), week (≤ 182), month.
 2. **Counted orders:** `PAID`, `PACKED`, `SHIPPED`, `DELIVERED` containing the seller's products. Revenue = seller item subtotal (GST-inclusive price × qty).
-3. **Per-order payout** reuses `pricing/seller-payout-calculator.ts` (same maths as the add-product estimate) with the order's real context: product GST % when the seller has a GSTIN, the recorded Delhivery fee when the seller pays shipping (₹75 estimate when none, 0 when buyer pays), and the seller's current commission-waiver status. Coupons are Vybekart-funded; buyer delivery is a pass-through. Net = item sales − sum of rounded deductions, so API totals, per-order rows and Excel columns reconcile exactly.
-4. **Excel:** `exceljs` workbook (Summary, Orders, Line items, Daily summary), INR formats, IST timestamps, `SUBTOTAL` totals rows; streamed as an attachment (`Cache-Control: no-store`).
+3. **Per-order payout** reuses `pricing/seller-payout-calculator.ts` (same maths as the add-product estimate) with the order's real context: product GST % when the seller has a GSTIN, a flat ₹75 + 18% GST logistics deduction on every order (whoever pays delivery), and the seller's current commission-waiver status. Coupons are Vybekart-funded. The real Delhivery charge and the buyer's delivery fee are never exposed in seller insights, the payout sheet or the Excel report. Net = item sales − sum of rounded deductions, so API totals, per-order rows and Excel columns reconcile exactly.
+4. **Excel:** `exceljs` workbook (Summary, Orders, Line items, Daily summary), INR formats, IST timestamps, `SUBTOTAL` totals rows; streamed as an attachment (`Cache-Control: no-store`). Shared styling / sheet helpers live in `src/sellers/insights/excel-kit.ts` (used by seller and admin reports).
 5. `GET orders/seller` accepts `from`/`to` (inclusive IST days) so the Android Orders page lists exactly the insights window.
+
+### 7.5 Admin insights + reports
+
+Code: `src/admin/insights/` (`AdminInsightsService`, `AdminReportService`), DTOs in `src/admin/dto/admin-insights-query.dto.ts`. Routes `GET admin/insights` and `GET admin/insights/report` (`API.md` → Admin insights), admin-only via the `AdminController` guards.
+
+1. Same IST windows and counted statuses as §7.4; optional `sellerId` scopes everything to one seller.
+2. Every order is split per seller and run through the same `computeOrderPayout` as seller insights, so admin payout figures always match what each seller sees.
+3. Admin-only figures (never sent to sellers): buyer delivery charge, total paid by buyer, actual Delhivery charge (`Order.deliveryFee`), `logisticsNet` (seller logistics + buyer delivery − Delhivery) and estimated `platformContribution` (commission − GST on commission + logisticsNet − coupons).
+4. Reports: `overview`, `sellers` (incl. bank details — confidential), `orders` (optional `status` filter) and `seller` (reuses `SellerPayoutReportService.buildFromDataset` with `SellerInsightsService.collectForSeller`, so it is identical to the seller's own download).
 
 ## 8. Email architecture
 

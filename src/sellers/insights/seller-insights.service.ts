@@ -21,6 +21,11 @@ import {
   sumPayouts,
 } from './order-payout.util';
 
+export function logisticsBaseInr(config: ConfigService): number {
+  const value = Number(config.get('LOGISTICS_BASE_INR') ?? 75);
+  return Number.isFinite(value) && value >= 0 ? value : 75;
+}
+
 export interface InsightsSellerInfo {
   id: string;
   businessName: string;
@@ -50,8 +55,20 @@ export class SellerInsightsService {
 
   /** Loads every revenue order in the window (and the comparison window) with per-order payout. */
   async collect(userId: string, query: SellerInsightsQueryDto): Promise<InsightsDataset> {
+    return this.collectWhere({ userId }, query);
+  }
+
+  /** Same dataset for a seller id (admin reports). */
+  async collectForSeller(sellerId: string, query: SellerInsightsQueryDto): Promise<InsightsDataset> {
+    return this.collectWhere({ id: sellerId }, query);
+  }
+
+  private async collectWhere(
+    where: { userId: string } | { id: string },
+    query: SellerInsightsQueryDto,
+  ): Promise<InsightsDataset> {
     const seller = await this.prisma.seller.findUnique({
-      where: { userId },
+      where,
       select: {
         id: true,
         businessName: true,
@@ -68,7 +85,7 @@ export class SellerInsightsService {
       sellerId: seller.id,
       gstRegistered: isSellerGstRegistered(seller.gstNumber),
       commissionWaiverActive: seller.commissionWaiverActive,
-      logisticsBaseInr: Number(this.config.get('LOGISTICS_BASE_INR') ?? 75),
+      logisticsBaseInr: logisticsBaseInr(this.config),
     };
 
     const fetchWindow = (gte: Date, lt: Date) =>
@@ -154,7 +171,6 @@ export class SellerInsightsService {
         avgOrderValue,
         estimatedPayout: totals.netPayout,
         totalDeductions: totals.totalDeductions,
-        totalCollected: totals.totalCollected,
         previousRevenue: previousTotals.itemSales,
         previousOrders: previousTotals.orders,
         previousPayout: previousTotals.netPayout,
@@ -177,7 +193,6 @@ export class SellerInsightsService {
         logisticsGst: totals.logisticsGst,
         commissionGst: totals.commissionGst,
         inputGstCredits: totals.inputGstCredits,
-        buyerDeliveryFees: totals.buyerDeliveryFees,
         couponDiscounts: totals.couponDiscounts,
       },
       series,
@@ -199,10 +214,7 @@ export class SellerInsightsService {
       thumbnailUrl: first?.imageUrl ?? null,
       units: r.units,
       itemSales: r.itemSales,
-      totalPaid: r.totalPaid,
-      buyerDeliveryFee: r.buyerDeliveryFee,
       couponDiscount: r.couponDiscount,
-      shippingPayer: r.order.shippingPayer,
       totalDeductions: r.totalDeductions,
       netPayout: r.netPayout,
       items: r.lines.map((l) => ({

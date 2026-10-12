@@ -18,10 +18,11 @@ Protected endpoints require a Bearer token: `Authorization: Bearer <access_token
 6. [Categories](#categories)
 7. [Buyers](#buyers)
 8. [Sellers](#sellers)
-9. [Health](#health)
-10. [Pagination](#pagination)
-11. [WebSocket](#websocket-streams)
-12. [Errors](#error-responses)
+9. [Admin insights](#admin-insights)
+10. [Health](#health)
+11. [Pagination](#pagination)
+12. [WebSocket](#websocket-streams)
+13. [Errors](#error-responses)
 
 ---
 
@@ -690,7 +691,7 @@ Sales insights for a reporting window (dashboard cards, Orders page). **Auth:** 
 
 All windows are **IST** calendar days. Each is compared with the window of the same length immediately before it (yesterday, previous 7 days, same span last month, previous period).
 
-**Counting rules:** orders in `PAID`, `PACKED`, `SHIPPED`, `DELIVERED`. Revenue = the seller's item subtotal (price × qty, GST-inclusive); buyer-paid delivery and Vybekart-funded coupons are excluded. Payout uses the same calculator as the add-product estimate (gateway 2% + GST, logistics, commission unless waived, TDS 0.1%, TCS 0.5%). Seller-paid shipping uses the recorded Delhivery fee, or the ₹75 estimate if none was recorded.
+**Counting rules:** orders in `PAID`, `PACKED`, `SHIPPED`, `DELIVERED`. Revenue = the seller's item subtotal (price × qty, GST-inclusive); buyer-paid delivery and Vybekart-funded coupons are excluded. Payout uses the same calculator as the add-product estimate (gateway 2% + GST, logistics, commission unless waived, TDS 0.1%, TCS 0.5%). Logistics is a flat ₹75 + 18% GST (₹88.50) on every order, whoever pays for delivery. The actual Delhivery charge and the buyer's delivery fee are never returned to sellers.
 
 **Response (abbreviated):**
 ```json
@@ -705,7 +706,7 @@ All windows are **IST** calendar days. Each is compared with the window of the s
   "commissionWaiverActive": false,
   "summary": {
     "revenue": 17321.87, "orders": 15, "units": 22, "avgOrderValue": 1154.79,
-    "estimatedPayout": 15240.12, "totalDeductions": 2081.75, "totalCollected": 17896.87,
+    "estimatedPayout": 15240.12, "totalDeductions": 2081.75,
     "previousRevenue": 15100, "previousOrders": 12, "previousPayout": 13290.4,
     "revenueChangePercent": 14.7, "ordersChangePercent": 25, "payoutChangePercent": 14.7
   },
@@ -714,7 +715,7 @@ All windows are **IST** calendar days. Each is compared with the window of the s
     "gatewayFee": 408.8, "logisticsFee": 1327.5, "commission": 0, "tds": 14.68, "tcs": 73.4,
     "totalDeductions": 2081.75, "netPayout": 15240.12,
     "gatewayGst": 62.36, "logisticsGst": 202.5, "commissionGst": 0, "inputGstCredits": 338.26,
-    "buyerDeliveryFees": 575, "couponDiscounts": 0
+    "couponDiscounts": 0
   },
   "series": [ { "label": "6 Oct", "revenue": 2100, "orders": 2, "payout": 1846.19 } ]
 }
@@ -737,8 +738,7 @@ Same as `/sellers/insights` plus `orders[]` (every counted order in the window, 
       "id": "uuid", "shortId": "AB12", "invoiceNumber": "VK/2026/00012",
       "createdAt": "2026-10-12T10:15:00.000Z", "status": "DELIVERED", "buyerName": "Rahul",
       "title": "Leather Sneakers +1 more", "thumbnailUrl": "https://…", "units": 2,
-      "itemSales": 2100, "totalPaid": 2175, "buyerDeliveryFee": 75, "couponDiscount": 0,
-      "shippingPayer": "BUYER", "totalDeductions": 253.81, "netPayout": 1846.19,
+      "itemSales": 2100, "couponDiscount": 0, "totalDeductions": 253.81, "netPayout": 1846.19,
       "items": [ { "name": "Leather Sneakers", "variantLabel": "Size 9", "quantity": 1, "unitPrice": 1500, "lineTotal": 1500, "imageUrl": "https://…" } ],
       "breakdown": { "customerPrice": 2100, "netSettlement": 1846.19, "deductions": [], "taxes": [], "info": [], "disclaimers": [] }
     }
@@ -759,7 +759,7 @@ Response: `Content-Type: application/vnd.openxmlformats-officedocument.spreadshe
 | Sheet | Contents |
 |-------|----------|
 | Summary | Seller (store, owner, contact, GSTIN, registration status, address, commission status), period, key figures, settlement breakdown, GST summary, buyer payments, notes |
-| Orders | One row per order: IDs, invoice, IST date/time, status, buyer, address, products, units, gross / taxable / GST, buyer delivery and coupon, every deduction, net payout, GST on fees, Razorpay payment ID, packed / shipped / delivered dates, carrier, tracking. Totals row (`SUBTOTAL`) |
+| Orders | One row per order: IDs, invoice, IST date/time, status, buyer, address, products, units, gross / taxable / GST, coupon, every deduction, net payout, GST on fees, Razorpay payment ID, packed / shipped / delivered dates, carrier, tracking. Totals row (`SUBTOTAL`) |
 | Line items | One row per product line: SKU, HSN, GST %, qty, unit price, line total, taxable value, GST amount |
 | Daily summary | Every day in the range (orders, units, sales, deductions, payout), including zero days |
 
@@ -801,6 +801,56 @@ Reject a pending seller. **Auth:** Admin only.
 ```json
 { "reason": "Optional rejection reason" }
 ```
+
+---
+
+## Admin insights
+
+Both routes: **Auth:** Admin only (`JwtAuthGuard`, `RolesGuard`, `@Roles(ADMIN)`). Same IST windows as `/sellers/insights` (`period` = `daily` | `weekly` | `monthly` | `custom` with `from`/`to` `YYYY-MM-DD`, ≤ 366 days). Counted orders: `PAID`, `PACKED`, `SHIPPED`, `DELIVERED`. Multi-seller orders are split per seller (one payout calculation per seller).
+
+### GET `/admin/insights`
+
+Platform dashboard for the window. Optional `sellerId` (UUID) narrows every figure to one seller partner.
+
+```json
+{
+  "period": "daily", "from": "2026-10-12", "to": "2026-10-12", "label": "Today", "granularity": "hour3",
+  "previous": { "from": "2026-10-11", "to": "2026-10-11", "label": "Yesterday" },
+  "seller": null,
+  "summary": {
+    "gmv": 12450, "orders": 18, "units": 25, "avgOrderValue": 691.67, "buyers": 15, "activeSellers": 6,
+    "totalCollected": 12610, "buyerDeliveryFees": 360, "couponDiscounts": 200,
+    "sellerPayouts": 10120.4, "sellerDeductions": 2329.6, "commission": 622.5,
+    "gatewayFee": 293.82, "logisticsFee": 1593, "tds": 10.6, "tcs": 52.9,
+    "delhiveryCost": 1440, "logisticsNet": 513, "platformContribution": 840.6,
+    "previousGmv": 9800, "previousOrders": 14, "previousCommission": 490,
+    "gmvChangePercent": 27.04, "ordersChangePercent": 28.57, "commissionChangePercent": 27.04
+  },
+  "series": [{ "label": "09:00", "revenue": 1200, "orders": 2, "commission": 60 }],
+  "statusCounts": { "PAID": 4, "PACKED": 3, "SHIPPED": 6, "DELIVERED": 5, "CANCELLED": 1, "RETURNED": 0 },
+  "topSellers": [{ "sellerId": "…", "businessName": "…", "logoUrl": null, "orders": 5, "gmv": 4200, "payout": 3410, "commission": 210 }],
+  "platform": {
+    "sellersVerified": 42, "sellersPending": 3, "sellersNeedChanges": 1, "newSellers": 2,
+    "buyersTotal": 1180, "newBuyers": 9, "pendingReplacements": 2, "awaitingPacking": 4
+  }
+}
+```
+
+- `commission` is GST-inclusive. `logisticsNet` = seller logistics deductions + buyer-paid delivery − actual Delhivery charges. `platformContribution` = commission − GST on commission + `logisticsNet` − coupons (estimate).
+- `platform` counts are live and platform-wide (not period- or seller-bound) except `newSellers` / `newBuyers` (period-bound).
+
+### GET `/admin/insights/report`
+
+Excel workbook (`.xlsx`, `Cache-Control: no-store`). Query: `type`, `period`, `from`, `to`, optional `sellerId`, optional `status` (`PAID` | `PACKED` | `SHIPPED` | `DELIVERED`, orders register only).
+
+| `type` | Sheets | Notes |
+|--------|--------|-------|
+| `overview` (default) | Summary (scope, key figures, buyer payments, seller settlement, Vybekart earnings, taxes withheld, orders by status, notes), Sellers, Orders, Daily summary | `sellerId` optional |
+| `sellers` | Summary (settlement), Seller payouts (incl. bank account / IFSC — confidential), Seller orders | `sellerId` optional |
+| `orders` | Orders (buyer contact, shipping payer, buyer delivery charge, total paid, actual Delhivery charge, payout split), Line items | `sellerId`, `status` optional |
+| `seller` | The seller's own payout workbook (same as `/sellers/insights/report`) | `sellerId` **required** (400 otherwise) |
+
+Filename: `Vybekart_Admin_{Platform_Overview|Seller_Payouts|Orders_Register}[_<Seller>][_<STATUS>]_<from>_to_<to>.xlsx`; `seller` type uses the seller report filename.
 
 ---
 

@@ -67,6 +67,7 @@ Landing Next.js apps generally **do not** call commerce APIs (except shared lega
 - Invoices PDF (PDFKit).  
 - Failed placement after capture → refund audit path (`PaymentCheckoutFailure`).  
 - **Seller sales insights:** daily / weekly / monthly / custom (IST) revenue, orders, estimated payout with trends vs the previous window, chart series, per-order payout breakdown, and a downloadable Excel payout / GST audit report (`Architecture.md` §7.4). Payout figures are **estimates** from the payout calculator, not settlement records.
+- **Admin insights + reports:** platform dashboard (GMV, orders, commission, seller payouts, money flow incl. actual Delhivery cost, orders by status, top sellers, pending approvals / returns / packing) for the same periods, optionally filtered to one seller partner; Excel downloads — platform overview, seller payouts (with bank details), orders register (status filter) and any single seller's payout report (`Architecture.md` §7.5).
 
 ### 3.5 Logistics
 

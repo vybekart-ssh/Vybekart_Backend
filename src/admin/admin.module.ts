@@ -6,6 +6,8 @@ import { AdminController } from './admin.controller';
 import { AdminService } from './admin.service';
 import { RatingsModule } from '../ratings/ratings.module';
 import { StorageModule } from '../storage/storage.module';
+import { AdminInsightsService } from './insights/admin-insights.service';
+import { AdminReportService } from './insights/admin-report.service';
 
 @Module({
   imports: [
@@ -16,6 +18,6 @@ import { StorageModule } from '../storage/storage.module';
     StorageModule,
   ],
   controllers: [AdminController],
-  providers: [AdminService],
+  providers: [AdminService, AdminInsightsService, AdminReportService],
 })
 export class AdminModule {}

@@ -9,6 +9,7 @@ import {
   Post,
   Query,
   Request,
+  Res,
   UploadedFiles,
   UseGuards,
   UseInterceptors,
@@ -31,16 +32,39 @@ import {
 } from './dto/promo-video.dto';
 import { CreateCouponDto, UpdateCouponDto } from './dto/coupon.dto';
 import { CreateArchiveFromUrlDto } from './dto/create-archive-from-url.dto';
+import { AdminInsightsQueryDto, AdminReportQueryDto } from './dto/admin-insights-query.dto';
+import { AdminInsightsService } from './insights/admin-insights.service';
+import { AdminReportService } from './insights/admin-report.service';
+import type { Response } from 'express';
 
 @Controller('admin')
 @UseGuards(JwtAuthGuard, RolesGuard)
 @Roles(Role.ADMIN)
 export class AdminController {
-  constructor(private readonly adminService: AdminService) {}
+  constructor(
+    private readonly adminService: AdminService,
+    private readonly adminInsights: AdminInsightsService,
+    private readonly adminReports: AdminReportService,
+  ) {}
 
   @Get('me')
   getMe(@Request() req: { user: { id: string } }) {
     return this.adminService.getMe(req.user.id);
+  }
+
+  @Get('insights')
+  getInsights(@Query() query: AdminInsightsQueryDto) {
+    return this.adminInsights.getDashboard(query);
+  }
+
+  @Get('insights/report')
+  async downloadReport(@Query() query: AdminReportQueryDto, @Res() res: Response) {
+    const { buffer, filename, mimeType } = await this.adminReports.build(query);
+    res.setHeader('Content-Type', mimeType);
+    res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
+    res.setHeader('Content-Length', buffer.length.toString());
+    res.setHeader('Cache-Control', 'no-store');
+    res.send(buffer);
   }
 
   @Get('sellers')

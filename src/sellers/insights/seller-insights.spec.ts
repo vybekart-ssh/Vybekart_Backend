@@ -1,6 +1,6 @@
 import * as ExcelJS from 'exceljs';
 import { ConfigService } from '@nestjs/config';
-import { OrderStatus, ShippingPayer } from '@prisma/client';
+import { OrderStatus } from '@prisma/client';
 import { buildInsightsBuckets, resolveInsightsRange } from './insights-range.util';
 import {
   computeOrderPayout,
@@ -18,9 +18,6 @@ function order(partial: Partial<InsightsOrderRow> & { id: string }): InsightsOrd
   return {
     createdAt: new Date('2026-10-12T05:00:00.000Z'),
     status: OrderStatus.PAID,
-    totalAmount: 0,
-    deliveryFee: 0,
-    shippingPayer: ShippingPayer.SELLER_PAYS,
     couponCode: null,
     couponDiscount: 0,
     invoiceNumber: null,
@@ -98,31 +95,33 @@ describe('computeOrderPayout', () => {
     logisticsBaseInr: 75,
   };
 
-  it('adds up: sales − deductions = net payout, using the actual Delhivery fee', () => {
+  it('adds up: sales − deductions = net payout, with flat ₹75 + GST logistics', () => {
     const r = computeOrderPayout(
-      order({ id: 'o1', items: [item(1000, 2), item(500, 1, null, 'other')], deliveryFee: 118, totalAmount: 2000 }),
+      order({ id: 'o1', items: [item(1000, 2), item(500, 1, null, 'other')] }),
       ctx,
     );
     expect(r.itemSales).toBe(2000);
     expect(r.units).toBe(2);
-    expect(r.logisticsSource).toBe('ACTUAL');
-    expect(r.logisticsFee).toBe(118);
+    expect(r.logisticsFee).toBe(88.5);
     expect(r.taxableValue).toBe(1785.71);
     expect(r.netPayout).toBe(
       Math.round((r.itemSales - r.gatewayFee - r.logisticsFee - r.commission - r.tds - r.tcs) * 100) / 100,
     );
     expect(r.breakdown.netSettlement).toBe(r.netPayout);
+    const logistics = r.breakdown.deductions.find((d) => d.key === 'logistics');
+    expect(logistics?.label).toBe('Logistics');
+    expect(JSON.stringify(r.breakdown)).not.toMatch(/Delhivery/i);
   });
 
-  it('deducts nothing for logistics when the buyer paid shipping', () => {
-    const r = computeOrderPayout(
-      order({ id: 'o2', items: [item(800, 1)], deliveryFee: 90, shippingPayer: ShippingPayer.BUYER_PAYS, totalAmount: 890 }),
-      { ...ctx, gstRegistered: false },
-    );
-    expect(r.logisticsFee).toBe(0);
-    expect(r.buyerDeliveryFee).toBe(90);
+  it('matches the add-product estimate for ₹1,000 (GST-unregistered)', () => {
+    const r = computeOrderPayout(order({ id: 'o2', items: [item(1000, 1)] }), { ...ctx, gstRegistered: false });
+    expect(r.gatewayFee).toBe(23.6);
+    expect(r.logisticsFee).toBe(88.5);
+    expect(r.commission).toBe(52.39);
+    expect(r.tds).toBe(1);
+    expect(r.tcs).toBe(5);
     expect(r.productGst).toBe(0);
-    expect(r.taxableValue).toBe(800);
+    expect(r.netPayout).toBe(829.51);
   });
 });
 
@@ -135,8 +134,8 @@ describe('SellerPayoutReportService', () => {
       logisticsBaseInr: 75,
     };
     const rows = [
-      computeOrderPayout(order({ id: 'order-aaaa-1111', items: [item(1000, 2), item(450, 1)], totalAmount: 2450, invoiceNumber: 'VK/26/0001' }), ctx),
-      computeOrderPayout(order({ id: 'order-bbbb-2222', createdAt: new Date('2026-10-09T10:00:00.000Z'), status: OrderStatus.DELIVERED, items: [item(799, 1)], totalAmount: 799, deliveryFee: 95 }), ctx),
+      computeOrderPayout(order({ id: 'order-aaaa-1111', items: [item(1000, 2), item(450, 1)], invoiceNumber: 'VK/26/0001' }), ctx),
+      computeOrderPayout(order({ id: 'order-bbbb-2222', createdAt: new Date('2026-10-09T10:00:00.000Z'), status: OrderStatus.DELIVERED, items: [item(799, 1)] }), ctx),
     ];
     const range = resolveInsightsRange('weekly', undefined, undefined, NOW);
     const dataset: InsightsDataset = {
@@ -171,6 +170,8 @@ describe('SellerPayoutReportService', () => {
     expect(orders.getCell(5, 2).value).toBe('order-bbbb-2222');
     expect(orders.getCell(6, 2).value).toBe('order-aaaa-1111');
     expect(orders.getCell(7, 1).value).toBe('Total');
+    const headers = (orders.getRow(4).values as unknown[]).join('|');
+    expect(headers).not.toMatch(/Delhivery|delivery charge|paid by buyer|Shipping paid by/i);
 
     const lines = wb.getWorksheet('Line items')!;
     expect(lines.getCell(7, 1).value).toBe(3);

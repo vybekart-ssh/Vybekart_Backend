@@ -21,6 +21,6 @@ import { SellerPayoutReportService } from './insights/seller-payout-report.servi
   ],
   controllers: [SellersController],
   providers: [SellersService, SellerInsightsService, SellerPayoutReportService],
-  exports: [SellersService],
+  exports: [SellersService, SellerInsightsService, SellerPayoutReportService],
 })
 export class SellersModule {}

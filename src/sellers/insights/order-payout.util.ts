@@ -1,4 +1,4 @@
-import { OrderStatus, Prisma, ShippingPayer } from '@prisma/client';
+import { OrderStatus, Prisma } from '@prisma/client';
 import {
   calculateSellerPayout,
   roundInr,
@@ -14,15 +14,11 @@ export const REVENUE_ORDER_STATUSES: OrderStatus[] = [
 ];
 
 const DEFAULT_PRODUCT_GST_PERCENT = 18;
-const SERVICE_GST_RATE = 0.18;
 
 export const INSIGHTS_ORDER_SELECT = {
   id: true,
   createdAt: true,
   status: true,
-  totalAmount: true,
-  deliveryFee: true,
-  shippingPayer: true,
   couponCode: true,
   couponDiscount: true,
   invoiceNumber: true,
@@ -87,11 +83,7 @@ export interface OrderPayout {
   itemSales: number;
   taxableValue: number;
   productGst: number;
-  buyerDeliveryFee: number;
   couponDiscount: number;
-  totalPaid: number;
-  sellerPaysShipping: boolean;
-  logisticsSource: 'ACTUAL' | 'ESTIMATED' | 'BUYER_PAID';
   gatewayFee: number;
   gatewayGst: number;
   logisticsFee: number;
@@ -112,10 +104,10 @@ function lineAmount(breakdown: SellerPayoutBreakdown, key: string): number {
 
 /**
  * Seller payout for one order, using the shared payout calculator.
- * Customer price = this seller's item subtotal (coupons are Vybekart-funded and buyer-paid
- * shipping is passed through, so neither changes the seller settlement).
- * Logistics: seller-paid → actual Delhivery fee on the order (treated as GST-inclusive), or the
- * standard estimate when no fee was recorded; buyer-paid → nothing deducted.
+ * Customer price = this seller's item subtotal (coupons are Vybekart-funded, so they do not
+ * change the seller settlement).
+ * Logistics: flat `ctx.logisticsBaseInr` + 18% GST on every order, whoever pays delivery. The real
+ * Delhivery charge and the buyer's delivery fee are never exposed to sellers.
  */
 export function computeOrderPayout(
   order: InsightsOrderRow,
@@ -152,35 +144,12 @@ export function computeOrderPayout(
   const effectiveGstRate =
     ctx.gstRegistered && rawTaxable > 0 ? itemSales / rawTaxable - 1 : DEFAULT_PRODUCT_GST_PERCENT / 100;
 
-  const sellerPaysShipping = order.shippingPayer === ShippingPayer.SELLER_PAYS;
-  const actualFee = Math.max(0, order.deliveryFee ?? 0);
-  let logisticsBaseInr: number;
-  let logisticsLabel: string;
-  let logisticsNote: string;
-  let logisticsSource: OrderPayout['logisticsSource'];
-  if (!sellerPaysShipping) {
-    logisticsBaseInr = 0;
-    logisticsLabel = 'Logistics';
-    logisticsNote = 'Shipping paid by the buyer — nothing deducted';
-    logisticsSource = 'BUYER_PAID';
-  } else if (actualFee > 0) {
-    logisticsBaseInr = actualFee / (1 + SERVICE_GST_RATE);
-    logisticsLabel = 'Logistics (Delhivery)';
-    logisticsNote = `Delhivery fee ₹${roundInr(actualFee)} incl. 18% GST`;
-    logisticsSource = 'ACTUAL';
-  } else {
-    logisticsBaseInr = ctx.logisticsBaseInr;
-    logisticsLabel = 'Logistics (estimated)';
-    logisticsNote = `₹${ctx.logisticsBaseInr} base + 18% GST`;
-    logisticsSource = 'ESTIMATED';
-  }
-
   const breakdown = calculateSellerPayout(itemSales, ctx.commissionWaiverActive, {
     gstRegistered: ctx.gstRegistered,
     productGstRate: effectiveGstRate,
-    logisticsBaseInr,
-    logisticsLabel,
-    logisticsNote,
+    logisticsBaseInr: ctx.logisticsBaseInr,
+    logisticsLabel: 'Logistics',
+    logisticsNote: `₹${ctx.logisticsBaseInr} flat per order + 18% GST`,
   });
 
   const gatewayFee = lineAmount(breakdown, 'gateway');
@@ -200,11 +169,7 @@ export function computeOrderPayout(
     itemSales,
     taxableValue,
     productGst: roundInr(itemSales - taxableValue),
-    buyerDeliveryFee: sellerPaysShipping ? 0 : roundInr(actualFee),
     couponDiscount: roundInr(order.couponDiscount ?? 0),
-    totalPaid: roundInr(order.totalAmount),
-    sellerPaysShipping,
-    logisticsSource,
     gatewayFee,
     gatewayGst: lineAmount(breakdown, 'gst_gateway'),
     logisticsFee,
@@ -225,9 +190,7 @@ export interface PayoutTotals {
   itemSales: number;
   taxableValue: number;
   productGst: number;
-  buyerDeliveryFees: number;
   couponDiscounts: number;
-  totalCollected: number;
   gatewayFee: number;
   gatewayGst: number;
   logisticsFee: number;
@@ -254,9 +217,7 @@ export function sumPayouts(rows: OrderPayout[]): PayoutTotals {
     itemSales: sum((r) => r.itemSales),
     taxableValue: sum((r) => r.taxableValue),
     productGst: sum((r) => r.productGst),
-    buyerDeliveryFees: sum((r) => r.buyerDeliveryFee),
     couponDiscounts: sum((r) => r.couponDiscount),
-    totalCollected: sum((r) => r.totalPaid),
     gatewayFee: sum((r) => r.gatewayFee),
     gatewayGst,
     logisticsFee: sum((r) => r.logisticsFee),

@@ -31,7 +31,7 @@ export interface SellerPayoutCalculatorConfig {
   tcsRate?: number;
   /** When true, taxable supply = customerPrice / (1 + productGst). When false, taxable = customerPrice. */
   gstRegistered?: boolean;
-  /** Overrides the logistics deduction label (e.g. actual Delhivery fee or buyer-paid shipping). */
+  /** Overrides the logistics deduction label. */
   logisticsLabel?: string;
   /** Overrides the logistics formula note. */
   logisticsNote?: string;
@@ -119,9 +119,9 @@ export function calculateSellerPayout(
     },
     {
       key: 'logistics',
-      label: cfg.logisticsLabel ?? 'Logistics (estimated)',
+      label: cfg.logisticsLabel ?? 'Logistics',
       amount: logisticsTotal <= 0 ? 0 : -roundInr(logisticsTotal),
-      formulaNote: cfg.logisticsNote ?? `₹${logisticsBase} base + 18% GST`,
+      formulaNote: cfg.logisticsNote ?? `₹${logisticsBase} flat per order + 18% GST`,
     },
     {
       key: 'commission',
@@ -198,8 +198,8 @@ export function calculateSellerPayout(
   ];
 
   const disclaimers = [
-    'Product price is what shoppers pay. Delivery may be charged to the buyer or deducted from your settlement depending on Master Console settings.',
-    `Logistics deduction is estimated (₹${logisticsBase} + GST). When seller pays shipping, the real Delhivery fee at order time is deducted from settlement.`,
+    'Product price is what shoppers pay for your product.',
+    `Logistics is a flat ₹${logisticsBase} + 18% GST (₹${roundInr(logisticsTotal).toFixed(2)}) deducted on every order, whoever pays for delivery.`,
     gstRegistered
       ? `GST-registered partner: TDS and TCS are withheld from settlement on taxable supply (customer price ÷ ${gstDivisor}).`
       : 'GST-unregistered partner: TDS and TCS are withheld from settlement on the full customer price.',
