@@ -86,6 +86,8 @@ services:
 
       - key: SUPPORT_ACCOUNT_MANAGER_NAME
         value: "Shubham Pol"
+      - key: SUPPORT_ACCOUNT_MANAGER_PHONE
+        value: "+918169139848"
       - key: SUPPORT_ACCOUNT_MANAGER_EMAIL
         value: "support@vybekart.co.in"
       - key: SUPPORT_ESCALATION_LEVELS_JSON

@@ -16,6 +16,7 @@ import { RedisService } from '../redis/redis.service';
 import { CartItemDto } from './dto/cart-item.dto';
 import { CheckoutOrderDto } from './dto/checkout-order.dto';
 import { ConfigService } from '@nestjs/config';
+import { DEFAULT_SUPPORT_PHONE } from '../support/support.constants';
 import {
   PaginationQueryDto,
   PaginatedResult,
@@ -1485,8 +1486,8 @@ export class OrdersService {
       support: {
         chatAvailable: true,
         phone:
-          this.config.get<string>('SUPPORT_ACCOUNT_MANAGER_PHONE') ??
-          '+91 98765 43210',
+          this.config.get<string>('SUPPORT_ACCOUNT_MANAGER_PHONE')?.trim() ||
+          DEFAULT_SUPPORT_PHONE,
         suggestedQueries: [
           'Issue with this item',
           'Did not get the item',

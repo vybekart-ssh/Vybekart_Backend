@@ -6,6 +6,7 @@ import { sanitizeReplyTo } from '../mail/mail-from';
 import { ReportIssueDto } from './dto/report-issue.dto';
 import { SubmitConcernDto } from './dto/submit-concern.dto';
 import { AppFeedbackDto } from './dto/app-feedback.dto';
+import { DEFAULT_SUPPORT_PHONE } from './support.constants';
 
 export interface AccountManagerContact {
   name: string;
@@ -42,7 +43,8 @@ export class SupportService {
     const name =
       this.config.get<string>('SUPPORT_ACCOUNT_MANAGER_NAME') ?? 'Support Team';
     const phone =
-      this.config.get<string>('SUPPORT_ACCOUNT_MANAGER_PHONE') ?? '';
+      this.config.get<string>('SUPPORT_ACCOUNT_MANAGER_PHONE')?.trim() ||
+      DEFAULT_SUPPORT_PHONE;
     const email =
       this.config.get<string>('SUPPORT_ACCOUNT_MANAGER_EMAIL') ??
       'support@vybekart.co.in';

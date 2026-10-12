@@ -237,6 +237,7 @@ The Android buyer app shows lives and replays in a vertical swipe feed and **pre
 | Logistics | Delhivery token/env |
 | Brand/legal | `VYBEKART_*`, `ALPHA_*`, `APP_DOWNLOAD_URL` |
 | Outreach | Seller outreach HMAC secrets / from addresses |
+| Support contact | `SUPPORT_ACCOUNT_MANAGER_NAME`, `SUPPORT_ACCOUNT_MANAGER_PHONE`, `SUPPORT_ACCOUNT_MANAGER_EMAIL`. The phone is served by `GET /support/contact` and in the order-help `support.phone`; if unset or blank it falls back to `DEFAULT_SUPPORT_PHONE` in `src/support/support.constants.ts` |
 
 Validation: `src/env.validation.ts` (Joi). Never commit real secrets; rotate anything that was ever pasted into README/render samples.
 

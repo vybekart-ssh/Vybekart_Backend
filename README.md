@@ -43,8 +43,8 @@ REDIS_PORT=6379
 
 # Support – account manager (optional)
 SUPPORT_ACCOUNT_MANAGER_NAME=Shubham Pol
-SUPPORT_ACCOUNT_MANAGER_PHONE=8468835994
-SUPPORT_ACCOUNT_MANAGER_EMAIL=support@vybekart.com
+SUPPORT_ACCOUNT_MANAGER_PHONE=+918169139848
+SUPPORT_ACCOUNT_MANAGER_EMAIL=support@vybekart.co.in
 
 # Support – escalation levels JSON (optional; defaults used if not set)
 SUPPORT_ESCALATION_LEVELS_JSON=[{"level":1,"title":"CEO","description":"...","contactName":"Hiren Prajapati","contactEmail":"ceo@vybekart.co.in"}]
