@@ -65,7 +65,8 @@ Landing Next.js apps generally **do not** call commerce APIs (except shared lega
 - Razorpay order create + verify; replacement balance payments.  
 - Orders lifecycle: accept → packing video → request delivery → ship/deliver/cancel.  
 - Invoices PDF (PDFKit).  
-- Failed placement after capture → refund audit path (`PaymentCheckoutFailure`).
+- Failed placement after capture → refund audit path (`PaymentCheckoutFailure`).  
+- **Seller sales insights:** daily / weekly / monthly / custom (IST) revenue, orders, estimated payout with trends vs the previous window, chart series, per-order payout breakdown, and a downloadable Excel payout / GST audit report (`Architecture.md` §7.4). Payout figures are **estimates** from the payout calculator, not settlement records.
 
 ### 3.5 Logistics
 

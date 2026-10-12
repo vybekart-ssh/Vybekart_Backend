@@ -1,3 +1,4 @@
+import { BadRequestException } from '@nestjs/common';
 import { OrderStatus } from '@prisma/client';
 import { openOrderExpectedDelivery } from './buyer-order.mapper';
 
@@ -234,6 +235,20 @@ export function resolveSellerDateRange(
   const gte = new Date(Date.UTC(y, m - 1, d, -5, -30, 0));
   const lt = new Date(Date.UTC(y, m - 1, d + 1, -5, -30, 0));
   return { gte, lt };
+}
+
+/** Inclusive IST day span (`from`..`to`, YYYY-MM-DD) → UTC instants. */
+export function resolveSellerDateSpan(
+  from?: string,
+  to?: string,
+): { gte: Date; lt: Date } | null {
+  const start = resolveSellerDateRange(from);
+  const end = resolveSellerDateRange(to ?? from);
+  if (!start || !end) return null;
+  if (end.lt <= start.gte) {
+    throw new BadRequestException('from must be on or before to');
+  }
+  return { gte: start.gte, lt: end.lt };
 }
 
 export function isDelhiveryDeliveredStatus(status: string | null | undefined): boolean {

@@ -9,9 +9,14 @@ import {
   Request,
   UseInterceptors,
   UploadedFile,
+  Res,
 } from '@nestjs/common';
 import { FileInterceptor } from '@nestjs/platform-express';
+import type { Response } from 'express';
 import { SellersService } from './sellers.service';
+import { SellerInsightsService } from './insights/seller-insights.service';
+import { SellerPayoutReportService } from './insights/seller-payout-report.service';
+import { SellerInsightsQueryDto } from './dto/seller-insights-query.dto';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
 import { RolesGuard } from '../auth/roles.guard';
 import { Roles } from '../auth/roles.decorator';
@@ -27,7 +32,11 @@ import { PricingPreviewQueryDto } from './dto/pricing-preview.dto';
 
 @Controller('sellers')
 export class SellersController {
-  constructor(private readonly sellersService: SellersService) {}
+  constructor(
+    private readonly sellersService: SellersService,
+    private readonly insights: SellerInsightsService,
+    private readonly payoutReport: SellerPayoutReportService,
+  ) {}
 
   @SkipSellerVerified()
   @UseGuards(JwtAuthGuard, RolesGuard, SellerVerifiedGuard)
@@ -56,6 +65,42 @@ export class SellersController {
   @Get('revenue/today')
   getRevenueToday(@Request() req: { user: { id: string } }) {
     return this.sellersService.getRevenueToday(req.user.id);
+  }
+
+  @UseGuards(JwtAuthGuard, RolesGuard, SellerVerifiedGuard)
+  @Roles(Role.SELLER)
+  @Get('insights')
+  getInsights(
+    @Request() req: { user: { id: string } },
+    @Query() query: SellerInsightsQueryDto,
+  ) {
+    return this.insights.getInsights(req.user.id, query, { includeOrders: false });
+  }
+
+  @UseGuards(JwtAuthGuard, RolesGuard, SellerVerifiedGuard)
+  @Roles(Role.SELLER)
+  @Get('insights/revenue')
+  getRevenueInsights(
+    @Request() req: { user: { id: string } },
+    @Query() query: SellerInsightsQueryDto,
+  ) {
+    return this.insights.getInsights(req.user.id, query, { includeOrders: true });
+  }
+
+  @UseGuards(JwtAuthGuard, RolesGuard, SellerVerifiedGuard)
+  @Roles(Role.SELLER)
+  @Get('insights/report')
+  async downloadPayoutReport(
+    @Request() req: { user: { id: string } },
+    @Query() query: SellerInsightsQueryDto,
+    @Res() res: Response,
+  ) {
+    const { buffer, filename, mimeType } = await this.payoutReport.build(req.user.id, query);
+    res.setHeader('Content-Type', mimeType);
+    res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
+    res.setHeader('Content-Length', buffer.length.toString());
+    res.setHeader('Cache-Control', 'no-store');
+    res.send(buffer);
   }
 
   @UseGuards(JwtAuthGuard, RolesGuard, SellerVerifiedGuard)

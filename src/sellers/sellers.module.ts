@@ -7,6 +7,8 @@ import { StorageModule } from '../storage/storage.module';
 import { NotificationsModule } from '../notifications/notifications.module';
 import { RatingsModule } from '../ratings/ratings.module';
 import { DelhiveryModule } from '../delhivery/delhivery.module';
+import { SellerInsightsService } from './insights/seller-insights.service';
+import { SellerPayoutReportService } from './insights/seller-payout-report.service';
 
 @Module({
   imports: [
@@ -18,7 +20,7 @@ import { DelhiveryModule } from '../delhivery/delhivery.module';
     DelhiveryModule,
   ],
   controllers: [SellersController],
-  providers: [SellersService],
+  providers: [SellersService, SellerInsightsService, SellerPayoutReportService],
   exports: [SellersService],
 })
 export class SellersModule {}

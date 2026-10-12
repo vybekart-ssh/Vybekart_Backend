@@ -39,6 +39,7 @@ import {
   isDelhiveryDeliveredStatus,
   mapSellerOrder,
   resolveSellerDateRange,
+  resolveSellerDateSpan,
 } from './seller-order.mapper';
 import {
   mapBuyerOrderDetail,
@@ -1548,7 +1549,9 @@ export class OrdersService {
       statusClause = { status: filter.status as OrderStatus };
     }
     let where: Prisma.OrderWhereInput = { ...baseWhere, ...statusClause };
-    const dateRange = resolveSellerDateRange(filter?.date);
+    const dateRange =
+      resolveSellerDateRange(filter?.date) ??
+      resolveSellerDateSpan(filter?.from, filter?.to);
     if (dateRange) {
       where = {
         ...where,

@@ -31,9 +31,18 @@ export interface SellerPayoutCalculatorConfig {
   tcsRate?: number;
   /** When true, taxable supply = customerPrice / (1 + productGst). When false, taxable = customerPrice. */
   gstRegistered?: boolean;
+  /** Overrides the logistics deduction label (e.g. actual Delhivery fee or buyer-paid shipping). */
+  logisticsLabel?: string;
+  /** Overrides the logistics formula note. */
+  logisticsNote?: string;
 }
 
-export const DEFAULT_PAYOUT_CONFIG: Required<SellerPayoutCalculatorConfig> = {
+type ResolvedPayoutConfig = Required<
+  Omit<SellerPayoutCalculatorConfig, 'logisticsLabel' | 'logisticsNote'>
+> &
+  Pick<SellerPayoutCalculatorConfig, 'logisticsLabel' | 'logisticsNote'>;
+
+export const DEFAULT_PAYOUT_CONFIG: ResolvedPayoutConfig = {
   paymentGatewayRate: 0.02,
   serviceGstRate: 0.18,
   productGstRate: 0.18,
@@ -59,8 +68,10 @@ export function calculateSellerPayout(
   commissionWaiverActive: boolean,
   config: SellerPayoutCalculatorConfig = {},
 ): SellerPayoutBreakdown {
-  const cfg = { ...DEFAULT_PAYOUT_CONFIG, ...config };
+  const cfg: ResolvedPayoutConfig = { ...DEFAULT_PAYOUT_CONFIG, ...config };
   const gstRegistered = cfg.gstRegistered;
+  const gstDivisor = (1 + cfg.productGstRate).toFixed(2);
+  const productGstPct = roundInr(cfg.productGstRate * 100);
   const commissionRate = commissionWaiverActive
     ? 0
     : cfg.vybeKartCommissionRate;
@@ -108,9 +119,9 @@ export function calculateSellerPayout(
     },
     {
       key: 'logistics',
-      label: 'Logistics (estimated)',
-      amount: -roundInr(logisticsTotal),
-      formulaNote: `₹${logisticsBase} base + 18% GST`,
+      label: cfg.logisticsLabel ?? 'Logistics (estimated)',
+      amount: logisticsTotal <= 0 ? 0 : -roundInr(logisticsTotal),
+      formulaNote: cfg.logisticsNote ?? `₹${logisticsBase} base + 18% GST`,
     },
     {
       key: 'commission',
@@ -125,7 +136,7 @@ export function calculateSellerPayout(
       label: 'TDS (income tax)',
       amount: -roundInr(tds),
       formulaNote: gstRegistered
-        ? '0.1% of taxable supply (customer price ÷ 1.18)'
+        ? `0.1% of taxable supply (customer price ÷ ${gstDivisor})`
         : '0.1% of customer price (taxable supply)',
     },
     {
@@ -133,7 +144,7 @@ export function calculateSellerPayout(
       label: 'TCS (GST)',
       amount: -roundInr(tcs),
       formulaNote: gstRegistered
-        ? '0.5% of taxable supply (customer price ÷ 1.18)'
+        ? `0.5% of taxable supply (customer price ÷ ${gstDivisor})`
         : '0.5% of customer price (taxable supply)',
     },
   ];
@@ -165,7 +176,7 @@ export function calculateSellerPayout(
       label: 'Taxable supply',
       amount: roundInr(taxableSupply),
       formulaNote: gstRegistered
-        ? 'Customer price excluding product GST (÷ 1.18)'
+        ? `Customer price excluding product GST (÷ ${gstDivisor})`
         : 'Customer price (GST-unregistered partner)',
     },
     ...(gstRegistered
@@ -174,7 +185,7 @@ export function calculateSellerPayout(
             key: 'product_gst',
             label: 'Product GST (in customer price)',
             amount: roundInr(productGstAmount),
-            formulaNote: '18% GST included in customer price',
+            formulaNote: `${productGstPct}% GST included in customer price`,
           } satisfies SellerPayoutLineItem,
         ]
       : []),
@@ -190,7 +201,7 @@ export function calculateSellerPayout(
     'Product price is what shoppers pay. Delivery may be charged to the buyer or deducted from your settlement depending on Master Console settings.',
     `Logistics deduction is estimated (₹${logisticsBase} + GST). When seller pays shipping, the real Delhivery fee at order time is deducted from settlement.`,
     gstRegistered
-      ? 'GST-registered partner: TDS and TCS are withheld from settlement on taxable supply (customer price ÷ 1.18).'
+      ? `GST-registered partner: TDS and TCS are withheld from settlement on taxable supply (customer price ÷ ${gstDivisor}).`
       : 'GST-unregistered partner: TDS and TCS are withheld from settlement on the full customer price.',
   ];
 

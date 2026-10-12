@@ -51,6 +51,7 @@ flowchart TB
 | Push | Firebase Admin |
 | Storage | Local `uploads/` + Supabase Storage (public URLs) |
 | PDF | PDFKit + DejaVu fonts |
+| Excel | `exceljs` (seller payout / GST audit workbook, `GET sellers/insights/report`) |
 | Images | sharp |
 | Validation | class-validator / class-transformer; Joi env |
 | Security | helmet, throttler, CORS |
@@ -117,7 +118,7 @@ Vybekart_Backend/
 |--------|----------------|
 | `auth` | Login, register, OTP, refresh, FCM token |
 | `buyers` | Profile, feed (incl. `archivedLives`), addresses, follow, referrals, help |
-| `sellers` | Profile, dashboard (+ `archivedLiveSessions`), `GET archived-lives`, bank/store/pickup, media, resubmit |
+| `sellers` | Profile, dashboard (+ `archivedLiveSessions`), `GET archived-lives`, sales insights + Excel report (`sellers/insights/*`, §7.4), bank/store/pickup, media, resubmit |
 | `products` | Seller listings CRUD |
 | `orders` | Cart, quote, checkout orchestration, buyer/seller order APIs, fulfillment |
 | `payments` | Razorpay create/verify + replacement balance |
@@ -212,6 +213,16 @@ The Android buyer app shows lives and replays in a vertical swipe feed and **pre
 3. `GET /buyers/sellers/:sellerId/channel` (`BuyersService.getSellerChannel`) returns one verified seller's header + follow flag + live streams + non-expired `READY` public replays for the channel page; the channel reels swipe only through these.
 
 ---
+
+### 7.4 Seller sales insights + payout report
+
+Code: `src/sellers/insights/` (`SellerInsightsService`, `SellerPayoutReportService`, `insights-range.util.ts`, `order-payout.util.ts`). Routes in `API.md` (`GET sellers/insights`, `/insights/revenue`, `/insights/report`).
+
+1. **Windows (IST):** `daily` = today, `weekly` = last 7 days incl. today, `monthly` = 1st → today, `custom` = inclusive `from`/`to` (≤ 366 days, not future). Each is compared with the equal-length window just before it. Buckets: 3-hour (1 day), day (≤ 62), week (≤ 182), month.
+2. **Counted orders:** `PAID`, `PACKED`, `SHIPPED`, `DELIVERED` containing the seller's products. Revenue = seller item subtotal (GST-inclusive price × qty).
+3. **Per-order payout** reuses `pricing/seller-payout-calculator.ts` (same maths as the add-product estimate) with the order's real context: product GST % when the seller has a GSTIN, the recorded Delhivery fee when the seller pays shipping (₹75 estimate when none, 0 when buyer pays), and the seller's current commission-waiver status. Coupons are Vybekart-funded; buyer delivery is a pass-through. Net = item sales − sum of rounded deductions, so API totals, per-order rows and Excel columns reconcile exactly.
+4. **Excel:** `exceljs` workbook (Summary, Orders, Line items, Daily summary), INR formats, IST timestamps, `SUBTOTAL` totals rows; streamed as an attachment (`Cache-Control: no-store`).
+5. `GET orders/seller` accepts `from`/`to` (inclusive IST days) so the Android Orders page lists exactly the insights window.
 
 ## 8. Email architecture
 

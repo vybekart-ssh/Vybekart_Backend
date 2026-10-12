@@ -505,7 +505,7 @@ List orders for the authenticated buyer. **Auth:** Buyer only. **Query params:**
 
 ### GET `/orders/seller`
 
-List orders containing the seller’s products. **Auth:** Seller only. **Query params:** `page`, `limit`
+List orders containing the seller’s products. **Auth:** Seller only. **Query params:** `page`, `limit` (max 100), `status`, `date` (`today` or a single IST day `YYYY-MM-DD`), or an inclusive IST range `from` + `to` (`YYYY-MM-DD`; `400` if `from` > `to`). `date` wins when both are sent.
 
 ---
 
@@ -674,6 +674,96 @@ Get seller dashboard stats. **Auth:** Seller only.
 ```
 
 `archivedLiveSessions`: seller's own ended streams from the **last 24h** with `replayStatus` `READY` or `RECORDING` (max **15** on dashboard).
+
+---
+
+### GET `/sellers/insights`
+
+Sales insights for a reporting window (dashboard cards, Orders page). **Auth:** verified seller (`JwtAuthGuard`, `RolesGuard`, `SellerVerifiedGuard`).
+
+**Query params:**
+
+| Param | Values |
+|-------|--------|
+| `period` | `daily` (today, default) · `weekly` (last 7 days incl. today) · `monthly` (1st of month → today) · `custom` |
+| `from`, `to` | `YYYY-MM-DD`, required for `custom`; inclusive, max **366** days, not in the future (`400` otherwise) |
+
+All windows are **IST** calendar days. Each is compared with the window of the same length immediately before it (yesterday, previous 7 days, same span last month, previous period).
+
+**Counting rules:** orders in `PAID`, `PACKED`, `SHIPPED`, `DELIVERED`. Revenue = the seller's item subtotal (price × qty, GST-inclusive); buyer-paid delivery and Vybekart-funded coupons are excluded. Payout uses the same calculator as the add-product estimate (gateway 2% + GST, logistics, commission unless waived, TDS 0.1%, TCS 0.5%). Seller-paid shipping uses the recorded Delhivery fee, or the ₹75 estimate if none was recorded.
+
+**Response (abbreviated):**
+```json
+{
+  "period": "weekly",
+  "from": "2026-10-06",
+  "to": "2026-10-12",
+  "label": "6 Oct – 12 Oct 2026",
+  "granularity": "day",
+  "previous": { "from": "2026-09-29", "to": "2026-10-05", "label": "29 Sep – 5 Oct 2026" },
+  "gstRegistered": true,
+  "commissionWaiverActive": false,
+  "summary": {
+    "revenue": 17321.87, "orders": 15, "units": 22, "avgOrderValue": 1154.79,
+    "estimatedPayout": 15240.12, "totalDeductions": 2081.75, "totalCollected": 17896.87,
+    "previousRevenue": 15100, "previousOrders": 12, "previousPayout": 13290.4,
+    "revenueChangePercent": 14.7, "ordersChangePercent": 25, "payoutChangePercent": 14.7
+  },
+  "payout": {
+    "grossSales": 17321.87, "taxableValue": 14679.55, "productGst": 2642.32,
+    "gatewayFee": 408.8, "logisticsFee": 1327.5, "commission": 0, "tds": 14.68, "tcs": 73.4,
+    "totalDeductions": 2081.75, "netPayout": 15240.12,
+    "gatewayGst": 62.36, "logisticsGst": 202.5, "commissionGst": 0, "inputGstCredits": 338.26,
+    "buyerDeliveryFees": 575, "couponDiscounts": 0
+  },
+  "series": [ { "label": "6 Oct", "revenue": 2100, "orders": 2, "payout": 1846.19 } ]
+}
+```
+
+- `*ChangePercent` is `null` when the previous window was 0 and the current one is not ("new").
+- `granularity`: `hour3` (8 three-hour buckets, single day) · `day` (≤ 62 days) · `week` (≤ 182 days) · `month`.
+- `netPayout` = `grossSales` − `totalDeductions`; each order's deductions are rounded first so per-order rows add up to the totals exactly.
+
+---
+
+### GET `/sellers/insights/revenue`
+
+Same as `/sellers/insights` plus `orders[]` (every counted order in the window, newest first) for the Revenue page. **Auth:** verified seller.
+
+```json
+{
+  "orders": [
+    {
+      "id": "uuid", "shortId": "AB12", "invoiceNumber": "VK/2026/00012",
+      "createdAt": "2026-10-12T10:15:00.000Z", "status": "DELIVERED", "buyerName": "Rahul",
+      "title": "Leather Sneakers +1 more", "thumbnailUrl": "https://…", "units": 2,
+      "itemSales": 2100, "totalPaid": 2175, "buyerDeliveryFee": 75, "couponDiscount": 0,
+      "shippingPayer": "BUYER", "totalDeductions": 253.81, "netPayout": 1846.19,
+      "items": [ { "name": "Leather Sneakers", "variantLabel": "Size 9", "quantity": 1, "unitPrice": 1500, "lineTotal": 1500, "imageUrl": "https://…" } ],
+      "breakdown": { "customerPrice": 2100, "netSettlement": 1846.19, "deductions": [], "taxes": [], "info": [], "disclaimers": [] }
+    }
+  ]
+}
+```
+
+`breakdown` uses the same `SellerPayoutBreakdown` shape as the add-product payout sheet (`netSettlement` = the order's `netPayout`).
+
+---
+
+### GET `/sellers/insights/report`
+
+Download the GST / payout audit workbook (`.xlsx`) for the same `period` / `from` / `to` params. **Auth:** verified seller.
+
+Response: `Content-Type: application/vnd.openxmlformats-officedocument.spreadsheetml.sheet`, `Content-Disposition: attachment; filename="Vybekart_Payout_Report_<Store>_<from>_to_<to>.xlsx"`, `Cache-Control: no-store`.
+
+| Sheet | Contents |
+|-------|----------|
+| Summary | Seller (store, owner, contact, GSTIN, registration status, address, commission status), period, key figures, settlement breakdown, GST summary, buyer payments, notes |
+| Orders | One row per order: IDs, invoice, IST date/time, status, buyer, address, products, units, gross / taxable / GST, buyer delivery and coupon, every deduction, net payout, GST on fees, Razorpay payment ID, packed / shipped / delivered dates, carrier, tracking. Totals row (`SUBTOTAL`) |
+| Line items | One row per product line: SKU, HSN, GST %, qty, unit price, line total, taxable value, GST amount |
+| Daily summary | Every day in the range (orders, units, sales, deductions, payout), including zero days |
+
+Frozen headers, auto-filter, INR number format (`₹`), IST timestamps.
 
 ---
 

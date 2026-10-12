@@ -54,6 +54,7 @@ Per `Testing/Phase2.md` (historical target 14 May 2026):
 | **Seller-phone HD replay (device recording)** | Implemented — migration `20261012000000_stream_device_recording`, `streams/:id/device-recording/*`, signed TUS upload, `replaySource` guard keeps egress as fallback (`Architecture.md` §7.2) |
 | **Packing videos never lost** | Implemented — Supabase-only storage with retry + size verification; no Render-disk fallback; clear 413 / 503 errors (`Architecture.md` §7.2a) |
 | **Buyer reels feed support + seller channel** | Implemented — `prefetch` flag on viewer-token / archive (no view counted), `POST streams/:id/views`, `GET buyers/sellers/:sellerId/channel`; no schema change (`Architecture.md` §7.3) |
+| **Seller sales insights + Excel payout report** | Implemented — `GET sellers/insights`, `/insights/revenue`, `/insights/report` (`exceljs`), `orders/seller` `from`/`to`; IST windows, real trends, per-order payout; no schema change (`Architecture.md` §7.4). Deploy runs `npm install` for the new dependency |
 
 **Monitor / harden:**
 
