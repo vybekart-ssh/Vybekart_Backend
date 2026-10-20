@@ -1,6 +1,16 @@
-import { IsOptional, IsString, MaxLength } from 'class-validator';
+import { IsOptional, IsString, Matches, MaxLength } from 'class-validator';
+import {
+  BIRTH_DATE_FORMAT_MESSAGE,
+  BIRTH_DATE_PATTERN,
+} from '../../common/utils/birth-date.util';
 
 export class UpdateBuyerProfileDto {
+  /** `YYYY-MM-DD`. */
+  @IsOptional()
+  @IsString()
+  @Matches(BIRTH_DATE_PATTERN, { message: BIRTH_DATE_FORMAT_MESSAGE })
+  birthDate?: string;
+
   @IsOptional()
   @IsString()
   @MaxLength(50)

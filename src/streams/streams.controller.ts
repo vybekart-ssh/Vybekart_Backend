@@ -197,10 +197,25 @@ export class StreamsController {
     return this.streamsService.addComment(id, req.user.id, text);
   }
 
+  @Get(':id/like')
+  @UseGuards(JwtAuthGuard)
+  getLikeStatus(@Request() req: { user: { id: string } }, @Param('id') id: string) {
+    return this.streamsService.getLikeStatus(id, req.user.id);
+  }
+
+  /** Body `{ liked: boolean }` sets the like; an empty body toggles (older app builds). */
   @Post(':id/like')
   @UseGuards(JwtAuthGuard)
-  toggleLike(@Request() req: { user: { id: string } }, @Param('id') id: string) {
-    return this.streamsService.toggleLike(id, req.user.id);
+  toggleLike(
+    @Request() req: { user: { id: string } },
+    @Param('id') id: string,
+    @Body('liked') liked?: unknown,
+  ) {
+    return this.streamsService.toggleLike(
+      id,
+      req.user.id,
+      typeof liked === 'boolean' ? liked : undefined,
+    );
   }
 
   @Post(':id/follow')

@@ -31,6 +31,7 @@ import { Fast2SmsService } from '../notifications/fast2sms.service';
 import { MailService } from '../mail/mail.service';
 import { getVybeKartMailBranding } from '../mail/templates/vybekart-email-layout';
 import { buildWelcomeEmail } from '../mail/templates/welcome-email.template';
+import { formatBirthDate, parseBirthDate } from '../common/utils/birth-date.util';
 
 const REFRESH_TTL_SECONDS = 30 * 24 * 60 * 60; // 30 days
 const OTP_TTL_SECONDS = 10 * 60; // 10 minutes
@@ -251,6 +252,7 @@ export class AuthService {
     firstName?: string | null;
     lastName?: string | null;
     gender?: string | null;
+    birthDate?: Date | null;
     roles: Role[];
     sellerProfile: { id: string; status: VerificationStatus } | null;
     buyerProfile: { id: string } | null;
@@ -277,6 +279,7 @@ export class AuthService {
       firstName: user.firstName ?? null,
       lastName: user.lastName ?? null,
       gender: user.gender ?? null,
+      birthDate: formatBirthDate(user.birthDate),
       roles: user.roles,
       sellerProfileId: hasSellerRole ? user.sellerProfile?.id ?? null : null,
       buyerProfileId: hasBuyerRole ? user.buyerProfile?.id ?? null : null,
@@ -522,6 +525,7 @@ export class AuthService {
     const accountHolderName = dto.accountHolderName.trim();
     const accountType = dto.accountType.trim();
 
+    const birthDate = dto.birthDate ? parseBirthDate(dto.birthDate) : undefined;
     const hashedPassword = await bcrypt.hash(dto.password, 10);
     const nameParts = resolveNameParts(dto);
     const fullName = displayName(dto);
@@ -538,6 +542,7 @@ export class AuthService {
                 middleName: nameParts.middleName,
                 lastName: nameParts.lastName || null,
                 gender: dto.gender ?? null,
+                ...(birthDate && { birthDate }),
                 roles: {
                   // Union roles so the same phone can be both buyer + seller.
                   set: Array.from(
@@ -555,6 +560,7 @@ export class AuthService {
                 middleName: nameParts.middleName,
                 lastName: nameParts.lastName || null,
                 gender: dto.gender ?? null,
+                ...(birthDate && { birthDate }),
                 phone,
                 roles: [Role.SELLER],
               },
@@ -687,6 +693,7 @@ export class AuthService {
       );
     }
 
+    const birthDate = dto.birthDate ? parseBirthDate(dto.birthDate) : undefined;
     const hashedPassword = await bcrypt.hash(dto.password, 10);
     const nameParts = resolveNameParts(dto);
     const fullName = displayName(dto);
@@ -705,6 +712,7 @@ export class AuthService {
                 middleName: nameParts.middleName,
                 lastName: nameParts.lastName || null,
                 gender: dto.gender ?? null,
+                ...(birthDate && { birthDate }),
                 roles: {
                   // Union roles so the same phone can be both buyer + seller.
                   set: Array.from(
@@ -722,6 +730,7 @@ export class AuthService {
                 middleName: nameParts.middleName,
                 lastName: nameParts.lastName || null,
                 gender: dto.gender ?? null,
+                ...(birthDate && { birthDate }),
                 phone,
                 roles: [Role.BUYER], // Assign BUYER role
               },

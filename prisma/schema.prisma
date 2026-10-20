@@ -65,6 +65,8 @@ model User {
   middleName String?
   lastName   String?
   gender     String? // MALE | FEMALE | OTHER | PREFER_NOT_TO_SAY
+  /// Date of birth (no time). Defaults to the signup date when not provided.
+  birthDate  DateTime @default(dbgenerated("CURRENT_DATE")) @db.Date
   /// Buyer (and shared) profile photo URL
   avatarUrl String?
   isActive  Boolean  @default(true)

@@ -7,6 +7,11 @@ import {
   MinLength,
 } from 'class-validator';
 
+import {
+  BIRTH_DATE_FORMAT_MESSAGE,
+  BIRTH_DATE_PATTERN,
+} from '../../common/utils/birth-date.util';
+
 /** Indian IFSC: 4 letters + 0 + 6 alphanumeric */
 const IFSC_REGEX = /^[A-Za-z]{4}0[A-Za-z0-9]{6}$/;
 
@@ -36,6 +41,12 @@ export class UpdateSellerProfileDto {
   @IsEmail()
   @MaxLength(120)
   email?: string;
+
+  /** `YYYY-MM-DD`. */
+  @IsOptional()
+  @IsString()
+  @Matches(BIRTH_DATE_PATTERN, { message: BIRTH_DATE_FORMAT_MESSAGE })
+  birthDate?: string;
 
   /** Seller "About you" / bio (seller.description). */
   @IsOptional()

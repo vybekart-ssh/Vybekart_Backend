@@ -1412,7 +1412,23 @@ export class StreamsService {
     };
   }
 
-  async toggleLike(streamId: string, userId: string) {
+  /** Whether [userId] liked the stream, plus the exact like count. */
+  async getLikeStatus(streamId: string, userId: string) {
+    const [mine, likes] = await Promise.all([
+      this.prisma.streamLike.findUnique({
+        where: { streamId_userId: { streamId, userId } },
+        select: { userId: true },
+      }),
+      this.prisma.streamLike.count({ where: { streamId } }),
+    ]);
+    return { liked: mine != null, likes };
+  }
+
+  /**
+   * Sets the viewer's like to [desired] when given (idempotent, so repeated taps or retries
+   * never flip it back); toggles when omitted (older app builds).
+   */
+  async toggleLike(streamId: string, userId: string, desired?: boolean) {
     const stream = await this.prisma.stream.findUnique({
       where: { id: streamId },
       select: {
@@ -1439,10 +1455,18 @@ export class StreamsService {
         throw new BadRequestException('This archived live is no longer available');
       }
     }
-    const removed = await this.prisma.streamLike.deleteMany({
-      where: { streamId, userId },
-    });
-    const liked = removed.count === 0;
+    let liked: boolean;
+    if (desired === undefined) {
+      const removed = await this.prisma.streamLike.deleteMany({
+        where: { streamId, userId },
+      });
+      liked = removed.count === 0;
+    } else {
+      liked = desired;
+      if (!liked) {
+        await this.prisma.streamLike.deleteMany({ where: { streamId, userId } });
+      }
+    }
     if (liked) {
       await this.prisma.streamLike.createMany({
         data: [{ streamId, userId }],

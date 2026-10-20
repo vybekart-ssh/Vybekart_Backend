@@ -12,6 +12,7 @@ import { CreateAddressDto } from './dto/create-address.dto';
 import { UpdateAddressDto } from './dto/update-address.dto';
 import { RatingsService } from '../ratings/ratings.service';
 import { SupabaseStorageService } from '../storage/supabase-storage.service';
+import { parseBirthDate } from '../common/utils/birth-date.util';
 
 const AVATAR_IMAGE_MIME_EXT: Record<string, string> = {
   'image/jpeg': '.jpg',
@@ -43,6 +44,7 @@ export class BuyersService {
             email: true,
             phone: true,
             avatarUrl: true,
+            birthDate: true,
             createdAt: true,
           },
         },
@@ -77,6 +79,7 @@ export class BuyersService {
     if (!resolvedFirst || !resolvedLast) {
       throw new BadRequestException('First name and last name are required');
     }
+    const birthDate = dto.birthDate ? parseBirthDate(dto.birthDate) : undefined;
 
     const fullName = [resolvedFirst, resolvedMiddle, resolvedLast]
       .filter(Boolean)
@@ -89,6 +92,7 @@ export class BuyersService {
         firstName: resolvedFirst,
         middleName: resolvedMiddle,
         lastName: resolvedLast,
+        ...(birthDate && { birthDate }),
       },
       select: {
         id: true,
@@ -99,6 +103,7 @@ export class BuyersService {
         email: true,
         phone: true,
         avatarUrl: true,
+        birthDate: true,
         createdAt: true,
       },
     });
@@ -142,6 +147,7 @@ export class BuyersService {
         email: true,
         phone: true,
         avatarUrl: true,
+        birthDate: true,
       },
     });
     return { avatarUrl: url, user };
@@ -511,7 +517,8 @@ export class BuyersService {
     await this.prisma.buyerSellerFollow.deleteMany({
       where: { buyerId: buyer.id, sellerId },
     });
-    return { unfollowed: true, sellerId };
+    const followerCount = await this.prisma.buyerSellerFollow.count({ where: { sellerId } });
+    return { unfollowed: true, sellerId, followerCount };
   }
 
   /** All verified seller stores for buyer explore (includes stores with no live history). */
@@ -566,7 +573,10 @@ export class BuyersService {
       create: { buyerId: buyer.id, sellerId: seller.id },
       update: {},
     });
-    return { followed: true, sellerId: seller.id };
+    const followerCount = await this.prisma.buyerSellerFollow.count({
+      where: { sellerId: seller.id },
+    });
+    return { followed: true, sellerId: seller.id, followerCount };
   }
 
   async getSellerPublicProfile(sellerId: string) {
@@ -609,7 +619,7 @@ export class BuyersService {
     }
 
     const now = new Date();
-    const [liveStreams, archivedLives, follow, publicRating] = await Promise.all([
+    const [liveStreams, archivedLives, follow, publicRating, followerCount] = await Promise.all([
       this.prisma.stream.findMany({
         where: {
           sellerId,
@@ -667,6 +677,7 @@ export class BuyersService {
         select: { sellerId: true },
       }),
       this.ratings.getSellerPublic(sellerId),
+      this.prisma.buyerSellerFollow.count({ where: { sellerId } }),
     ]);
 
     return {
@@ -679,6 +690,7 @@ export class BuyersService {
         ...publicRating,
       },
       following: !!follow,
+      followerCount,
       liveStreams: liveStreams.map((s) => ({
         ...s,
         thumbnailUrl: resolveStreamThumbnail({

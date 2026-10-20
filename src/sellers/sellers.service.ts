@@ -15,6 +15,7 @@ import { UpdatePickupAddressDto } from './dto/pickup-address.dto';
 import { AddressType } from '@prisma/client';
 import { OrderStatus, StreamReplayStatus, VerificationStatus } from '@prisma/client';
 import { archiveNotExpiredWhere } from '../streams/archive-retention.util';
+import { parseBirthDate } from '../common/utils/birth-date.util';
 import { resolveStreamThumbnail } from '../streams/stream-thumbnail.util';
 import { SupabaseStorageService } from '../storage/supabase-storage.service';
 import { FirebasePushService } from '../notifications/firebase-push.service';
@@ -80,6 +81,7 @@ export class SellersService {
             firstName: true,
             middleName: true,
             lastName: true,
+            birthDate: true,
           },
         },
         changeRequests: { take: 1, orderBy: { createdAt: 'desc' } },
@@ -131,6 +133,7 @@ export class SellersService {
     if (email !== undefined && !email) {
       throw new BadRequestException('Email is required');
     }
+    const birthDate = dto.birthDate ? parseBirthDate(dto.birthDate) : undefined;
 
     if (email) {
       const taken = await this.prisma.user.findFirst({
@@ -167,6 +170,7 @@ export class SellersService {
         middleName !== undefined ||
         lastName !== undefined ||
         email !== undefined ||
+        birthDate !== undefined ||
         (resolvedName !== undefined && resolvedName.length > 0)
       ) {
         await tx.user.update({
@@ -178,6 +182,7 @@ export class SellersService {
             }),
             ...(lastName !== undefined && { lastName }),
             ...(email !== undefined && { email }),
+            ...(birthDate !== undefined && { birthDate }),
             ...(resolvedName !== undefined &&
               resolvedName.length > 0 && { name: resolvedName }),
           },
