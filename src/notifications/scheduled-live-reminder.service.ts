@@ -2,22 +2,12 @@ import { Injectable, Logger } from '@nestjs/common';
 import { Cron, CronExpression } from '@nestjs/schedule';
 import { PrismaService } from '../prisma/prisma.service';
 import { FirebasePushService } from './firebase-push.service';
-import {
-  BuyerLiveBroadcastService,
-  ANDROID_BUYER_LIVE_CHANNEL,
-} from './buyer-live-broadcast.service';
-
-const FCM_DATA_MAX = 900;
-
-function clip(s: string, max: number): string {
-  const t = s.trim();
-  if (t.length <= max) return t;
-  return `${t.slice(0, max - 1)}…`;
-}
 
 /**
- * Sends one FCM per scheduled stream when `startedAt` falls in a ±2 minute window
- * (aligned with cron every minute). Deduped with `Stream.goLiveReminderSentAt`.
+ * Reminds the seller once per scheduled stream when `startedAt` falls in a ±2 minute window
+ * (cron every minute). Each stream is claimed via `Stream.goLiveReminderSentAt` before sending,
+ * so overlapping runs or instances can't remind twice. Buyers are alerted by the
+ * "seller is live" push when the stream actually starts — not here, to avoid back-to-back pushes.
  */
 @Injectable()
 export class ScheduledLiveReminderService {
@@ -26,7 +16,6 @@ export class ScheduledLiveReminderService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly firebase: FirebasePushService,
-    private readonly buyerLiveBroadcast: BuyerLiveBroadcastService,
   ) {}
 
   @Cron(CronExpression.EVERY_MINUTE)
@@ -44,81 +33,42 @@ export class ScheduledLiveReminderService {
         goLiveReminderSentAt: null,
         startedAt: { gte: from, lte: to },
       },
-      include: {
-        seller: {
-          include: {
-            user: { select: { id: true, name: true } },
-          },
-        },
-      },
+      select: { id: true, title: true, seller: { select: { userId: true } } },
     });
 
     for (const s of streams) {
+      const claimed = await this.prisma.stream.updateMany({
+        where: { id: s.id, goLiveReminderSentAt: null },
+        data: { goLiveReminderSentAt: now },
+      });
+      if (claimed.count !== 1) continue;
+
       const userId = s.seller.userId;
       const devices = await this.prisma.userPushDevice.findMany({
         where: { userId },
         select: { fcmToken: true },
       });
       const sellerTokens = devices.map((d) => d.fcmToken);
-
-      if (sellerTokens.length > 0) {
-        try {
-          await this.firebase.sendToTokens(
-            sellerTokens,
-            'Time to go live',
-            `Your scheduled live "${s.title}" is starting.`,
-            {
-              type: 'SELLER_GO_LIVE_REMINDER',
-              streamId: s.id,
-            },
-            { channelId: 'seller_go_live' },
-          );
-        } catch (e) {
-          this.logger.warn(`FCM failed for stream ${s.id} (seller)`, e);
-          continue;
-        }
-      } else {
+      if (sellerTokens.length === 0) {
         this.logger.debug(
-          `No FCM tokens for seller user ${userId}; skipping seller push for stream ${s.id}`,
+          `No FCM tokens for seller user ${userId}; skipping reminder for stream ${s.id}`,
         );
+        continue;
       }
-
-      const sellerDisplay =
-        s.seller.user?.name?.trim() ||
-        s.seller.businessName?.trim() ||
-        'A seller';
-      const name = clip(sellerDisplay, 80);
       try {
-        const buyerTokens =
-          await this.buyerLiveBroadcast.getBuyerLiveAudienceFcmTokens(userId);
-        if (buyerTokens.length > 0) {
-          await this.firebase.sendToTokensBatched(
-            buyerTokens,
-            clip('Live starting soon', 120),
-            clip(
-              `${name}'s scheduled live "${s.title}" is starting.`,
-              200,
-            ),
-            {
-              type: 'SCHEDULED_LIVE_STARTING',
-              streamId: clip(s.id, 64),
-              sellerName: clip(name, FCM_DATA_MAX),
-              streamTitle: clip(s.title, FCM_DATA_MAX),
-            },
-            { android: { channelId: ANDROID_BUYER_LIVE_CHANNEL } },
-          );
-          this.logger.log(
-            `Scheduled-live buyer reminder queued for ${buyerTokens.length} device(s), stream ${s.id}`,
-          );
-        }
+        await this.firebase.sendToTokens(
+          sellerTokens,
+          'Time to go live',
+          `Your scheduled live "${s.title}" is starting.`,
+          {
+            type: 'SELLER_GO_LIVE_REMINDER',
+            streamId: s.id,
+          },
+          { channelId: 'seller_go_live', tag: `go-live:${s.id}` },
+        );
       } catch (e) {
-        this.logger.warn(`FCM failed for stream ${s.id} (buyers)`, e);
+        this.logger.warn(`FCM failed for stream ${s.id} (seller reminder)`, e);
       }
-
-      await this.prisma.stream.update({
-        where: { id: s.id },
-        data: { goLiveReminderSentAt: now },
-      });
     }
   }
 }

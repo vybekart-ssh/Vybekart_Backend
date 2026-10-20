@@ -1145,11 +1145,12 @@ export class StreamsService {
       include: streamWithSellerInclude,
     });
 
-    if (!updated.buyersNotifiedAt) {
-      await this.prisma.stream.update({
-        where: { id: streamId },
-        data: { buyersNotifiedAt: now },
-      });
+    // Atomic claim: the seller app and the LiveKit webhook (plus republished tracks) all land here.
+    const claimed = await this.prisma.stream.updateMany({
+      where: { id: streamId, buyersNotifiedAt: null },
+      data: { buyersNotifiedAt: now },
+    });
+    if (claimed.count === 1) {
       this.queueNotifyBuyersLiveStarted(updated);
     }
 

@@ -580,6 +580,25 @@ export class AdminService {
     return this.mapArchiveRow(s);
   }
 
+  /** Public image for an admin announcement push (shown as a big picture). */
+  async uploadNotificationImage(file: Express.Multer.File) {
+    const mime = (file.mimetype ?? '').toLowerCase();
+    const ext =
+      mime === 'image/png' ? 'png' : mime === 'image/webp' ? 'webp' : mime === 'image/jpeg' || mime === 'image/jpg' ? 'jpg' : null;
+    if (!ext || !file.buffer?.length) {
+      throw new BadRequestException('Image must be JPEG, PNG or WebP');
+    }
+    const { publicUrl } = await this.supabase.uploadPublicObject({
+      bucket: this.supabase.publicBucket(),
+      objectKey: `vybekart-images/announcements/${randomUUID()}.${ext}`,
+      contentType: mime === 'image/jpg' ? 'image/jpeg' : mime,
+      bytes: file.buffer,
+      cacheControlSeconds: 60 * 60 * 24 * 365,
+      upsert: false,
+    });
+    return { imageUrl: publicUrl };
+  }
+
   async createArchiveFromUpload(input: {
     sellerId: string;
     title?: string;

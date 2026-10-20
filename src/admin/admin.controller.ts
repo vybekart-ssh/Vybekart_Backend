@@ -10,11 +10,12 @@ import {
   Query,
   Request,
   Res,
+  UploadedFile,
   UploadedFiles,
   UseGuards,
   UseInterceptors,
 } from '@nestjs/common';
-import { FileFieldsInterceptor } from '@nestjs/platform-express';
+import { FileFieldsInterceptor, FileInterceptor } from '@nestjs/platform-express';
 import { diskStorage } from 'multer';
 import { randomUUID } from 'crypto';
 import { tmpdir } from 'os';
@@ -35,6 +36,8 @@ import { CreateArchiveFromUrlDto } from './dto/create-archive-from-url.dto';
 import { AdminInsightsQueryDto, AdminReportQueryDto } from './dto/admin-insights-query.dto';
 import { AdminInsightsService } from './insights/admin-insights.service';
 import { AdminReportService } from './insights/admin-report.service';
+import { AdminBroadcastService } from '../notifications/admin-broadcast.service';
+import { SendAdminNotificationDto } from './dto/send-admin-notification.dto';
 import type { Response } from 'express';
 
 @Controller('admin')
@@ -45,6 +48,7 @@ export class AdminController {
     private readonly adminService: AdminService,
     private readonly adminInsights: AdminInsightsService,
     private readonly adminReports: AdminReportService,
+    private readonly adminBroadcast: AdminBroadcastService,
   ) {}
 
   @Get('me')
@@ -316,6 +320,41 @@ export class AdminController {
   @Get('users/sellers/:id')
   getSellerUserDetail(@Param('id') id: string) {
     return this.adminService.getSellerUserDetail(id);
+  }
+
+  @Get('notifications/recipients')
+  searchNotificationRecipients(
+    @Query('q') q?: string,
+    @Query('role') role?: string,
+    @Query('limit') limit?: string,
+  ) {
+    return this.adminBroadcast.searchRecipients({
+      q,
+      role,
+      limit: limit ? parseInt(limit, 10) : undefined,
+    });
+  }
+
+  @Get('notifications')
+  listNotificationHistory(@Query('limit') limit?: string) {
+    return this.adminBroadcast.listHistory(limit ? parseInt(limit, 10) : undefined);
+  }
+
+  @Post('notifications/image')
+  @UseInterceptors(
+    FileInterceptor('image', { limits: { fileSize: 5 * 1024 * 1024 } }),
+  )
+  uploadNotificationImage(@UploadedFile() file: Express.Multer.File) {
+    if (!file) throw new BadRequestException('Image file is required');
+    return this.adminService.uploadNotificationImage(file);
+  }
+
+  @Post('notifications/send')
+  sendNotification(
+    @Request() req: { user: { id: string } },
+    @Body() dto: SendAdminNotificationDto,
+  ) {
+    return this.adminBroadcast.send({ ...dto, sentByUserId: req.user.id });
   }
 
   @Get('promo-videos')

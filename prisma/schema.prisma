@@ -98,6 +98,24 @@ model User {
   // but linking to User is easier for auth. We'll link to User for now.
 }
 
+/// Announcement pushes sent from the admin console (history + delivery counts).
+model AdminBroadcast {
+  id             String   @id @default(uuid())
+  /// SELECTED | ALL_SELLERS | ALL_BUYERS | ALL_USERS
+  audience       String
+  title          String
+  body           String   @default("")
+  imageUrl       String?
+  recipientCount Int      @default(0)
+  deviceCount    Int      @default(0)
+  deliveredCount Int      @default(0)
+  failedCount    Int      @default(0)
+  sentByUserId   String?
+  createdAt      DateTime @default(now())
+
+  @@index([createdAt])
+}
+
 model UserPushDevice {
   id        String   @id @default(uuid())
   userId    String
