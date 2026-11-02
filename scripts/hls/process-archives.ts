@@ -66,8 +66,21 @@ function loadEnvFile(file: string) {
 loadEnvFile(path.join(__dirname, '.env.hls'));
 
 const API = (process.env.VYBEKART_API_URL || 'https://vybekart-backend.onrender.com').replace(/\/+$/, '');
+const ADMIN_PHONE = normalizePhone(process.env.VYBEKART_ADMIN_PHONE || '');
 const ADMIN_EMAIL = process.env.VYBEKART_ADMIN_EMAIL || '';
 const ADMIN_PASSWORD = process.env.VYBEKART_ADMIN_PASSWORD || '';
+
+/** `9876543210`, `09876543210`, `919876543210` or `+919876543210` → `+919876543210`. */
+function normalizePhone(raw: string): string {
+  const trimmed = raw.trim();
+  if (!trimmed) return '';
+  const digits = trimmed.replace(/\D/g, '');
+  if (trimmed.startsWith('+')) return `+${digits}`;
+  if (digits.length === 10) return `+91${digits}`;
+  if (digits.length === 11 && digits.startsWith('0')) return `+91${digits.slice(1)}`;
+  if (digits.length === 12 && digits.startsWith('91')) return `+${digits}`;
+  return `+${digits}`;
+}
 const FFMPEG = process.env.FFMPEG_PATH || 'ffmpeg';
 const FFPROBE = process.env.FFPROBE_PATH || 'ffprobe';
 const WORK_DIR = process.env.HLS_WORK_DIR || path.join(__dirname, 'work');
@@ -89,13 +102,18 @@ const FORCE = flag('--force');
 let token = '';
 
 async function login() {
-  if (!ADMIN_EMAIL || !ADMIN_PASSWORD) {
-    throw new Error('Set VYBEKART_ADMIN_EMAIL and VYBEKART_ADMIN_PASSWORD in scripts/hls/.env.hls');
+  if ((!ADMIN_PHONE && !ADMIN_EMAIL) || !ADMIN_PASSWORD) {
+    throw new Error(
+      'Set VYBEKART_ADMIN_PHONE (or VYBEKART_ADMIN_EMAIL) and VYBEKART_ADMIN_PASSWORD in scripts/hls/.env.hls',
+    );
   }
+  const credentials = ADMIN_PHONE
+    ? { phone: ADMIN_PHONE, password: ADMIN_PASSWORD }
+    : { email: ADMIN_EMAIL, password: ADMIN_PASSWORD };
   const res = await fetch(`${API}/auth/login`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ email: ADMIN_EMAIL, password: ADMIN_PASSWORD }),
+    body: JSON.stringify(credentials),
   });
   const body = (await res.json().catch(() => ({}))) as { access_token?: string; message?: unknown };
   if (!res.ok || !body.access_token) throw new Error(`Admin login failed (${res.status}): ${JSON.stringify(body.message)}`);

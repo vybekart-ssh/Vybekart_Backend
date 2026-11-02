@@ -12,8 +12,8 @@ tool is for older archives (and any the phone could not finish).
    unzip to `C:\ffmpeg`, and add `C:\ffmpeg\bin` to PATH (or set `FFMPEG_PATH` / `FFPROBE_PATH`).
    Check: `ffmpeg -version`.
 2. In `Vybekart_Backend`, run `npm install` once.
-3. Copy `scripts/hls/.env.hls.example` to `scripts/hls/.env.hls` and fill in the admin email and
-   password you use for the Master console.
+3. Copy `scripts/hls/.env.hls.example` to `scripts/hls/.env.hls` and fill in the mobile number
+   (`VYBEKART_ADMIN_PHONE`, 10 digits is fine) and password you use for the Master console.
 
 ## Run
 
