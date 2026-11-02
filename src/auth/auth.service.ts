@@ -3,6 +3,7 @@ import {
   ConflictException,
   UnauthorizedException,
   BadRequestException,
+  OnModuleInit,
 } from '@nestjs/common';
 import { JwtService, JwtSignOptions } from '@nestjs/jwt';
 import { ConfigService } from '@nestjs/config';
@@ -32,10 +33,13 @@ import { MailService } from '../mail/mail.service';
 import { getVybeKartMailBranding } from '../mail/templates/vybekart-email-layout';
 import { buildWelcomeEmail } from '../mail/templates/welcome-email.template';
 import { formatBirthDate, parseBirthDate } from '../common/utils/birth-date.util';
+import { OtpSmsLimiterService } from './otp-sms-limiter.service';
 
 const REFRESH_TTL_SECONDS = 30 * 24 * 60 * 60; // 30 days
 const OTP_TTL_SECONDS = 10 * 60; // 10 minutes
 const OTP_LENGTH = 6;
+/** Accepted instead of a real OTP only when OTP_ENV=testing (QA / before DLT go-live). */
+const TEST_OTP_BYPASS_CODE = '796300';
 
 /** Multi-line address aligned with registration pickup fields. */
 function formatPickupAsBusinessAddress(p: PickupAddressDto): string {
@@ -94,13 +98,31 @@ function displayName(dto: {
 }
 
 @Injectable()
-export class AuthService {
+export class AuthService implements OnModuleInit {
   private readonly logger = new Logger(AuthService.name);
 
   private otpEnv(): 'testing' | 'production' {
     const raw = (this.config.get<string>('OTP_ENV') ?? '').trim();
     if (raw === 'production') return 'production';
-    return 'testing';
+    if (raw === 'testing') return 'testing';
+    // Not set: a production server must never fall back to test mode (test OTP code + no SMS).
+    return this.config.get<string>('NODE_ENV') === 'production' ? 'production' : 'testing';
+  }
+
+  /** Fixed test OTP, accepted only when OTP_ENV=testing (never in production OTP mode). */
+  private isTestOtpBypass(code: string, identifier: string): boolean {
+    if (this.otpEnv() !== 'testing' || code !== TEST_OTP_BYPASS_CODE) return false;
+    this.logger.warn(`OTP test code used (OTP_ENV=testing) for=${this.maskIdentifier(identifier)}`);
+    return true;
+  }
+
+  onModuleInit() {
+    if (this.otpEnv() === 'testing' && this.config.get<string>('NODE_ENV') === 'production') {
+      this.logger.warn(
+        'OTP_ENV=testing on a production server: OTP SMS is NOT sent and the fixed test OTP is accepted. ' +
+          'Set OTP_ENV=production on Render before real users sign in.',
+      );
+    }
   }
 
   private isOtpProd(): boolean {
@@ -223,6 +245,7 @@ export class AuthService {
     private sellerRegistrationNotifier: SellerRegistrationNotifierService,
     private fast2sms: Fast2SmsService,
     private mail: MailService,
+    private otpSmsLimiter: OtpSmsLimiterService,
   ) {}
 
   /** Fire-and-forget welcome email; never throws to the caller. */
@@ -385,6 +408,10 @@ export class AuthService {
       throw new BadRequestException('Either email or phone is required');
     }
     const identifier = email ?? phone!;
+    // Real SMS only: per-number cooldown + hourly / daily caps (stops SMS flooding).
+    if (this.isOtpProd() && phone) {
+      await this.otpSmsLimiter.assertAllowed(phone, this.maskIdentifier(phone));
+    }
     const code = randomInt(
       10 ** (OTP_LENGTH - 1),
       10 ** OTP_LENGTH - 1,
@@ -411,7 +438,7 @@ export class AuthService {
 
   /**
    * Verify OTP. Returns tokens + user if existing user; returns { isNewUser: true, email?, phone? } if new.
-   * TEMP: If code is 796300, skip OTP verification and proceed directly (for dev/testing).
+   * OTP_ENV=testing only: the fixed test code (TEST_OTP_BYPASS_CODE) skips OTP verification.
    */
   async verifyOtp(dto: VerifyOtpDto) {
     const { email, phone, code: rawCode } = dto;
@@ -423,7 +450,7 @@ export class AuthService {
     if (!identifier) {
       throw new BadRequestException('Either email or phone is required');
     }
-    const isTempBypass = this.otpEnv() === 'testing' && code === '796300';
+    const isTempBypass = this.isTestOtpBypass(code, identifier);
     if (!isTempBypass) {
       const key = this.redis.otpKey(identifier);
       const stored = await this.redis.get(key);
@@ -782,6 +809,9 @@ export class AuthService {
         'No account found with this mobile number',
       );
     }
+    if (this.isOtpProd()) {
+      await this.otpSmsLimiter.assertAllowed(phone, this.maskIdentifier(phone));
+    }
     const code = randomInt(
       10 ** (OTP_LENGTH - 1),
       10 ** OTP_LENGTH - 1,
@@ -808,7 +838,7 @@ export class AuthService {
     const { phone, code, newPassword } = dto;
     const key = this.redis.otpKey(`reset:${phone}`);
     const trimmed = code.trim();
-    const isTempBypass = this.otpEnv() === 'testing' && trimmed === '796300';
+    const isTempBypass = this.isTestOtpBypass(trimmed, phone);
     if (!isTempBypass) {
       const stored = await this.redis.get(key);
       if (!stored || stored !== trimmed) {
@@ -841,7 +871,7 @@ export class AuthService {
     const { phone, code } = dto;
     const key = this.redis.otpKey(`reset:${phone}`);
     const trimmed = code.trim();
-    const isTempBypass = this.otpEnv() === 'testing' && trimmed === '796300';
+    const isTempBypass = this.isTestOtpBypass(trimmed, phone);
     if (!isTempBypass) {
       const stored = await this.redis.get(key);
       if (!stored || stored !== trimmed) {

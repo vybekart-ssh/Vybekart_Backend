@@ -92,6 +92,8 @@ curl -X POST http://localhost:3000/auth/refresh \
 
 Send OTP to email or phone. At least one of `email` or `phone` is required.
 
+**SMS limits (production, per phone number; shared with `POST /auth/forgot-password`):** one OTP every 30 s, max 5 per hour, 10 per day. Over the limit → `429` with `message` such as `"Please wait 20 seconds before requesting another OTP."` or `"Too many OTP requests for this number. Please try again in an hour."`. `forgot-password` only sends to numbers that have an account.
+
 **Request body:**
 ```json
 { "email": "user@example.com" }

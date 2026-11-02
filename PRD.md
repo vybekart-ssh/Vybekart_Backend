@@ -45,6 +45,7 @@ Landing Next.js apps generally **do not** call commerce APIs (except shared lega
 - JWT access + role guards (`BUYER`, `SELLER`, `ADMIN`); seller verified guard for sensitive seller routes.  
 - FCM device token registration.  
 - Forgot/reset password via OTP.
+- **OTP SMS limits per mobile number** (production SMS only, shared by signup / login / forgot-password): one every 30 s (matches the app's resend timer), max 5 per hour and 10 per day → HTTP 429 with a readable message (`OtpSmsLimiterService`). Signed-in apps send the reset OTP only to the account's own number.
 
 ### 3.2 Catalog & reference
 
