@@ -146,7 +146,7 @@ services:
       - key: FAST2SMS_ROUTE
         value: "dlt"
       - key: FAST2SMS_SENDER_ID
-        value: "VYBEKT"
+        value: "LVORA"
       - key: FAST2SMS_DLT_MSG_ID_LOGIN
         sync: false
       - key: FAST2SMS_DLT_MSG_ID_BUYER_SIGNUP
