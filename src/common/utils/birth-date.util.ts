@@ -1,8 +1,18 @@
 import { BadRequestException } from '@nestjs/common';
+import type { ValidationArguments } from 'class-validator';
 
 /** Birthdate wire format: `YYYY-MM-DD`. */
 export const BIRTH_DATE_PATTERN = /^\d{4}-\d{2}-\d{2}$/;
 export const BIRTH_DATE_FORMAT_MESSAGE = 'birthDate must be a date in YYYY-MM-DD format';
+export const BIRTH_DATE_REQUIRED_MESSAGE = 'Date of birth is required';
+
+/** One message for a required birthdate: "required" when missing, format hint otherwise. */
+export function requiredBirthDateMessage(args: ValidationArguments): string {
+  const v = args.value;
+  return v === undefined || v === null || (typeof v === 'string' && v.trim() === '')
+    ? BIRTH_DATE_REQUIRED_MESSAGE
+    : BIRTH_DATE_FORMAT_MESSAGE;
+}
 
 /** Parses a `YYYY-MM-DD` birthdate; rejects impossible dates, future dates and years before 1900. */
 export function parseBirthDate(raw: string): Date {

@@ -65,7 +65,7 @@ model User {
   middleName String?
   lastName   String?
   gender     String? // MALE | FEMALE | OTHER | PREFER_NOT_TO_SAY
-  /// Date of birth (no time). Defaults to the signup date when not provided.
+  /// Date of birth (no time). Required at registration; users created before it was collected got the migration date as a default.
   birthDate  DateTime @default(dbgenerated("CURRENT_DATE")) @db.Date
   /// Buyer (and shared) profile photo URL
   avatarUrl String?
@@ -106,6 +106,9 @@ model AdminBroadcast {
   title          String
   body           String   @default("")
   imageUrl       String?
+  /// Live archive opened when the notification is tapped (snapshot of its title for history)
+  archiveStreamId String?
+  archiveTitle    String?
   recipientCount Int      @default(0)
   deviceCount    Int      @default(0)
   deliveredCount Int      @default(0)

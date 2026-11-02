@@ -17,8 +17,8 @@ import {
 import { Type } from 'class-transformer';
 import { Transform } from 'class-transformer';
 import {
-  BIRTH_DATE_FORMAT_MESSAGE,
   BIRTH_DATE_PATTERN,
+  requiredBirthDateMessage,
 } from '../../common/utils/birth-date.util';
 
 /** Login with email or phone (at least one required) and password. */
@@ -160,11 +160,9 @@ export class RegisterBuyerDto {
   })
   gender: string;
 
-  /** `YYYY-MM-DD`. Optional so older app builds can still register (defaults to today). */
-  @IsOptional()
-  @IsString()
-  @Matches(BIRTH_DATE_PATTERN, { message: BIRTH_DATE_FORMAT_MESSAGE })
-  birthDate?: string;
+  /** `YYYY-MM-DD`. Required for every new registration. */
+  @Matches(BIRTH_DATE_PATTERN, { message: requiredBirthDateMessage })
+  birthDate: string;
 
   @IsString()
   @IsOptional()
@@ -246,11 +244,9 @@ export class RegisterSellerDto {
   })
   gender: string;
 
-  /** `YYYY-MM-DD`. Optional so older app builds can still register (defaults to today). */
-  @IsOptional()
-  @IsString()
-  @Matches(BIRTH_DATE_PATTERN, { message: BIRTH_DATE_FORMAT_MESSAGE })
-  birthDate?: string;
+  /** `YYYY-MM-DD`. Required for every new registration. */
+  @Matches(BIRTH_DATE_PATTERN, { message: requiredBirthDateMessage })
+  birthDate: string;
 
   @IsString()
   @IsNotEmpty({ message: 'Phone number is required for registration' })

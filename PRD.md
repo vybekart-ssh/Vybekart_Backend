@@ -40,7 +40,7 @@ Landing Next.js apps generally **do not** call commerce APIs (except shared lega
 
 ### 3.1 Identity & access
 
-- Register buyer / seller; login; refresh tokens (Redis-backed).  
+- Register buyer / seller; login; refresh tokens (Redis-backed). **Date of birth is mandatory** on both registrations (`YYYY-MM-DD`); users created before DOB was collected keep the default set by the migration and are never forced to re-enter it (profile updates keep `birthDate` optional).  
 - Phone/email OTP (`OTP_ENV=testing|production`); production SMS via Fast2SMS DLT.  
 - JWT access + role guards (`BUYER`, `SELLER`, `ADMIN`); seller verified guard for sensitive seller routes.  
 - FCM device token registration.  
@@ -96,6 +96,8 @@ From-address roles: noreply / contact / support / seller outreach (CEO) — see 
 ### 3.8 Admin & public
 
 - Seller approve/reject/request-changes/reregister.  
+- Admin push announcements: selected users (full paged list of seller partners / buyers + search) or whole audiences, optional image, optional **live archive** — tapping the notification plays that replay in the app (`API.md` → Admin notifications).  
+- Admin buyer / seller partner detail includes `user.birthDate` (`YYYY-MM-DD`); the daily 10 PM IST users CSV has a `birthDate` column.  
 - App config min Android version.  
 - Packing video review.  
 - Seller email campaign admin UI/API.  

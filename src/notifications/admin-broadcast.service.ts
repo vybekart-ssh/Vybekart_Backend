@@ -1,7 +1,9 @@
 import { BadRequestException, ConflictException, Injectable, Logger } from '@nestjs/common';
-import { NotificationCategory, Prisma } from '@prisma/client';
+import { NotificationCategory, Prisma, StreamReplayStatus } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { RedisService } from '../redis/redis.service';
+import { isArchiveExpired } from '../streams/archive-retention.util';
+import { resolveStreamThumbnail } from '../streams/stream-thumbnail.util';
 import { FirebasePushService } from './firebase-push.service';
 
 export const ADMIN_BROADCAST_AUDIENCES = [
@@ -34,11 +36,15 @@ export class AdminBroadcastService {
     private readonly redis: RedisService,
   ) {}
 
-  /** Seller partners / buyers for the admin recipient picker. */
-  async searchRecipients(params: { q?: string; role?: string; limit?: number }) {
+  /**
+   * Seller partners / buyers for the admin recipient picker, newest first.
+   * Without `q` this pages through everyone in the role.
+   */
+  async searchRecipients(params: { q?: string; role?: string; limit?: number; page?: number }) {
     const q = params.q?.trim();
     const role = params.role?.trim().toUpperCase();
     const limit = Math.min(Math.max(params.limit ?? 30, 1), 50);
+    const page = Math.max(Math.floor(params.page ?? 1), 1);
     const and: Prisma.UserWhereInput[] = [
       role === 'SELLER' ? SELLER_USER : role === 'BUYER' ? BUYER_USER : { OR: [SELLER_USER, BUYER_USER] },
     ];
@@ -53,21 +59,30 @@ export class AdminBroadcastService {
         ],
       });
     }
-    const users = await this.prisma.user.findMany({
-      where: { AND: and },
-      orderBy: { createdAt: 'desc' },
-      take: limit,
-      select: {
-        id: true,
-        name: true,
-        email: true,
-        phone: true,
-        sellerProfile: { select: { businessName: true } },
-        buyerProfile: { select: { id: true } },
-        _count: { select: { pushDevices: true } },
-      },
-    });
+    const where: Prisma.UserWhereInput = { AND: and };
+    const [users, total] = await Promise.all([
+      this.prisma.user.findMany({
+        where,
+        orderBy: [{ createdAt: 'desc' }, { id: 'asc' }],
+        skip: (page - 1) * limit,
+        take: limit,
+        select: {
+          id: true,
+          name: true,
+          email: true,
+          phone: true,
+          sellerProfile: { select: { businessName: true } },
+          buyerProfile: { select: { id: true } },
+          _count: { select: { pushDevices: true } },
+        },
+      }),
+      this.prisma.user.count({ where }),
+    ]);
     return {
+      total,
+      page,
+      limit,
+      hasMore: page * limit < total,
       items: users.map((u) => ({
         userId: u.id,
         name: u.name,
@@ -95,6 +110,7 @@ export class AdminBroadcastService {
     title?: string;
     body?: string;
     imageUrl?: string;
+    archiveStreamId?: string;
     clientRequestId?: string;
     sentByUserId: string;
   }) {
@@ -102,15 +118,26 @@ export class AdminBroadcastService {
     if (!ADMIN_BROADCAST_AUDIENCES.includes(audience)) {
       throw new BadRequestException('Choose who should receive this notification');
     }
+    const archive = input.archiveStreamId?.trim()
+      ? await this.resolvePlayableArchive(input.archiveStreamId.trim())
+      : null;
     const title = (input.title?.trim() || 'Vybekart').slice(0, TITLE_MAX);
-    const body = (input.body?.trim() ?? '').slice(0, BODY_MAX);
-    const imageUrl = input.imageUrl?.trim() || undefined;
-    if (!body && !imageUrl) {
-      throw new BadRequestException('Add a message or an image');
+    const typedBody = (input.body?.trim() ?? '').slice(0, BODY_MAX);
+    let imageUrl = input.imageUrl?.trim() || undefined;
+    if (!typedBody && !imageUrl && !archive) {
+      throw new BadRequestException('Add a message, an image or a live archive');
     }
     if (imageUrl && !/^https:\/\//i.test(imageUrl)) {
       throw new BadRequestException('Image must be an https URL');
     }
+    if (!imageUrl && archive?.thumbnailUrl && /^https:\/\//i.test(archive.thumbnailUrl)) {
+      imageUrl = archive.thumbnailUrl;
+    }
+    const body =
+      typedBody ||
+      (archive
+        ? `Watch “${archive.title}” by ${archive.sellerName} on Vybekart`.slice(0, BODY_MAX)
+        : '');
     const userIds = [...new Set((input.userIds ?? []).map((id) => id?.trim()).filter(Boolean))];
     if (audience === 'SELECTED') {
       if (userIds.length === 0) throw new BadRequestException('Select at least one user');
@@ -150,6 +177,8 @@ export class AdminBroadcastService {
         title,
         body,
         imageUrl: imageUrl ?? null,
+        archiveStreamId: archive?.id ?? null,
+        archiveTitle: archive?.title ?? null,
         recipientCount,
         deviceCount: tokens.length,
         sentByUserId: input.sentByUserId,
@@ -166,6 +195,9 @@ export class AdminBroadcastService {
         title,
         body,
         imageUrl: imageUrl ?? '',
+        // The app opens this replay on tap (also delivered as intent extras when Android shows the tray item).
+        archiveStreamId: archive?.id ?? '',
+        archiveUrl: archive ? archiveShareUrl(archive.id) : '',
       },
       {
         android: {
@@ -200,4 +232,53 @@ export class AdminBroadcastService {
     );
     return updated;
   }
+
+  /** The archive must be watchable right now, otherwise the tap would land on an error. */
+  private async resolvePlayableArchive(streamId: string) {
+    const stream = await this.prisma.stream.findUnique({
+      where: { id: streamId },
+      select: {
+        id: true,
+        title: true,
+        isLive: true,
+        endedAt: true,
+        replayUrl: true,
+        replayStatus: true,
+        archiveRetentionHours: true,
+        archiveExpiresAt: true,
+        thumbnailUrl: true,
+        seller: { select: { businessName: true, logoUrl: true } },
+        streamProducts: {
+          orderBy: { sortOrder: 'asc' },
+          take: 1,
+          select: { product: { select: { images: true } } },
+        },
+      },
+    });
+    if (!stream) throw new BadRequestException('That live archive no longer exists');
+    if (stream.isLive || !stream.endedAt) {
+      throw new BadRequestException('That live has not ended yet');
+    }
+    if (!stream.replayUrl?.trim() || stream.replayStatus !== StreamReplayStatus.READY) {
+      throw new BadRequestException('That live archive is not ready to play yet');
+    }
+    if (isArchiveExpired(stream)) {
+      throw new BadRequestException('That live archive has expired');
+    }
+    return {
+      id: stream.id,
+      title: stream.title?.trim() || 'Live replay',
+      sellerName: stream.seller?.businessName?.trim() || 'a seller partner',
+      thumbnailUrl: resolveStreamThumbnail({
+        firstProductImages: stream.streamProducts?.[0]?.product?.images,
+        thumbnailUrl: stream.thumbnailUrl,
+        sellerLogoUrl: stream.seller?.logoUrl,
+      }),
+    };
+  }
+}
+
+/** Same public link as the in-app Share button (opens the app via App Links). */
+export function archiveShareUrl(streamId: string): string {
+  return `https://www.vybekart.co.in/archive/${streamId}`;
 }

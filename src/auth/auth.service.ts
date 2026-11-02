@@ -525,7 +525,7 @@ export class AuthService {
     const accountHolderName = dto.accountHolderName.trim();
     const accountType = dto.accountType.trim();
 
-    const birthDate = dto.birthDate ? parseBirthDate(dto.birthDate) : undefined;
+    const birthDate = parseBirthDate(dto.birthDate);
     const hashedPassword = await bcrypt.hash(dto.password, 10);
     const nameParts = resolveNameParts(dto);
     const fullName = displayName(dto);
@@ -542,7 +542,7 @@ export class AuthService {
                 middleName: nameParts.middleName,
                 lastName: nameParts.lastName || null,
                 gender: dto.gender ?? null,
-                ...(birthDate && { birthDate }),
+                birthDate,
                 roles: {
                   // Union roles so the same phone can be both buyer + seller.
                   set: Array.from(
@@ -560,7 +560,7 @@ export class AuthService {
                 middleName: nameParts.middleName,
                 lastName: nameParts.lastName || null,
                 gender: dto.gender ?? null,
-                ...(birthDate && { birthDate }),
+                birthDate,
                 phone,
                 roles: [Role.SELLER],
               },
@@ -693,7 +693,7 @@ export class AuthService {
       );
     }
 
-    const birthDate = dto.birthDate ? parseBirthDate(dto.birthDate) : undefined;
+    const birthDate = parseBirthDate(dto.birthDate);
     const hashedPassword = await bcrypt.hash(dto.password, 10);
     const nameParts = resolveNameParts(dto);
     const fullName = displayName(dto);
@@ -712,7 +712,7 @@ export class AuthService {
                 middleName: nameParts.middleName,
                 lastName: nameParts.lastName || null,
                 gender: dto.gender ?? null,
-                ...(birthDate && { birthDate }),
+                birthDate,
                 roles: {
                   // Union roles so the same phone can be both buyer + seller.
                   set: Array.from(
@@ -730,7 +730,7 @@ export class AuthService {
                 middleName: nameParts.middleName,
                 lastName: nameParts.lastName || null,
                 gender: dto.gender ?? null,
-                ...(birthDate && { birthDate }),
+                birthDate,
                 phone,
                 roles: [Role.BUYER], // Assign BUYER role
               },

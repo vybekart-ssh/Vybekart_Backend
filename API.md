@@ -19,10 +19,11 @@ Protected endpoints require a Bearer token: `Authorization: Bearer <access_token
 7. [Buyers](#buyers)
 8. [Sellers](#sellers)
 9. [Admin insights](#admin-insights)
-10. [Health](#health)
-11. [Pagination](#pagination)
-12. [WebSocket](#websocket-streams)
-13. [Errors](#error-responses)
+10. [Admin notifications](#admin-notifications)
+11. [Health](#health)
+12. [Pagination](#pagination)
+13. [WebSocket](#websocket-streams)
+14. [Errors](#error-responses)
 
 ---
 
@@ -134,17 +135,25 @@ Register a new buyer.
 {
   "email": "buyer@example.com",
   "password": "password123",
-  "name": "Jane Doe",
+  "firstName": "Jane",
+  "lastName": "Doe",
+  "gender": "FEMALE",
+  "birthDate": "1998-03-12",
   "phone": "+919876543210"
 }
 ```
 
-| Field    | Type   | Required | Notes        |
-|----------|--------|----------|--------------|
-| email    | string | Yes      | Valid email  |
-| password | string | Yes      | Min 6 chars  |
-| name     | string | Yes      |              |
-| phone    | string | No       | E.164 format |
+| Field      | Type   | Required | Notes        |
+|------------|--------|----------|--------------|
+| email      | string | Yes      | Valid email  |
+| password   | string | Yes      | Min 6 chars  |
+| firstName  | string | Yes      |              |
+| middleName | string | No       |              |
+| lastName   | string | Yes      |              |
+| gender     | string | Yes      | `MALE` \| `FEMALE` \| `OTHER` \| `PREFER_NOT_TO_SAY` |
+| birthDate  | string | **Yes**  | `YYYY-MM-DD`, not in the future, year ≥ 1900. Missing → 400 `Date of birth is required` |
+| name       | string | No       | Legacy display name (built from first/middle/last when omitted) |
+| phone      | string | Yes      | E.164 format |
 
 ---
 
@@ -157,7 +166,10 @@ Register a new seller.
 {
   "email": "seller@example.com",
   "password": "password123",
-  "name": "John Seller",
+  "firstName": "John",
+  "lastName": "Seller",
+  "gender": "MALE",
+  "birthDate": "1990-07-21",
   "phone": "+919876543210",
   "businessName": "My Store",
   "description": "Selling great products",
@@ -179,9 +191,14 @@ Register a new seller.
 |--------------|--------|----------|----------------------------|
 | email        | string | Yes      | Valid email                |
 | password     | string | Yes      | Min 6 chars                |
-| name         | string | Yes      |                            |
+| firstName    | string | Yes      |                            |
+| middleName   | string | No       |                            |
+| lastName     | string | Yes      |                            |
+| gender       | string | Yes      | `MALE` \| `FEMALE` \| `OTHER` \| `PREFER_NOT_TO_SAY` |
+| birthDate    | string | **Yes**  | `YYYY-MM-DD` (same rules as buyer) |
+| name         | string | No       | Legacy display name        |
 | businessName | string | Yes      |                            |
-| phone        | string | No       | E.164 format               |
+| phone        | string | Yes      | E.164 format               |
 | description  | string | No       |                            |
 | gstNumber    | string | No       |                            |
 | categoryIds  | string[]| No       | UUIDs of categories        |
@@ -851,6 +868,43 @@ Excel workbook (`.xlsx`, `Cache-Control: no-store`). Query: `type`, `period`, `f
 | `seller` | The seller's own payout workbook (same as `/sellers/insights/report`) | `sellerId` **required** (400 otherwise) |
 
 Filename: `Vybekart_Admin_{Platform_Overview|Seller_Payouts|Orders_Register}[_<Seller>][_<STATUS>]_<from>_to_<to>.xlsx`; `seller` type uses the seller report filename.
+
+---
+
+## Admin notifications
+
+All routes: **Auth:** Admin only.
+
+### GET `/admin/notifications/recipients`
+
+Recipient picker, newest users first. Query: `role` (`SELLER` | `BUYER`), optional `q` (name, email, phone, store name), `page` (default 1), `limit` (default 30, max 50). Without `q` it pages through **every** seller partner / buyer.
+
+```json
+{ "total": 245, "page": 1, "limit": 30, "hasMore": true,
+  "items": [{ "userId": "…", "name": "Asha Rao", "email": "…", "phone": "+91…", "businessName": "Asha Textiles", "isSeller": true, "isBuyer": false, "hasDevice": true }] }
+```
+
+### POST `/admin/notifications/send`
+
+```json
+{ "audience": "SELECTED", "userIds": ["…"], "title": "New drop", "body": "Watch the replay",
+  "imageUrl": "https://…", "archiveStreamId": "…", "clientRequestId": "uuid" }
+```
+
+| Field | Notes |
+|-------|-------|
+| `audience` | `SELECTED` (needs `userIds`, ≤ 1000) \| `ALL_SELLERS` \| `ALL_BUYERS` \| `ALL_USERS` |
+| `body` / `imageUrl` / `archiveStreamId` | At least one is required |
+| `archiveStreamId` | Optional live archive (UUID). Must have ended with a `READY` replay, else 400. When `body` is empty it defaults to “Watch “<title>” by <store> on Vybekart”; when `imageUrl` is empty the archive thumbnail is used |
+| `clientRequestId` | Same id = delivered once (409 on repeat within 10 min) |
+
+FCM data: `type=ADMIN_BROADCAST`, `broadcastId`, `title`, `body`, `imageUrl`, `archiveStreamId`, `archiveUrl` (`https://www.vybekart.co.in/archive/<id>`). Android opens the replay in-app on tap (buyers → replay reels, seller partners → archive player). Response is the saved `AdminBroadcast` row (incl. `archiveStreamId`, `archiveTitle`).
+
+### GET `/admin/notifications` · POST `/admin/notifications/image`
+
+History (`limit` ≤ 100) and image upload (multipart `image`, JPEG / PNG / WebP ≤ 5 MB → `{ imageUrl }`).
+
+`GET /admin/archives?sellerId=` rows include `playable` (ready replay, not live, not expired) and `expired`, used by the archive picker.
 
 ---
 

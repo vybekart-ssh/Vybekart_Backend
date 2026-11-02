@@ -39,9 +39,11 @@ import {
   ARCHIVE_RETENTION_OPTIONS,
   DEFAULT_ARCHIVE_RETENTION_HOURS,
   computeArchiveExpiresAt,
+  isArchiveExpired,
   normalizeArchiveRetentionHours,
 } from '../streams/archive-retention.util';
 import { resolveStreamThumbnail } from '../streams/stream-thumbnail.util';
+import { formatBirthDate } from '../common/utils/birth-date.util';
 import { randomUUID } from 'crypto';
 
 @Injectable()
@@ -187,6 +189,7 @@ export class AdminService {
             name: true,
             email: true,
             phone: true,
+            birthDate: true,
             createdAt: true,
             isActive: true,
           },
@@ -241,7 +244,7 @@ export class AdminService {
     return {
       buyer: {
         id: buyer.id,
-        user,
+        user: { ...user, birthDate: formatBirthDate(user.birthDate) },
         rating: buyer.rating,
       },
       replacements: buyer.replacementRequests,
@@ -398,6 +401,7 @@ export class AdminService {
     streamProducts?: { productId: string; sortOrder: number; product?: { id: string; name: string; price: number; images: string[] } }[];
   }) {
     const logoUrl = s.seller.logoUrl?.trim() || null;
+    const expired = isArchiveExpired(s);
     const products = (s.streamProducts ?? [])
       .slice()
       .sort((a, b) => a.sortOrder - b.sortOrder)
@@ -427,6 +431,14 @@ export class AdminService {
       archiveExpiresAt: s.archiveExpiresAt?.toISOString() ?? null,
       isAdminUploaded: s.isAdminUploaded,
       isLive: s.isLive,
+      expired,
+      /** Buyers can open it right now (used by the notification archive picker). */
+      playable:
+        !s.isLive &&
+        !!s.endedAt &&
+        !!s.replayUrl?.trim() &&
+        s.replayStatus === StreamReplayStatus.READY &&
+        !expired,
       productIds: products.map((p) => p.id),
       products,
       seller: {

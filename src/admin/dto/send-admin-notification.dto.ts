@@ -4,6 +4,7 @@ import {
   IsIn,
   IsOptional,
   IsString,
+  IsUUID,
   MaxLength,
 } from 'class-validator';
 import { ADMIN_BROADCAST_AUDIENCES } from '../../notifications/admin-broadcast.service';
@@ -34,6 +35,11 @@ export class SendAdminNotificationDto {
   @IsString()
   @MaxLength(2048)
   imageUrl?: string;
+
+  /** Live archive to open when the notification is tapped (must be ready and not expired). */
+  @IsOptional()
+  @IsUUID('all', { message: 'Choose a valid live archive' })
+  archiveStreamId?: string;
 
   /** Random id per Send tap; the same id is only ever delivered once. */
   @IsOptional()

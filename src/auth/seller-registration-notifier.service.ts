@@ -70,6 +70,7 @@ function buildSellerRegistrationEmail(
   const lines: [string, string][] = [
     ['Section', 'Create account & identity'],
     ['Full name', fullName],
+    ['Date of birth', dto.birthDate?.trim() || '—'],
     ['Email', dto.email],
     ['Phone', dto.phone],
     ['Password', '•••••••• (submitted; not stored in email)'],

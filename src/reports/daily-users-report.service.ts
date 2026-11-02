@@ -5,12 +5,14 @@ import * as nodemailer from 'nodemailer';
 import { resendFetch } from '../common/utils/resend-fetch';
 import { PrismaService } from '../prisma/prisma.service';
 import { MAIL_DEFAULTS, formatMailFrom } from '../mail/mail-from';
+import { formatBirthDate } from '../common/utils/birth-date.util';
 
 type ReportUserRow = {
   id: string;
   email: string;
   phone: string | null;
   name: string;
+  birthDate: Date | null;
   isActive: boolean;
   roles: string[];
   createdAt: Date;
@@ -79,6 +81,7 @@ export class DailyUsersReportService {
         email: true,
         phone: true,
         name: true,
+        birthDate: true,
         isActive: true,
         roles: true,
         createdAt: true,
@@ -180,6 +183,7 @@ export class DailyUsersReportService {
       'email',
       'phone',
       'name',
+      'birthDate',
       'isActive',
       'roles',
       'createdAt',
@@ -193,6 +197,7 @@ export class DailyUsersReportService {
           csvEscape(u.email),
           csvEscape(u.phone ?? ''),
           csvEscape(u.name),
+          csvEscape(formatBirthDate(u.birthDate) ?? ''),
           csvEscape(u.isActive ? 'true' : 'false'),
           csvEscape(formatRoleArray(u.roles ?? [])),
           csvEscape(u.createdAt?.toISOString() ?? ''),

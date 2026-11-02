@@ -327,11 +327,13 @@ export class AdminController {
     @Query('q') q?: string,
     @Query('role') role?: string,
     @Query('limit') limit?: string,
+    @Query('page') page?: string,
   ) {
     return this.adminBroadcast.searchRecipients({
       q,
       role,
-      limit: limit ? parseInt(limit, 10) : undefined,
+      limit: limit ? parseInt(limit, 10) || undefined : undefined,
+      page: page ? parseInt(page, 10) || undefined : undefined,
     });
   }
 

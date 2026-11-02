@@ -15,7 +15,7 @@ import { UpdatePickupAddressDto } from './dto/pickup-address.dto';
 import { AddressType } from '@prisma/client';
 import { OrderStatus, StreamReplayStatus, VerificationStatus } from '@prisma/client';
 import { archiveNotExpiredWhere } from '../streams/archive-retention.util';
-import { parseBirthDate } from '../common/utils/birth-date.util';
+import { formatBirthDate, parseBirthDate } from '../common/utils/birth-date.util';
 import { resolveStreamThumbnail } from '../streams/stream-thumbnail.util';
 import { SupabaseStorageService } from '../storage/supabase-storage.service';
 import { FirebasePushService } from '../notifications/firebase-push.service';
@@ -241,6 +241,7 @@ export class SellersService {
             name: true,
             email: true,
             phone: true,
+            birthDate: true,
             createdAt: true,
           },
         },
@@ -265,6 +266,7 @@ export class SellersService {
     ]);
     return {
       ...seller,
+      user: { ...seller.user, birthDate: formatBirthDate(seller.user.birthDate) },
       pickupAddresses,
       liveReward,
       replacementPercent,
