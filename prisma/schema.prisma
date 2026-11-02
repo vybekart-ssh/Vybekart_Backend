@@ -476,6 +476,15 @@ model Stream {
   deviceRecordingError     String?
   deviceRecordingUpdatedAt DateTime?
 
+  /// Adaptive (HLS) copy of the replay: master playlist URL. `replayUrl` always stays the untouched original.
+  hlsUrl       String?
+  /// NONE | PROCESSING | READY | FAILED
+  hlsStatus    String    @default("NONE")
+  /// DEVICE (seller phone) | ADMIN_TOOL (PC script)
+  hlsSource    String?
+  hlsError     String?
+  hlsUpdatedAt DateTime?
+
   viewCount Int       @default(0)
   startedAt DateTime?
   endedAt   DateTime?

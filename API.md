@@ -19,7 +19,7 @@ Protected endpoints require a Bearer token: `Authorization: Bearer <access_token
 7. [Buyers](#buyers)
 8. [Sellers](#sellers)
 9. [Admin insights](#admin-insights)
-10. [Admin notifications](#admin-notifications)
+10. [Admin notifications](#admin-notifications) · [Adaptive replays (HLS)](#adaptive-replays-hls)
 11. [Health](#health)
 12. [Pagination](#pagination)
 13. [WebSocket](#websocket-streams)
@@ -904,7 +904,23 @@ FCM data: `type=ADMIN_BROADCAST`, `broadcastId`, `title`, `body`, `imageUrl`, `a
 
 History (`limit` ≤ 100) and image upload (multipart `image`, JPEG / PNG / WebP ≤ 5 MB → `{ imageUrl }`).
 
-`GET /admin/archives?sellerId=` rows include `playable` (ready replay, not live, not expired) and `expired`, used by the archive picker.
+`GET /admin/archives?sellerId=` rows include `playable` (ready replay, not live, not expired) and `expired`, used by the archive picker, plus `hlsStatus` / `hlsSource` / `hlsError` / `hlsUrl` for the light version.
+
+---
+
+## Adaptive replays (HLS)
+
+The original MP4 in `replayUrl` is never modified. A lighter adaptive copy (720p / 480p / 240p, fragmented MP4 + byte-range HLS playlists) lives in `<replay bucket>/vybekart-replays/hls/<streamId>/`. `GET /streams/:id/archive` returns `hlsUrl` (master playlist) when `hlsStatus = READY`; apps prefer it and fall back to `replayUrl`.
+
+| Route | Auth | Body | Notes |
+|-------|------|------|-------|
+| `POST /streams/:id/hls/upload-session` | Seller (own live) | `{ files: [{ name, sizeBytes }] }` | Signed TUS slot per file (`endpoint`, `bucket`, `chunkSizeBytes`, `files[{ name, objectName, signature, contentType }]`). Sets `hlsStatus = PROCESSING` |
+| `POST /streams/:id/hls/complete` | Seller (own live) | `{ files, master }` | Checks every object's size, then `hlsUrl` = public URL of `master`, `hlsStatus = READY`, `hlsSource = DEVICE` |
+| `POST /streams/:id/hls/status` | Seller (own live) | `{ status: PROCESSING \| FAILED, error? }` | Never downgrades a READY copy |
+| `GET /admin/archives/hls/pending?limit=` | Admin | — | Ended archives with a ready original and no READY copy (oldest first) — used by `npm run hls:process` |
+| `POST /admin/archives/:id/hls/upload-session` · `/complete` · `/status` | Admin | same as above | `hlsSource = ADMIN_TOOL` |
+
+File names: flat `^[a-z0-9][a-z0-9_-]{0,40}\.(m3u8\|mp4\|m4s)$`, 2–24 files, ≤ 20 GB total. Deleting an archive also deletes its `hls/` folder. Archives created from a pasted `.m3u8` link are marked READY automatically.
 
 ---
 

@@ -32,6 +32,7 @@
     "audit:role-profile": "ts-node --transpile-only scripts/audit-role-profile-mismatches.ts",
     "cleanup:dummy": "ts-node --transpile-only scripts/cleanup-dummy-data.ts",
     "invoice:sample": "ts-node --transpile-only scripts/generate-sample-invoice.ts",
+    "hls:process": "ts-node --transpile-only scripts/hls/process-archives.ts",
     "postinstall": "node -e \"const fs=require('fs'),cp=require('child_process');const p='scripts/ensure-nest-use-interceptors-dts.js';if(fs.existsSync(p))cp.execSync('node '+p,{stdio:'inherit'});\""
   },
   "prisma": {

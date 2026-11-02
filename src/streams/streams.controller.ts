@@ -30,6 +30,8 @@ import {
   DeviceRecordingUploadSessionDto,
 } from './dto/device-recording.dto';
 import { RecordStreamViewDto } from './dto/record-stream-view.dto';
+import { HlsCompleteDto, HlsStatusDto, HlsUploadSessionDto } from './dto/stream-hls.dto';
+import { StreamHlsService } from './stream-hls.service';
 
 function isPrefetchFlag(value?: string): boolean {
   const v = value?.trim().toLowerCase();
@@ -41,6 +43,7 @@ export class StreamsController {
   constructor(
     private readonly streamsService: StreamsService,
     private readonly deviceRecording: StreamDeviceRecordingService,
+    private readonly hls: StreamHlsService,
   ) {}
 
   @Post()
@@ -306,6 +309,40 @@ export class StreamsController {
     @Body() dto: DeviceRecordingStatusDto,
   ) {
     return this.deviceRecording.reportStatus(id, req.user.id, dto);
+  }
+
+  /** Seller phone: signed upload slots for the adaptive (HLS) copy of an ended live. */
+  @Post(':id/hls/upload-session')
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles(Role.SELLER)
+  hlsUploadSession(
+    @Request() req: { user: { id: string } },
+    @Param('id') id: string,
+    @Body() dto: HlsUploadSessionDto,
+  ) {
+    return this.hls.createUploadSession(id, dto, req.user.id);
+  }
+
+  @Post(':id/hls/complete')
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles(Role.SELLER)
+  hlsComplete(
+    @Request() req: { user: { id: string } },
+    @Param('id') id: string,
+    @Body() dto: HlsCompleteDto,
+  ) {
+    return this.hls.complete(id, dto, 'DEVICE', req.user.id);
+  }
+
+  @Post(':id/hls/status')
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles(Role.SELLER)
+  hlsStatus(
+    @Request() req: { user: { id: string } },
+    @Param('id') id: string,
+    @Body() dto: HlsStatusDto,
+  ) {
+    return this.hls.reportStatus(id, dto, req.user.id);
   }
 
   @Patch(':id')

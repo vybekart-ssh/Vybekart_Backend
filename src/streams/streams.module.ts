@@ -4,6 +4,7 @@ import { StreamsService } from './streams.service';
 import { StreamsGateway } from './streams.gateway';
 import { StreamEngagementImportService } from './stream-engagement-import.service';
 import { StreamDeviceRecordingService } from './stream-device-recording.service';
+import { StreamHlsService } from './stream-hls.service';
 import { AuthModule } from '../auth/auth.module';
 import { NotificationsModule } from '../notifications/notifications.module';
 import { PrismaModule } from '../prisma/prisma.module';
@@ -26,6 +27,7 @@ import { StorageModule } from '../storage/storage.module';
     StreamsGateway,
     StreamEngagementImportService,
     StreamDeviceRecordingService,
+    StreamHlsService,
   ],
   exports: [StreamsService],
 })

@@ -9,6 +9,7 @@ import { StorageModule } from '../storage/storage.module';
 import { NotificationsModule } from '../notifications/notifications.module';
 import { AdminInsightsService } from './insights/admin-insights.service';
 import { AdminReportService } from './insights/admin-report.service';
+import { StreamHlsService } from '../streams/stream-hls.service';
 
 @Module({
   imports: [
@@ -20,6 +21,6 @@ import { AdminReportService } from './insights/admin-report.service';
     NotificationsModule,
   ],
   controllers: [AdminController],
-  providers: [AdminService, AdminInsightsService, AdminReportService],
+  providers: [AdminService, AdminInsightsService, AdminReportService, StreamHlsService],
 })
 export class AdminModule {}

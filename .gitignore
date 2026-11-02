@@ -66,3 +66,7 @@ report.[0-9]*.[0-9]*.[0-9]*.[0-9]*.json
 # Alpha invite bulk send (PII / logs)
 /scripts/alpha-invite/registrations.csv
 /scripts/alpha-invite/alpha-send-log-*.jsonl
+
+# Local HLS tool
+scripts/hls/.env.hls
+scripts/hls/work/

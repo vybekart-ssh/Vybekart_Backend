@@ -388,6 +388,10 @@ export class AdminService {
     replayUrl: string | null;
     replayDurationSec: number | null;
     replayStatus: StreamReplayStatus;
+    hlsUrl?: string | null;
+    hlsStatus?: string;
+    hlsSource?: string | null;
+    hlsError?: string | null;
     archiveRetentionHours: number;
     archiveExpiresAt: Date | null;
     isAdminUploaded: boolean;
@@ -427,6 +431,11 @@ export class AdminService {
       replayUrl: s.replayUrl,
       replayDurationSec: s.replayDurationSec,
       replayStatus: s.replayStatus,
+      hlsUrl: s.hlsUrl ?? null,
+      /** NONE | PROCESSING | READY | FAILED — adaptive (lighter) copy for slow networks. */
+      hlsStatus: s.hlsStatus ?? 'NONE',
+      hlsSource: s.hlsSource ?? null,
+      hlsError: s.hlsError ?? null,
       archiveRetentionHours: s.archiveRetentionHours,
       archiveExpiresAt: s.archiveExpiresAt?.toISOString() ?? null,
       isAdminUploaded: s.isAdminUploaded,
@@ -744,6 +753,10 @@ export class AdminService {
         archiveExpiresAt,
         isAdminUploaded: true,
         thumbnailUrl,
+        // A pasted HLS link is already adaptive: nothing for the PC tool to do.
+        ...(/\.m3u8(\?|$)/i.test(replayUrl)
+          ? { hlsUrl: replayUrl, hlsStatus: 'READY', hlsSource: 'ADMIN_TOOL', hlsUpdatedAt: new Date() }
+          : {}),
       },
       include: {
         seller: this.archiveSellerInclude(),
@@ -856,6 +869,13 @@ export class AdminService {
     if (existing.thumbnailUrl?.trim()) {
       const tKey = this.extractObjectKeyFromPublicUrl(existing.thumbnailUrl);
       if (tKey) keys.push(tKey);
+    }
+    const hlsFolder = `vybekart-replays/hls/${id}`;
+    const hlsFiles = await this.supabase
+      .listObjects({ bucket, prefix: hlsFolder, limit: 100 })
+      .catch(() => []);
+    for (const f of hlsFiles) {
+      if (f.name && f.id) keys.push(`${hlsFolder}/${f.name}`);
     }
     if (keys.length > 0) {
       await this.supabase.tryDeleteMany(bucket, keys);

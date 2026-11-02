@@ -57,6 +57,7 @@ Landing Next.js apps generally **do not** call commerce APIs (except shared lega
 - LiveKit rooms + viewer tokens; optional egress → storage for replay.  
 - Socket.IO gateway `/streams` (chat, likes, viewer count, events).  
 - Post-live cart eligibility **24 hours** after stream end.  
+- **Adaptive replays:** each archive can have a light HLS copy (720p / 480p / 240p) so playback follows the viewer's network; the original HD video is always kept unchanged (`Architecture.md` §7.4a).  
 - Live qualification days for commission reward (Phase 2 rules).
 
 ### 3.4 Commerce

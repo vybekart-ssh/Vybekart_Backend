@@ -706,6 +706,8 @@ export class StreamsService {
         sellerLogoUrl: stream.seller?.logoUrl,
       }),
       replayUrl: replayReady ? stream.replayUrl : null,
+      /** Adaptive copy (quality follows the viewer's network); apps fall back to `replayUrl`. */
+      hlsUrl: replayReady && stream.hlsStatus === 'READY' ? stream.hlsUrl : null,
       replayStatus: stream.replayStatus,
       replayDurationSec: stream.replayDurationSec,
       endedAt: stream.endedAt.toISOString(),

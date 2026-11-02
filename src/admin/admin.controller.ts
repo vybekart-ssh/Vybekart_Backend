@@ -39,6 +39,8 @@ import { AdminReportService } from './insights/admin-report.service';
 import { AdminBroadcastService } from '../notifications/admin-broadcast.service';
 import { SendAdminNotificationDto } from './dto/send-admin-notification.dto';
 import type { Response } from 'express';
+import { HlsCompleteDto, HlsStatusDto, HlsUploadSessionDto } from '../streams/dto/stream-hls.dto';
+import { StreamHlsService } from '../streams/stream-hls.service';
 
 @Controller('admin')
 @UseGuards(JwtAuthGuard, RolesGuard)
@@ -49,6 +51,7 @@ export class AdminController {
     private readonly adminInsights: AdminInsightsService,
     private readonly adminReports: AdminReportService,
     private readonly adminBroadcast: AdminBroadcastService,
+    private readonly hls: StreamHlsService,
   ) {}
 
   @Get('me')
@@ -157,6 +160,27 @@ export class AdminController {
       throw new BadRequestException('sellerId is required');
     }
     return this.adminService.listSellerProductsForArchive(sellerId.trim());
+  }
+
+  /** PC tool: archives whose original is ready but still need the adaptive (HLS) copy. */
+  @Get('archives/hls/pending')
+  listHlsPending(@Query('limit') limit?: string) {
+    return this.hls.listPending(limit ? parseInt(limit, 10) || undefined : undefined);
+  }
+
+  @Post('archives/:id/hls/upload-session')
+  archiveHlsUploadSession(@Param('id') id: string, @Body() dto: HlsUploadSessionDto) {
+    return this.hls.createUploadSession(id, dto);
+  }
+
+  @Post('archives/:id/hls/complete')
+  archiveHlsComplete(@Param('id') id: string, @Body() dto: HlsCompleteDto) {
+    return this.hls.complete(id, dto, 'ADMIN_TOOL');
+  }
+
+  @Post('archives/:id/hls/status')
+  archiveHlsStatus(@Param('id') id: string, @Body() dto: HlsStatusDto) {
+    return this.hls.reportStatus(id, dto);
   }
 
   @Get('archives/:id')

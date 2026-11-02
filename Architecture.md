@@ -224,6 +224,15 @@ Code: `src/sellers/insights/` (`SellerInsightsService`, `SellerPayoutReportServi
 4. **Excel:** `exceljs` workbook (Summary, Orders, Line items, Daily summary), INR formats, IST timestamps, `SUBTOTAL` totals rows; streamed as an attachment (`Cache-Control: no-store`). Shared styling / sheet helpers live in `src/sellers/insights/excel-kit.ts` (used by seller and admin reports).
 5. `GET orders/seller` accepts `from`/`to` (inclusive IST days) so the Android Orders page lists exactly the insights window.
 
+### 7.4a Adaptive replays (HLS)
+
+Code: `src/streams/stream-hls.service.ts` (+ `dto/stream-hls.dto.ts`), routes in `API.md` → Adaptive replays. `Stream.hlsUrl / hlsStatus / hlsSource / hlsError / hlsUpdatedAt` (migration `20261102010000_stream_hls`).
+
+1. **Original is untouched.** `replayUrl` (device HD / egress / admin upload) never changes; the adaptive copy is extra files under `vybekart-replays/hls/<streamId>/`.
+2. **Who makes it:** the seller's phone after its HD upload (`hlsSource = DEVICE`), otherwise the admin PC tool `npm run hls:process` (`scripts/hls/`, FFmpeg on the admin's PC, uploads through signed slots — no Supabase key on the PC, `hlsSource = ADMIN_TOOL`). No paid Render worker.
+3. **Format:** per quality one fragmented MP4 (`v720` = original frames re-packed, `v480`, `v240`) + byte-range media playlist + `master.m3u8` (light variant first). Uploads use the same signed TUS flow as the device HD recording.
+4. **Playback:** `GET streams/:id/archive` adds `hlsUrl` only when READY; Android ExoPlayer (HLS module) adapts per network and falls back to the MP4 on error. Old app builds ignore `hlsUrl`.
+
 ### 7.5 Admin insights + reports
 
 Code: `src/admin/insights/` (`AdminInsightsService`, `AdminReportService`), DTOs in `src/admin/dto/admin-insights-query.dto.ts`. Routes `GET admin/insights` and `GET admin/insights/report` (`API.md` → Admin insights), admin-only via the `AdminController` guards.
