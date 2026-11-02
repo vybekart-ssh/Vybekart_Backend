@@ -3,8 +3,10 @@
 Makes 720p / 480p / 240p versions of every archive so the app can switch quality with the
 viewer's network. The original HD video in storage is **never changed**.
 
-New lives recorded with the latest app are processed by the seller's phone automatically; this
-tool is for older archives (and any the phone could not finish).
+New lives recorded with the latest app are processed by the seller's phone automatically, and
+videos uploaded in the admin app's Live archives are processed by the admin's phone right after
+the upload. This tool is for older archives, archives added from a (non-HLS) link, and any a phone
+could not finish (shown as "Failed / Not yet — run the PC tool" in admin).
 
 ## One-time setup (Windows)
 
