@@ -43,9 +43,9 @@ services:
       - key: JWT_REFRESH_SECRET
         value: "2f7c9e5a8a4d9e3a0c1b8e9d4f6a7c8b1d3e5f6a9b8c7d6e5f4a3b2c777"
       - key: JWT_EXPIRES_IN
-        value: "7d"
+        value: "365d"
       - key: JWT_REFRESH_EXPIRES_IN
-        value: "30d"
+        value: "365d"
 
       - key: CORS_ORIGIN
         value: "https://your-app.onrender.com"

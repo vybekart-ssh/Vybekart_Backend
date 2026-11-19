@@ -1,4 +1,7 @@
-import { IsUUID, IsInt, Min, IsOptional, IsString, MaxLength } from 'class-validator';
+import { IsUUID, IsInt, Min, Max, IsOptional, IsString, MaxLength } from 'class-validator';
+
+/** Per-line buyer cart / live add max (also capped by stock server-side). */
+export const MAX_CART_LINE_QUANTITY = 10;
 
 export class CartItemDto {
   @IsUUID()
@@ -6,6 +9,7 @@ export class CartItemDto {
 
   @IsInt()
   @Min(1)
+  @Max(MAX_CART_LINE_QUANTITY)
   quantity: number;
 
   @IsOptional()
@@ -40,6 +44,7 @@ export class CartItemDto {
 export class UpdateCartQuantityDto {
   @IsInt()
   @Min(1)
+  @Max(MAX_CART_LINE_QUANTITY)
   quantity: number;
 }
 

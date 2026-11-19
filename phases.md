@@ -48,7 +48,8 @@ Per `Testing/Phase2.md` (historical target 14 May 2026):
 | Replacements pipeline | Done |
 | Seller & customer ratings + overrides | Done |
 | Follow graph | Done |
-| Post-live 24h cart | Done |
+| Cart expiry removed (B7) — carts never expire | Done |
+| Multi-seller cart (B8) — merged cart, increment qty, one payment → one order per seller | Done (migration `20261119000000_multi_seller_order_payment`) |
 | **Archived live replay (24h VOD)** | Done — `GET /streams/:id/archive`, engagement preserved 48h, buyer feed + seller dashboard/list |
 | Admin users APIs | Done |
 | **Seller-phone HD replay (device recording)** | Implemented — migration `20261012000000_stream_device_recording`, `streams/:id/device-recording/*`, signed TUS upload, `replaySource` guard keeps egress as fallback (`Architecture.md` §7.2) |

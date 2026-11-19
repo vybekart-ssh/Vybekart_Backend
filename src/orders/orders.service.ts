@@ -13,7 +13,7 @@ import { CreateOrderDto } from './dto/create-order.dto';
 import { ShipOrderDto } from './dto/ship-order.dto';
 import { Address, AddressType, OrderStatus, Prisma, ShippingPayer } from '@prisma/client';
 import { RedisService } from '../redis/redis.service';
-import { CartItemDto } from './dto/cart-item.dto';
+import { CartItemDto, MAX_CART_LINE_QUANTITY } from './dto/cart-item.dto';
 import { CheckoutOrderDto } from './dto/checkout-order.dto';
 import { ConfigService } from '@nestjs/config';
 import { DEFAULT_SUPPORT_PHONE } from '../support/support.constants';
@@ -56,10 +56,29 @@ import {
 
 /** Minimum post-live cart window; longer archive retention extends it. */
 const POST_LIVE_CART_HOURS = 24;
+/** Carts never expire (B7); long Redis TTL is only a safety net (90 days). */
+const CART_REDIS_TTL_SECONDS = 90 * 24 * 60 * 60;
 
 type StreamArchiveWindow = {
   archiveRetentionHours?: number | null;
   archiveExpiresAt?: Date | null;
+};
+
+/**
+ * B8 multi-seller cart: each line carries its own `streamId`/`streamTitle`.
+ * Top-level `streamId` is only the "primary" (most recently added) stream kept
+ * for backward-compatible clients and Redis stream indexing.
+ */
+type SellerCheckoutGroup = {
+  sellerId: string;
+  streamId: string;
+  items: Array<{
+    productId: string;
+    quantity: number;
+    variantId?: string;
+    variantLabel?: string;
+  }>;
+  subtotal: number;
 };
 
 type CartState = {
@@ -109,18 +128,16 @@ export class OrdersService {
     if (!stream.startedAt) {
       throw new BadRequestException('This stream has not started yet');
     }
-    if (!stream.isLive && stream.endedAt) {
-      const expiry = this.computeExpiryFromEnd(stream.endedAt, stream);
-      if (new Date() > expiry) {
-        throw new BadRequestException('This live stream archive has expired.');
-      }
-    } else if (!stream.isLive) {
-      throw new BadRequestException(
-        'This stream has ended; you cannot purchase from a replay.',
-      );
-    } else if (stream.endedAt && stream.isLive) {
+    // Cart items never expire by time — ended/post-live streams stay purchaseable.
+    // Still reject inconsistent "ended but still marked live" rows.
+    if (stream.endedAt && stream.isLive) {
       throw new BadRequestException(
         'This stream is no longer available for checkout.',
+      );
+    }
+    if (!stream.isLive && !stream.endedAt) {
+      throw new BadRequestException(
+        'This stream has ended; you cannot purchase from a replay.',
       );
     }
     const allowed = new Set(stream.streamProducts.map((sp) => sp.productId));
@@ -143,7 +160,7 @@ export class OrdersService {
     if (!rawState.items.length) {
       throw new BadRequestException('Cart is empty');
     }
-    if (!rawState.streamId) {
+    if (rawState.items.some((i) => !i.streamId)) {
       throw new BadRequestException(
         'Checkout requires a live stream context. Add items from a live.',
       );
@@ -164,15 +181,23 @@ export class OrdersService {
       throw new ForbiddenException('User is not a registered buyer');
     }
 
-    await this.validateOrderItems(
-      rawState.streamId,
-      cart.items.map((i) => ({
-        productId: i.productId,
-        quantity: i.quantity,
-        variantId: i.variantId,
-        variantLabel: i.variantLabel,
-      })),
-    );
+    // Multi-seller cart: validate each stream's lines against that stream.
+    const byStream = new Map<string, CartItemDto[]>();
+    for (const i of cart.items) {
+      const sid = i.streamId as string;
+      byStream.set(sid, [...(byStream.get(sid) ?? []), i]);
+    }
+    for (const [sid, lines] of byStream) {
+      await this.validateOrderItems(
+        sid,
+        lines.map((i) => ({
+          productId: i.productId,
+          quantity: i.quantity,
+          variantId: i.variantId,
+          variantLabel: i.variantLabel,
+        })),
+      );
+    }
   }
 
   private async validateOrderItems(
@@ -257,7 +282,12 @@ export class OrdersService {
       }
       const o = parsed as CartState;
       return {
-        items: o.items ?? [],
+        // Legacy single-stream carts: lines inherit the cart-level stream.
+        items: (o.items ?? []).map((i) => ({
+          ...i,
+          streamId: i.streamId ?? o.streamId,
+          streamTitle: i.streamTitle ?? o.streamTitle,
+        })),
         streamId: o.streamId,
         streamTitle: o.streamTitle,
         cartExpiresAt: o.cartExpiresAt,
@@ -288,8 +318,17 @@ export class OrdersService {
         `Clearing cart userId=${userId} streamId=${streamId ?? 'none'} reason=${reason}`,
       );
     }
+    // Multi-seller cart: unindex every stream the cart touched.
+    const state = await this.loadCartState(userId);
+    const streamIds = new Set<string>(
+      state.items.map((i) => i.streamId).filter((s): s is string => !!s),
+    );
+    if (streamId) streamIds.add(streamId);
+    if (state.streamId) streamIds.add(state.streamId);
     await this.redis.del(this.cartKey(userId));
-    await this.unindexCartForStream(userId, streamId);
+    for (const sid of streamIds) {
+      await this.unindexCartForStream(userId, sid);
+    }
   }
 
   /** Buyer-initiated empty cart (e.g. switch lives from the app). */
@@ -321,157 +360,33 @@ export class OrdersService {
   }
 
   /**
-   * Enforce the post-live cart TTL. Persists Redis EXPIRE when still valid.
-   * Returns empty items when expired or stream context is invalid.
+   * No-op (B7): cart items never expire. Kept so callers compile.
    */
   async enforceCartExpiry(userId: string, state: CartState): Promise<CartState> {
-    if (!state.items.length) {
-      return { items: [] };
-    }
-
-    const now = Date.now();
-
-    if (state.cartExpiresAt) {
-      const expMs = new Date(state.cartExpiresAt).getTime();
-      if (now >= expMs) {
-        await this.clearCart(
-          userId,
-          state.streamId,
-          'stored cartExpiresAt passed',
-        );
-        return { items: [] };
-      }
-    }
-
-    if (!state.streamId) {
-      const updatedAt = state.cartUpdatedAt
-        ? new Date(state.cartUpdatedAt).getTime()
-        : 0;
-      const fallbackExpiry =
-        updatedAt + POST_LIVE_CART_HOURS * 60 * 60 * 1000;
-      if (!updatedAt || now >= fallbackExpiry) {
-        await this.clearCart(userId, undefined, 'missing streamId / stale legacy cart');
-        return { items: [] };
-      }
-      return state;
-    }
-
-    const stream = await this.prisma.stream.findUnique({
-      where: { id: state.streamId },
-      select: {
-        id: true,
-        isLive: true,
-        endedAt: true,
-        startedAt: true,
-        createdAt: true,
-        archiveRetentionHours: true,
-        archiveExpiresAt: true,
-        session: { select: { endedAt: true } },
-      },
-    });
-
-    if (!stream) {
-      await this.clearCart(userId, state.streamId, 'stream not found');
-      return { items: [] };
-    }
-
-    if (stream.isLive) {
-      const next: CartState = {
-        ...state,
-        cartUpdatedAt: new Date().toISOString(),
-      };
-      await this.saveCartState(userId, next);
-      await this.indexCartForStream(userId, state.streamId);
-      return next;
-    }
-
-    const effectiveEnd =
-      stream.endedAt ??
-      stream.session?.endedAt ??
-      stream.startedAt ??
-      stream.createdAt;
-
-    const expires = this.computeExpiryFromEnd(effectiveEnd, stream);
-    const ttlSeconds = Math.floor((expires.getTime() - now) / 1000);
-
-    if (ttlSeconds <= 0) {
-      await this.clearCart(
-        userId,
-        state.streamId,
-        `post-live window ended (stream ended ${effectiveEnd.toISOString()})`,
-      );
-      return { items: [] };
-    }
-
-    const next: CartState = {
-      ...state,
-      cartExpiresAt: expires.toISOString(),
-      cartUpdatedAt: new Date().toISOString(),
-    };
-    await this.saveCartState(userId, next, ttlSeconds);
-    await this.indexCartForStream(userId, state.streamId);
-    this.logger.debug(
-      `Cart TTL refreshed userId=${userId} streamId=${state.streamId} ttlSeconds=${ttlSeconds} expiresAt=${expires.toISOString()}`,
-    );
-    return next;
+    void userId;
+    return state;
   }
 
-  /** Called when a stream ends — refresh TTL on all indexed buyer carts. */
+  /** Called when a stream ends — keep indexed carts forever (B7); no expiry rewrite. */
   async onStreamEnded(streamId: string, endedAt: Date) {
-    const archive = await this.prisma.stream.findUnique({
-      where: { id: streamId },
-      select: { archiveRetentionHours: true, archiveExpiresAt: true },
-    });
-    const expires = this.computeExpiryFromEnd(endedAt, archive);
-    const ttlSeconds = Math.max(
-      1,
-      Math.floor((expires.getTime() - Date.now()) / 1000),
-    );
     const holders = await this.redis.smembers(this.streamCartIndexKey(streamId));
     this.logger.log(
-      `Stream ended streamId=${streamId} endedAt=${endedAt.toISOString()} refreshing ${holders.length} cart(s) ttlSeconds=${ttlSeconds}`,
+      `Stream ended streamId=${streamId} endedAt=${endedAt.toISOString()} keeping ${holders.length} cart(s) (no expiry)`,
     );
     for (const userId of holders) {
       const state = await this.loadCartState(userId);
-      if (!state.items.length || state.streamId !== streamId) {
+      if (!state.items.length || !state.items.some((i) => i.streamId === streamId)) {
         await this.unindexCartForStream(userId, streamId);
         continue;
       }
-      const next: CartState = {
-        ...state,
-        cartExpiresAt: expires.toISOString(),
-        cartUpdatedAt: new Date().toISOString(),
-      };
-      await this.saveCartState(userId, next, ttlSeconds);
+      await this.saveCartState(userId, state);
     }
   }
 
-  /** Sweep all buyer carts (cron) — clears any past post-live window. */
+  /** No-op (B7): carts never expire, so the cron sweep clears nothing. */
   async sweepAllCarts(): Promise<number> {
-    const client = this.redis.getClient();
-    let cursor = '0';
-    let cleared = 0;
-    do {
-      const [next, keys] = await client.scan(
-        cursor,
-        'MATCH',
-        'orders:cart:*',
-        'COUNT',
-        50,
-      );
-      cursor = next;
-      for (const key of keys) {
-        const userId = key.replace(/^orders:cart:/, '');
-        const before = await this.loadCartState(userId);
-        if (!before.items.length) continue;
-        const after = await this.enforceCartExpiry(userId, before);
-        if (!after.items.length && before.items.length) cleared += 1;
-      }
-    } while (cursor !== '0');
-    if (cleared > 0) {
-      this.logger.log(`Cart sweep cleared ${cleared} expired cart(s)`);
-    }
-    return cleared;
+    this.logger.debug('Cart sweep skipped (cart expiry removed)');
+    return 0;
   }
 
   private async loadCartForUser(userId: string): Promise<CartState> {
@@ -484,12 +399,32 @@ export class OrdersService {
       await this.clearCart(userId, state.streamId);
       return;
     }
+    const { cartExpiresAt: _legacyExpiry, ...rest } = state;
+    void _legacyExpiry;
+    // Keep the primary stream pointing at a stream that still has lines.
+    const primaryStreamId = state.items.some((i) => i.streamId === state.streamId)
+      ? state.streamId
+      : [...state.items].reverse().find((i) => i.streamId)?.streamId ??
+        state.streamId;
     const payload: CartState = {
-      ...state,
+      ...rest,
+      streamId: primaryStreamId,
       cartUpdatedAt: new Date().toISOString(),
     };
-    await this.redis.set(this.cartKey(userId), JSON.stringify(payload), ttlSeconds);
-    await this.indexCartForStream(userId, state.streamId);
+    // Cart items never expire (B7): always use the long safety TTL.
+    void ttlSeconds;
+    await this.redis.set(
+      this.cartKey(userId),
+      JSON.stringify(payload),
+      CART_REDIS_TTL_SECONDS,
+    );
+    const indexed = new Set<string>(
+      state.items.map((i) => i.streamId).filter((s): s is string => !!s),
+    );
+    if (primaryStreamId) indexed.add(primaryStreamId);
+    for (const sid of indexed) {
+      await this.indexCartForStream(userId, sid);
+    }
   }
 
   private async persistCartState(userId: string, state: CartState) {
@@ -497,24 +432,12 @@ export class OrdersService {
       await this.clearCart(userId, state.streamId);
       return;
     }
-    const enforced = await this.enforceCartExpiry(userId, state);
-    if (!enforced.items.length) return;
-    if (enforced.cartExpiresAt) {
-      const ttl = Math.max(
-        1,
-        Math.floor(
-          (new Date(enforced.cartExpiresAt).getTime() - Date.now()) / 1000,
-        ),
-      );
-      await this.saveCartState(userId, enforced, ttl);
-    } else {
-      await this.saveCartState(userId, enforced);
-    }
+    await this.saveCartState(userId, state);
   }
 
   async getCart(userId: string) {
     const state = await this.loadCartForUser(userId);
-    const { items, streamId, streamTitle, cartExpiresAt } = state;
+    const { items, streamId, streamTitle } = state;
     if (!items.length) {
       return {
         items: [],
@@ -546,6 +469,7 @@ export class OrdersService {
         material: true,
         stock: true,
         suitableForOccasion: true,
+        sellerId: true,
         seller: { select: { businessName: true } },
       },
     });
@@ -558,11 +482,13 @@ export class OrdersService {
         const hasVariants = productHasVariantItems(product.variants);
         let unitPrice = product.price;
         let unitMrp = product.mrp ?? null;
+        let lineStock = product.stock;
         if (hasVariants) {
           if (!item.variantId) return null;
           const v = findVariantItem(product.variants, item.variantId);
           if (!v) return null;
           unitPrice = v.sellingPrice;
+          lineStock = v.stock;
           if (v.mrp != null && !Number.isNaN(Number(v.mrp))) {
             unitMrp = Number(v.mrp);
           }
@@ -590,10 +516,12 @@ export class OrdersService {
             description: product.description ?? null,
             brand: product.brand ?? null,
             material: product.material ?? null,
-            stock: product.stock,
+            // Line-available stock (variant when applicable) for client qty caps — not shown in UI.
+            stock: lineStock,
             suitableForOccasion: product.suitableForOccasion ?? null,
             variants: product.variants ?? null,
             sellerName: product.seller?.businessName ?? null,
+            sellerId: product.sellerId,
           },
           unitPrice,
           unitMrp,
@@ -621,6 +549,7 @@ export class OrdersService {
           suitableForOccasion: string | null;
           variants: unknown;
           sellerName: string | null;
+          sellerId: string;
         };
         unitPrice: number;
         unitMrp: number | null;
@@ -640,54 +569,7 @@ export class OrdersService {
     const shipping = 0;
     const total = subtotal;
 
-    let checkoutExpiresAt: string | null = cartExpiresAt ?? null;
-    let secondsRemaining = 0;
-    if (checkoutExpiresAt) {
-      secondsRemaining = Math.max(
-        0,
-        Math.floor((new Date(checkoutExpiresAt).getTime() - Date.now()) / 1000),
-      );
-      if (secondsRemaining <= 0) {
-        await this.clearCart(userId, streamId ?? undefined, 'secondsRemaining zero on getCart');
-        return {
-          items: [],
-          subtotal: 0,
-          mrpSubtotal: 0,
-          discountTotal: 0,
-          shipping: 0,
-          total: 0,
-          streamId: null,
-          streamTitle: null,
-          checkoutExpiresAt: null,
-          secondsRemaining: 0,
-        };
-      }
-    } else if (streamId) {
-      const stream = await this.prisma.stream.findUnique({
-        where: { id: streamId },
-        select: {
-          endedAt: true,
-          isLive: true,
-          startedAt: true,
-          createdAt: true,
-          session: { select: { endedAt: true } },
-        },
-      });
-      if (stream && !stream.isLive) {
-        const effectiveEnd =
-          stream.endedAt ??
-          stream.session?.endedAt ??
-          stream.startedAt ??
-          stream.createdAt;
-        const expires = this.computeExpiryFromEnd(effectiveEnd);
-        checkoutExpiresAt = expires.toISOString();
-        secondsRemaining = Math.max(
-          0,
-          Math.floor((expires.getTime() - Date.now()) / 1000),
-        );
-      }
-    }
-
+    // Cart items never expire (B7).
     return {
       items: normalized,
       subtotal,
@@ -697,8 +579,8 @@ export class OrdersService {
       total,
       streamId: streamId ?? null,
       streamTitle: streamTitle?.trim() || null,
-      checkoutExpiresAt,
-      secondsRemaining,
+      checkoutExpiresAt: null,
+      secondsRemaining: 0,
     };
   }
 
@@ -709,41 +591,43 @@ export class OrdersService {
     });
     if (!product) throw new NotFoundException('Product not found');
     const hasVariants = productHasVariantItems(product.variants);
+    let availableStock = product.stock;
     if (hasVariants) {
       if (!dto.variantId?.trim()) {
         throw new BadRequestException('variantId is required for this product');
       }
       const v = findVariantItem(product.variants, dto.variantId);
       if (!v) throw new BadRequestException('Invalid variant');
-      if (dto.quantity > v.stock) {
-        throw new BadRequestException('Requested quantity exceeds available stock');
-      }
-    } else if (dto.quantity > product.stock) {
-      throw new BadRequestException('Requested quantity exceeds available stock');
+      availableStock = v.stock;
     }
-
-    const state = await this.loadCartForUser(userId);
-    if (state.items.length === 0 && !dto.streamId) {
+    const maxAllowed = Math.min(MAX_CART_LINE_QUANTITY, Math.max(0, availableStock));
+    if (maxAllowed < 1) {
+      throw new BadRequestException('This item is out of stock');
+    }
+    if (dto.quantity > maxAllowed) {
       throw new BadRequestException(
-        'streamId is required — add products from a live stream.',
+        `You can add at most ${maxAllowed} of this item`,
       );
-    }
-    // Live carts are single-stream: switching lives replaces the previous cart.
-    let working = state;
-    if (
-      state.streamId &&
-      dto.streamId &&
-      dto.streamId !== state.streamId
-    ) {
-      await this.clearCart(
-        userId,
-        state.streamId,
-        'switched cart to another live stream',
-      );
-      working = { items: [] };
     }
 
-    const streamId = working.streamId ?? dto.streamId;
+    // B8: the cart keeps lines from any stream/seller — never wiped on stream switch.
+    const state = await this.loadCartForUser(userId);
+    const items = [...state.items];
+    const vKey = dto.variantId?.trim() ?? '';
+    const idx = items.findIndex(
+      (i) => i.productId === dto.productId && (i.variantId?.trim() ?? '') === vKey,
+    );
+
+    // Same product+variant: increment quantity (not set).
+    const nextQuantity = (idx >= 0 ? items[idx].quantity : 0) + dto.quantity;
+    if (nextQuantity > maxAllowed) {
+      throw new BadRequestException(
+        `You can add at most ${maxAllowed} of this item`,
+      );
+    }
+
+    const streamId =
+      dto.streamId ?? (idx >= 0 ? items[idx].streamId : undefined) ?? state.streamId;
     if (!streamId) {
       throw new BadRequestException(
         'streamId is required — add products from a live stream.',
@@ -752,21 +636,18 @@ export class OrdersService {
     // Block cart lines that are not on this live listing (store API used to expose full catalog).
     await this.assertStreamAndProducts(streamId, [dto.productId]);
 
-    const items = [...working.items];
     const streamTitle =
-      working.streamTitle?.trim() ||
       dto.streamTitle?.trim() ||
+      (idx >= 0 ? items[idx].streamTitle?.trim() : undefined) ||
       undefined;
-    const vKey = dto.variantId?.trim() ?? '';
-    const idx = items.findIndex(
-      (i) => i.productId === dto.productId && (i.variantId?.trim() ?? '') === vKey,
-    );
     if (idx >= 0) {
-      items[idx].quantity = dto.quantity;
-      items[idx].size = dto.size;
-      items[idx].color = dto.color;
+      items[idx].quantity = nextQuantity;
+      items[idx].size = dto.size ?? items[idx].size;
+      items[idx].color = dto.color ?? items[idx].color;
       items[idx].variantId = dto.variantId?.trim();
       items[idx].variantLabel = dto.variantLabel?.trim();
+      items[idx].streamId = streamId;
+      items[idx].streamTitle = streamTitle;
     } else {
       items.push({
         productId: dto.productId,
@@ -775,9 +656,15 @@ export class OrdersService {
         color: dto.color,
         variantId: dto.variantId?.trim(),
         variantLabel: dto.variantLabel?.trim(),
+        streamId,
+        streamTitle,
       });
     }
-    await this.persistCartState(userId, { items, streamId, streamTitle });
+    await this.persistCartState(userId, {
+      items,
+      streamId,
+      streamTitle: streamTitle ?? state.streamTitle,
+    });
     return this.getCart(userId);
   }
 
@@ -787,6 +674,9 @@ export class OrdersService {
     quantity: number,
     variantId?: string,
   ) {
+    if (quantity < 1) {
+      return this.removeCartItem(userId, productId, variantId);
+    }
     const state = await this.loadCartForUser(userId);
     const items = [...state.items];
     const vKey = variantId?.trim() ?? '';
@@ -795,6 +685,27 @@ export class OrdersService {
         i.productId === productId && (i.variantId?.trim() ?? '') === vKey,
     );
     if (idx < 0) throw new NotFoundException('Item not found in cart');
+
+    const product = await this.prisma.product.findUnique({
+      where: { id: productId },
+      select: { stock: true, variants: true, name: true },
+    });
+    if (!product) throw new NotFoundException('Product not found');
+    let availableStock = product.stock;
+    if (productHasVariantItems(product.variants)) {
+      const vid = variantId?.trim();
+      if (!vid) throw new BadRequestException('variantId is required for this product');
+      const v = findVariantItem(product.variants, vid);
+      if (!v) throw new BadRequestException('Invalid variant');
+      availableStock = v.stock;
+    }
+    const maxAllowed = Math.min(MAX_CART_LINE_QUANTITY, Math.max(0, availableStock));
+    if (quantity > maxAllowed) {
+      throw new BadRequestException(
+        `You can add at most ${maxAllowed} of this item`,
+      );
+    }
+
     items[idx].quantity = quantity;
     await this.persistCartState(userId, {
       items,
@@ -859,7 +770,10 @@ export class OrdersService {
     if (!cart.items.length) {
       throw new BadRequestException('Cart is empty');
     }
-    const streamId = (cart as { streamId?: string | null }).streamId;
+    // Primary stream (most recently added) — informational for multi-seller carts.
+    const streamId =
+      (cart as { streamId?: string | null }).streamId ??
+      cart.items.find((i) => i.streamId)?.streamId;
     if (!streamId) {
       throw new BadRequestException(
         'Checkout requires a live stream context. Add items from a live.',
@@ -873,10 +787,12 @@ export class OrdersService {
 
     let actualDeliveryFee = 0;
     let deliveryProvider: string | null = null;
+    let sellerDeliveryFees: Record<string, number> = {};
     try {
       const quote = await this.getDeliveryQuoteFromCart(userId, addressId);
       actualDeliveryFee = quote?.fee ?? 0;
       deliveryProvider = quote?.provider ?? null;
+      sellerDeliveryFees = quote?.sellerFees ?? {};
     } catch (e) {
       if (e instanceof BadRequestException) throw e;
       actualDeliveryFee = 0;
@@ -918,6 +834,8 @@ export class OrdersService {
       streamId,
       shippingAddress,
       deliveryProvider,
+      /** Per-seller Delhivery fee (multi-seller cart); sums to `deliveryFee`. */
+      sellerDeliveryFees,
       couponId,
       couponCode: appliedCouponCode,
       couponDiscount,
@@ -974,6 +892,28 @@ export class OrdersService {
     };
   }
 
+  /** Idempotent replay response for a payment that produced one or more orders. */
+  toCheckoutResponseMany(
+    orders: Array<Parameters<OrdersService['toCheckoutResponse']>[0]>,
+  ) {
+    const base = this.toCheckoutResponse(orders[0]);
+    if (orders.length === 1) return base;
+    const sum = (f: (o: (typeof orders)[number]) => number) =>
+      Math.round(orders.reduce((s, o) => s + f(o), 0) * 100) / 100;
+    return {
+      ...base,
+      orderIds: orders.map((o) => o.id),
+      totalAmount: sum((o) => o.totalAmount),
+      deliveryFee: sum((o) => o.deliveryFee ?? 0),
+      buyerDeliveryFee: sum((o) =>
+        this.buyerDeliveryFeeFor(
+          o.shippingPayer ?? ShippingPayer.SELLER_PAYS,
+          o.deliveryFee ?? 0,
+        ),
+      ),
+    };
+  }
+
   private assertDirectCheckoutAllowed() {
     const flag = this.config.get<string>('PAYMENTS_ALLOW_DIRECT_CHECKOUT');
     if (flag === 'true' || flag === '1') return;
@@ -991,6 +931,8 @@ export class OrdersService {
       razorpayPaymentId?: string;
       /** Actual Delhivery fee (always persisted). */
       deliveryFee?: number;
+      /** Per-seller actual Delhivery fees from the payment session (multi-seller). */
+      sellerDeliveryFees?: Record<string, number>;
       /** Amount charged to buyer; when omitted, derived from shippingPayer. */
       buyerDeliveryFee?: number;
       shippingPayer?: ShippingPayer;
@@ -1010,29 +952,32 @@ export class OrdersService {
     if (!cart.items.length) {
       throw new BadRequestException('Cart is empty');
     }
-    const streamId = (cart as { streamId?: string | null }).streamId;
-    if (!streamId) {
+    if (cart.items.some((i) => !i.streamId)) {
       throw new BadRequestException(
         'Checkout requires a live stream context. Add items from a live.',
       );
     }
-    const createDto: CreateOrderDto = {
-      items: cart.items.map((i) => ({
-        productId: i.productId,
-        quantity: i.quantity,
-        variantId: i.variantId,
-        variantLabel: i.variantLabel,
-      })),
-      shippingAddress: dto.shippingAddress,
-      streamId,
-    };
+    const primaryStreamId =
+      (cart as { streamId?: string | null }).streamId ??
+      (cart.items[0].streamId as string);
 
+    /**
+     * B8 multi-seller checkout (one address, one payment): Order is single-seller
+     * (shipping, packing, payout and Delhivery are all per order), so we create
+     * ONE ORDER PER SELLER from the whole cart. All sibling orders share the same
+     * Razorpay order/payment ids (unique constraints dropped in migration
+     * 20261119000000). Delivery fees are quoted per seller; any coupon discount
+     * is split pro-rata across the orders.
+     */
+    const groups = this.groupCartBySeller(cart);
+
+    let shippingAddressText = dto.shippingAddress;
     if (dto.addressId?.trim()) {
       const { formatted } = await this.resolveShippingAddressOrThrow(
         userId,
         dto.addressId,
       );
-      createDto.shippingAddress = formatted;
+      shippingAddressText = formatted;
     } else if (!dto.shippingAddress?.trim()) {
       throw new BadRequestException('Shipping address is required');
     }
@@ -1040,100 +985,234 @@ export class OrdersService {
     const shippingPayer =
       options?.shippingPayer ?? (await this.appConfig.getShippingPayer());
 
-    const quote =
-      dto.addressId?.trim() && options?.deliveryFee === undefined
-        ? await this.getDeliveryQuoteFromCart(userId, dto.addressId).catch(
-            () => null,
-          )
-        : null;
+    const needQuote =
+      !!dto.addressId?.trim() &&
+      (options?.deliveryFee === undefined ||
+        (groups.length > 1 && !options?.sellerDeliveryFees));
+    const quote = needQuote
+      ? await this.getDeliveryQuoteFromCart(userId, dto.addressId!).catch(
+          () => null,
+        )
+      : null;
 
-    const order = await this.create(createDto, userId);
-    if (!order) {
-      throw new BadRequestException('Order creation failed');
-    }
-
-    const actualDeliveryFee = options?.deliveryFee ?? quote?.fee ?? 0;
-    const buyerDeliveryFee =
-      options?.buyerDeliveryFee ??
-      this.buyerDeliveryFeeFor(shippingPayer, actualDeliveryFee);
-
-    const couponDiscount =
-      options?.markPaid && options.couponId
-        ? Math.max(0, options.couponDiscount ?? 0)
-        : 0;
-    const couponId = couponDiscount > 0 ? options?.couponId ?? null : null;
-    const couponCode = couponId ? options?.couponCode ?? null : null;
-
-    const payableTotal =
-      Math.round(
-        (order.totalAmount + buyerDeliveryFee - couponDiscount) * 100,
-      ) / 100;
-
-    const updateData: Prisma.OrderUpdateInput = {
-      deliveryFee: actualDeliveryFee,
-      shippingPayer,
-      deliveryProvider:
-        options?.deliveryProvider ?? quote?.provider ?? undefined,
-      totalAmount: payableTotal,
-      couponId,
-      couponCode,
-      couponDiscount,
+    const feeForGroup = (g: SellerCheckoutGroup): number => {
+      const fromSession = options?.sellerDeliveryFees?.[g.sellerId];
+      if (fromSession !== undefined) return fromSession;
+      if (groups.length === 1) return options?.deliveryFee ?? quote?.fee ?? 0;
+      return quote?.sellerFees?.[g.sellerId] ?? 0;
     };
-    if (options?.markPaid) {
-      updateData.status = OrderStatus.PAID;
-      if (options.razorpayOrderId) {
-        updateData.razorpayOrderId = options.razorpayOrderId;
-      }
-      if (options.razorpayPaymentId) {
-        updateData.razorpayPaymentId = options.razorpayPaymentId;
-      }
-    }
 
-    const updated = await this.prisma.$transaction(async (tx) => {
-      if (options?.markPaid && couponId) {
-        await this.coupons.burnOnPaidOrder(tx, couponId, order.id);
+    const createdOrderIds: string[] = [];
+    let committed = false;
+    try {
+      const created: Array<{
+        id: string;
+        itemsTotal: number;
+        actualFee: number;
+        buyerFee: number;
+      }> = [];
+      for (const g of groups) {
+        const order = await this.create(
+          {
+            items: g.items,
+            shippingAddress: shippingAddressText,
+            streamId: g.streamId,
+          },
+          userId,
+          { itemsPreValidated: true },
+        );
+        if (!order) {
+          throw new BadRequestException('Order creation failed');
+        }
+        createdOrderIds.push(order.id);
+        const actualFee = feeForGroup(g);
+        const buyerFee =
+          groups.length === 1 && options?.buyerDeliveryFee !== undefined
+            ? options.buyerDeliveryFee
+            : this.buyerDeliveryFeeFor(shippingPayer, actualFee);
+        created.push({
+          id: order.id,
+          itemsTotal: order.totalAmount,
+          actualFee,
+          buyerFee,
+        });
       }
-      return tx.order.update({
-        where: { id: order.id },
-        data: updateData,
+
+      const couponDiscountTotal =
+        options?.markPaid && options.couponId
+          ? Math.max(0, options.couponDiscount ?? 0)
+          : 0;
+      const couponId = couponDiscountTotal > 0 ? options?.couponId ?? null : null;
+      const couponCode = couponId ? options?.couponCode ?? null : null;
+
+      // Pro-rata coupon split (last order absorbs rounding).
+      const bases = created.map((c) => c.itemsTotal + c.buyerFee);
+      const baseSum = bases.reduce((a, b) => a + b, 0);
+      const discounts: number[] = [];
+      let allocated = 0;
+      created.forEach((_, idx) => {
+        const share =
+          idx === created.length - 1
+            ? Math.round((couponDiscountTotal - allocated) * 100) / 100
+            : baseSum > 0
+              ? Math.round(couponDiscountTotal * (bases[idx] / baseSum) * 100) / 100
+              : 0;
+        allocated += share;
+        discounts.push(share);
       });
-    }).catch(async (err) => {
-      if (options?.markPaid) {
-        await this.prisma.order
-          .delete({ where: { id: order.id } })
-          .catch(() => undefined);
+
+      const updatedOrders = await this.prisma.$transaction(async (tx) => {
+        if (options?.markPaid && couponId) {
+          await this.coupons.burnOnPaidOrder(tx, couponId, created[0].id);
+        }
+        const rows: Array<Awaited<ReturnType<typeof tx.order.update>>> = [];
+        for (let idx = 0; idx < created.length; idx++) {
+          const c = created[idx];
+          const discount = discounts[idx];
+          const updateData: Prisma.OrderUpdateInput = {
+            deliveryFee: c.actualFee,
+            shippingPayer,
+            deliveryProvider:
+              options?.deliveryProvider ?? quote?.provider ?? undefined,
+            totalAmount:
+              Math.round((c.itemsTotal + c.buyerFee - discount) * 100) / 100,
+            couponId: discount > 0 ? couponId : null,
+            couponCode: discount > 0 ? couponCode : null,
+            couponDiscount: discount,
+          };
+          if (options?.markPaid) {
+            updateData.status = OrderStatus.PAID;
+            if (options.razorpayOrderId) {
+              updateData.razorpayOrderId = options.razorpayOrderId;
+            }
+            if (options.razorpayPaymentId) {
+              updateData.razorpayPaymentId = options.razorpayPaymentId;
+            }
+          }
+          rows.push(await tx.order.update({ where: { id: c.id }, data: updateData }));
+        }
+        return rows;
+      });
+      committed = true;
+
+      await this.clearCart(userId, primaryStreamId, 'checkout completed');
+
+      for (const updated of updatedOrders) {
+        void this.orderNotifications.sendOrderPlacedEmails(updated.id);
+        if (updated.status === OrderStatus.PAID) {
+          void this.refreshExpectedDelivery(updated.id);
+          void this.notifySellerNewOrder(updated.id);
+        }
       }
+
+      const actualDeliveryFee = created.reduce((s, c) => s + c.actualFee, 0);
+      const buyerDeliveryFee = created.reduce((s, c) => s + c.buyerFee, 0);
+      const primary = updatedOrders[0];
+      return {
+        /** Primary (first seller) order id — kept for older clients. */
+        orderId: primary.id,
+        orderIds: updatedOrders.map((o) => o.id),
+        status: primary.status,
+        totalAmount:
+          Math.round(updatedOrders.reduce((s, o) => s + o.totalAmount, 0) * 100) /
+          100,
+        deliveryFee: actualDeliveryFee,
+        buyerDeliveryFee,
+        shippingPayer,
+        couponCode: primary.couponCode ?? updatedOrders.find((o) => o.couponCode)?.couponCode ?? null,
+        couponDiscount:
+          Math.round(updatedOrders.reduce((s, o) => s + o.couponDiscount, 0) * 100) /
+          100,
+        estimatedDelivery: 'October 20, 2024',
+        shippingAddress: shippingAddressText ?? '',
+        paymentMethod: dto.paymentMethod ?? 'CARD',
+      };
+    } catch (err) {
+      // Undo any orders already created (restores stock) so nothing is half-placed.
+      if (!committed) await this.rollbackCreatedOrders(createdOrderIds);
       throw err;
-    });
-
-    await this.clearCart(userId, streamId ?? undefined, 'checkout completed');
-
-    void this.orderNotifications.sendOrderPlacedEmails(updated.id);
-    if (updated.status === OrderStatus.PAID) {
-      void this.refreshExpectedDelivery(updated.id);
-      void this.notifySellerNewOrder(updated.id);
     }
+  }
 
-    return {
-      orderId: updated.id,
-      status: updated.status,
-      totalAmount: updated.totalAmount,
-      deliveryFee: actualDeliveryFee,
-      buyerDeliveryFee,
-      shippingPayer,
-      couponCode: updated.couponCode,
-      couponDiscount: updated.couponDiscount,
-      estimatedDelivery: 'October 20, 2024',
-      shippingAddress: createDto.shippingAddress ?? dto.shippingAddress ?? '',
-      paymentMethod: dto.paymentMethod ?? 'CARD',
-    };
+  /** Group cart lines by seller (one Order per seller). */
+  private groupCartBySeller(cart: {
+    items: Array<
+      CartItemDto & { amount: number; product: { sellerId: string } }
+    >;
+  }): SellerCheckoutGroup[] {
+    const map = new Map<string, SellerCheckoutGroup>();
+    for (const i of cart.items) {
+      const sellerId = i.product.sellerId;
+      let g = map.get(sellerId);
+      if (!g) {
+        g = {
+          sellerId,
+          // Order.streamId = first stream this seller's lines came from.
+          streamId: i.streamId as string,
+          items: [],
+          subtotal: 0,
+        };
+        map.set(sellerId, g);
+      }
+      g.items.push({
+        productId: i.productId,
+        quantity: i.quantity,
+        variantId: i.variantId,
+        variantLabel: i.variantLabel,
+      });
+      g.subtotal += i.amount;
+    }
+    return [...map.values()];
+  }
+
+  /** Delete just-created PENDING/PAID orders and restore their stock. */
+  private async rollbackCreatedOrders(orderIds: string[]): Promise<void> {
+    for (const id of orderIds) {
+      try {
+        await this.prisma.$transaction(async (tx) => {
+          const o = await tx.order.findUnique({
+            where: { id },
+            include: { items: true },
+          });
+          if (!o) return;
+          for (const item of o.items) {
+            const p = await tx.product.findUnique({
+              where: { id: item.productId },
+            });
+            if (!p) continue;
+            if (item.variantId && productHasVariantItems(p.variants)) {
+              const { variants, totalStock } = applyVariantStockDelta(
+                p.variants,
+                item.variantId,
+                item.quantity,
+              );
+              await tx.product.update({
+                where: { id: p.id },
+                data: { variants, stock: totalStock },
+              });
+            } else {
+              await tx.product.update({
+                where: { id: p.id },
+                data: { stock: { increment: item.quantity } },
+              });
+            }
+          }
+          await tx.orderItem.deleteMany({ where: { orderId: id } });
+          await tx.order.delete({ where: { id } });
+        });
+      } catch (e) {
+        this.logger.error(
+          `Failed to roll back order ${id} after checkout error`,
+          e instanceof Error ? e.stack : e,
+        );
+      }
+    }
   }
 
   async getDeliveryQuoteFromCart(userId: string, addressId: string) {
     const cart = await this.getCart(userId);
     if (!cart.items.length) throw new BadRequestException('Cart is empty');
-    const streamId = (cart as { streamId?: string | null }).streamId;
-    if (!streamId) {
+    if (cart.items.some((i) => !i.streamId)) {
       throw new BadRequestException(
         'Checkout requires a live stream context. Add items from a live.',
       );
@@ -1144,13 +1223,69 @@ export class OrdersService {
     });
     if (!buyerAddr) throw new BadRequestException('Shipping address not found');
 
-    const stream = await this.prisma.stream.findUnique({
-      where: { id: streamId },
-      include: { seller: { include: { user: true } } },
+    const buyer = await this.prisma.user.findUnique({ where: { id: userId } });
+    const buyerPhone = buyer?.phone ?? buyerAddr.phone;
+    if (!buyerPhone) throw new BadRequestException('Buyer phone is missing');
+
+    const shippingPayer = await this.appConfig.getShippingPayer();
+
+    // B8: one delivery address, one Delhivery quote per seller; fees are summed.
+    const groups = this.groupCartBySeller(cart);
+    const sellerFees: Record<string, number> = {};
+    let totalFee = 0;
+    let buyerTotalFee = 0;
+    let provider: string | null = null;
+    let configured = true;
+    let message: string | undefined;
+    let raw: unknown;
+    for (const g of groups) {
+      const q = await this.quoteDeliveryForSeller(
+        g.sellerId,
+        buyerAddr,
+        g.items.length,
+      );
+      sellerFees[g.sellerId] = q.fee;
+      totalFee += q.fee;
+      buyerTotalFee += this.buyerDeliveryFeeFor(shippingPayer, q.fee);
+      provider = provider ?? q.provider;
+      configured = configured && q.configured;
+      message = message ?? q.message;
+      raw = raw ?? q.raw;
+    }
+
+    return {
+      provider,
+      fee: totalFee,
+      buyerDeliveryFee: buyerTotalFee,
+      shippingPayer,
+      configured,
+      ...(message ? { message } : {}),
+      ...(raw !== undefined ? { raw } : {}),
+      /** Per-seller actual fee (single-seller carts have one entry). */
+      sellerFees,
+    };
+  }
+
+  /** Delhivery quote from one seller's pickup address to the buyer address. */
+  private async quoteDeliveryForSeller(
+    sellerId: string,
+    buyerAddr: Address,
+    itemCount: number,
+  ): Promise<{
+    provider: string | null;
+    fee: number;
+    configured: boolean;
+    message?: string;
+    raw?: unknown;
+  }> {
+    const seller = await this.prisma.seller.findUnique({
+      where: { id: sellerId },
+      include: { user: true },
     });
-    if (!stream) throw new BadRequestException('Stream not found');
-    const sellerUserId = stream.seller?.userId;
-    if (!sellerUserId) throw new BadRequestException('Stream seller not found');
+    const sellerUserId = seller?.userId;
+    if (!seller || !sellerUserId) {
+      throw new BadRequestException('Stream seller not found');
+    }
 
     const pickup = await this.prisma.address.findFirst({
       where: { userId: sellerUserId, type: AddressType.PICKUP },
@@ -1162,24 +1297,17 @@ export class OrdersService {
       );
     }
 
-    const sellerPhone = stream.seller.user.phone;
-    if (!sellerPhone) {
+    if (!seller.user.phone) {
       throw new BadRequestException('Seller phone is missing for pickup contact');
     }
-    const buyer = await this.prisma.user.findUnique({ where: { id: userId } });
-    const buyerPhone = buyer?.phone ?? buyerAddr.phone;
-    if (!buyerPhone) throw new BadRequestException('Buyer phone is missing');
 
-    const weightGrams = estimateCartWeightGrams(cart.items.length);
+    const weightGrams = estimateCartWeightGrams(itemCount);
     const originPin = pickup.zip?.trim();
     const destPin = buyerAddr.zip?.trim();
     if (!originPin || !destPin) {
-      const shippingPayer = await this.appConfig.getShippingPayer();
       return {
         provider: this.delhivery.isConfigured() ? 'DELHIVERY' : null,
         fee: 0,
-        buyerDeliveryFee: 0,
-        shippingPayer,
         configured: this.delhivery.isConfigured(),
         message: 'PIN codes required for delivery quote',
       };
@@ -1192,31 +1320,28 @@ export class OrdersService {
       paymentMode: 'Pre-paid',
     });
 
-    const shippingPayer = await this.appConfig.getShippingPayer();
-
     if (!quote) {
       return {
         provider: null,
         fee: 0,
-        buyerDeliveryFee: 0,
-        shippingPayer,
         configured: false,
         message: 'Delivery partner not configured — shipping fee waived for now',
       };
     }
 
-    const actualFee = quote.fee;
     return {
       provider: 'DELHIVERY',
-      fee: actualFee,
-      buyerDeliveryFee: this.buyerDeliveryFeeFor(shippingPayer, actualFee),
-      shippingPayer,
+      fee: quote.fee,
       configured: true,
       raw: quote.raw,
     };
   }
 
-  async create(dto: CreateOrderDto, userId: string) {
+  async create(
+    dto: CreateOrderDto,
+    userId: string,
+    opts?: { itemsPreValidated?: boolean },
+  ) {
     const buyer = await this.prisma.buyer.findUnique({
       where: { userId },
     });
@@ -1232,7 +1357,10 @@ export class OrdersService {
       );
     }
 
-    await this.validateOrderItems(dto.streamId, dto.items);
+    // Multi-seller checkout validates each line against its own stream beforehand.
+    if (!opts?.itemsPreValidated) {
+      await this.validateOrderItems(dto.streamId, dto.items);
+    }
 
     const uniqueProductIds = [...new Set(dto.items.map((i) => i.productId))];
     const products = await this.prisma.product.findMany({

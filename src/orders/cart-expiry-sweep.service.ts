@@ -8,12 +8,12 @@ export class CartExpirySweepService {
 
   constructor(private readonly orders: OrdersService) {}
 
-  /** Hourly sweep so carts expire even if buyers never reopen the cart screen. */
+  /** Cart expiry removed (B7): sweep is a no-op and never clears carts. */
   @Cron(CronExpression.EVERY_HOUR)
   async sweepExpiredCarts() {
     try {
       const cleared = await this.orders.sweepAllCarts();
-      this.logger.debug(`Hourly cart sweep finished, cleared=${cleared}`);
+      this.logger.debug(`Hourly cart sweep skipped, cleared=${cleared}`);
     } catch (err) {
       this.logger.error('Hourly cart sweep failed', err);
     }

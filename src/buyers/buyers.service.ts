@@ -397,6 +397,7 @@ export class BuyersService {
   }
 
   async listAddresses(userId: string) {
+    await this.cleanupDuplicateAddresses(userId);
     return this.prisma.address.findMany({
       where: { userId },
       orderBy: [{ isDefault: 'desc' }, { createdAt: 'desc' }],
@@ -404,7 +405,12 @@ export class BuyersService {
   }
 
   async createAddress(userId: string, dto: CreateAddressDto) {
-    if (dto.isDefault) {
+    const payload = this.normalizeAddressPayload(dto);
+    const duplicate = await this.findDuplicateAddress(userId, payload);
+    if (duplicate) {
+      throw new BadRequestException('This address is already saved');
+    }
+    if (payload.isDefault) {
       await this.prisma.address.updateMany({
         where: { userId },
         data: { isDefault: false },
@@ -414,18 +420,98 @@ export class BuyersService {
       data: {
         userId,
         type: 'SHIPPING',
-        line1: dto.line1.trim(),
-        line2: dto.line2?.trim() || null,
-        city: dto.city.trim(),
-        state: dto.state.trim(),
-        zip: dto.zip.trim(),
-        country: (dto.country ?? 'IN').trim(),
-        isDefault: dto.isDefault ?? false,
-        latitude: dto.latitude ?? null,
-        longitude: dto.longitude ?? null,
-        contactName: dto.contactName?.trim() || null,
-        phone: dto.phone?.trim() || null,
+        ...payload,
       },
+    });
+  }
+
+  /**
+   * Full-address fingerprint (trimmed, case-insensitive). Used to block and
+   * clean duplicate shipping rows for the same buyer.
+   */
+  private addressFingerprint(parts: {
+    line1: string;
+    line2?: string | null;
+    city: string;
+    state: string;
+    zip: string;
+    country?: string | null;
+    contactName?: string | null;
+    phone?: string | null;
+  }): string {
+    const norm = (v: string | null | undefined) => (v ?? '').trim().toLowerCase();
+    return [
+      norm(parts.line1),
+      norm(parts.line2),
+      norm(parts.city),
+      norm(parts.state),
+      norm(parts.zip),
+      norm(parts.country) || 'in',
+      norm(parts.contactName),
+      norm(parts.phone),
+    ].join('|');
+  }
+
+  private normalizeAddressPayload(dto: CreateAddressDto) {
+    return {
+      line1: dto.line1.trim(),
+      line2: dto.line2?.trim() || null,
+      city: dto.city.trim(),
+      state: dto.state.trim(),
+      zip: dto.zip.trim(),
+      country: (dto.country ?? 'IN').trim(),
+      isDefault: dto.isDefault ?? false,
+      latitude: dto.latitude ?? null,
+      longitude: dto.longitude ?? null,
+      contactName: dto.contactName?.trim() || null,
+      phone: dto.phone?.trim() || null,
+    };
+  }
+
+  private async findDuplicateAddress(
+    userId: string,
+    payload: ReturnType<BuyersService['normalizeAddressPayload']>,
+    excludeId?: string,
+  ) {
+    const existing = await this.prisma.address.findMany({
+      where: { userId, ...(excludeId ? { id: { not: excludeId } } : {}) },
+    });
+    const target = this.addressFingerprint(payload);
+    return existing.find((row) => this.addressFingerprint(row) === target) ?? null;
+  }
+
+  /**
+   * Keep one row per full-address fingerprint: prefer isDefault, else oldest.
+   * Safe because orders store shipping as a string snapshot, not Address FKs.
+   */
+  private async cleanupDuplicateAddresses(userId: string) {
+    const rows = await this.prisma.address.findMany({
+      where: { userId },
+      orderBy: { createdAt: 'asc' },
+    });
+    if (rows.length < 2) return;
+
+    const byFingerprint = new Map<string, typeof rows>();
+    for (const row of rows) {
+      const key = this.addressFingerprint(row);
+      const group = byFingerprint.get(key) ?? [];
+      group.push(row);
+      byFingerprint.set(key, group);
+    }
+
+    const deleteIds: string[] = [];
+    for (const group of byFingerprint.values()) {
+      if (group.length < 2) continue;
+      const keep =
+        group.find((row) => row.isDefault) ??
+        group[0];
+      for (const row of group) {
+        if (row.id !== keep.id) deleteIds.push(row.id);
+      }
+    }
+    if (deleteIds.length === 0) return;
+    await this.prisma.address.deleteMany({
+      where: { id: { in: deleteIds }, userId },
     });
   }
 

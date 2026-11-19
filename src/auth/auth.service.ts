@@ -35,7 +35,8 @@ import { buildWelcomeEmail } from '../mail/templates/welcome-email.template';
 import { formatBirthDate, parseBirthDate } from '../common/utils/birth-date.util';
 import { OtpSmsLimiterService } from './otp-sms-limiter.service';
 
-const REFRESH_TTL_SECONDS = 30 * 24 * 60 * 60; // 30 days
+/** Keep refresh sessions aligned with JWT_REFRESH_EXPIRES_IN (default 365d). */
+const REFRESH_TTL_SECONDS = 365 * 24 * 60 * 60;
 const OTP_TTL_SECONDS = 10 * 60; // 10 minutes
 const OTP_LENGTH = 6;
 /** Accepted instead of a real OTP only when OTP_ENV=testing (QA / before DLT go-live). */
@@ -347,7 +348,7 @@ export class AuthService implements OnModuleInit {
     const refreshSecret = this.config.get<string>('JWT_REFRESH_SECRET');
     const refreshExpires = this.config.get<string>(
       'JWT_REFRESH_EXPIRES_IN',
-      '30d',
+      '365d',
     );
     let refreshToken: string | undefined;
 
@@ -392,11 +393,34 @@ export class AuthService implements OnModuleInit {
       if (!user) throw new UnauthorizedException('User not found');
       const payload = { sub: user.id, email: user.email, roles: user.roles };
       const accessToken = this.jwtService.sign(payload);
+
+      // Rotate refresh token + slide Redis TTL so sessions stay alive while the app is used.
+      const refreshExpires = this.config.get<string>(
+        'JWT_REFRESH_EXPIRES_IN',
+        '365d',
+      );
+      const jti = randomUUID();
+      const refreshToken = this.jwtService.sign(
+        { ...payload, jti },
+        {
+          secret: refreshSecret,
+          expiresIn: refreshExpires,
+        } as JwtSignOptions,
+      );
+      await this.redis.del(key);
+      await this.redis.set(
+        this.redis.refreshTokenKey(jti),
+        user.id,
+        REFRESH_TTL_SECONDS,
+      );
+
       return {
         access_token: accessToken,
+        refresh_token: refreshToken,
         user: this.authUserResponse(user),
       };
-    } catch {
+    } catch (err) {
+      if (err instanceof UnauthorizedException) throw err;
       throw new UnauthorizedException('Invalid or expired refresh token');
     }
   }
@@ -479,7 +503,7 @@ export class AuthService implements OnModuleInit {
       const refreshSecret = this.config.get<string>('JWT_REFRESH_SECRET');
       const refreshExpires = this.config.get<string>(
         'JWT_REFRESH_EXPIRES_IN',
-        '30d',
+        '365d',
       );
       let refreshToken: string | undefined;
       if (refreshSecret) {

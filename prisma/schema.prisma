@@ -616,9 +616,11 @@ model Order {
   deliveryStatus         String?
   deliveryMockShipmentId String?
 
-  /// Razorpay Standard Checkout (test/live)
-  razorpayOrderId   String? @unique
-  razorpayPaymentId String? @unique
+  /// Razorpay Standard Checkout (test/live).
+  /// B8: one multi-seller payment creates one Order per seller, so these ids are
+  /// shared by sibling orders (indexed, not unique).
+  razorpayOrderId   String?
+  razorpayPaymentId String?
 
   invoiceNumber String? @unique
 
@@ -633,6 +635,9 @@ model Order {
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
+
+  @@index([razorpayOrderId])
+  @@index([razorpayPaymentId])
 }
 
 enum OrderStatus {

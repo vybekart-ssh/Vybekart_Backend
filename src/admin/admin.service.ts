@@ -265,9 +265,18 @@ export class AdminService {
     };
   }
 
-  async listSellerDirectory(q?: string, page = 1, limit = 20) {
+  /**
+   * Active seller partners directory + admin pickers. REJECTED sellers are
+   * excluded by default (use `includeRejected` only for review-style callers).
+   */
+  async listSellerDirectory(
+    q?: string,
+    page = 1,
+    limit = 20,
+    includeRejected = false,
+  ) {
     const skip = (page - 1) * limit;
-    const where: Prisma.SellerWhereInput = q?.trim()
+    const search: Prisma.SellerWhereInput = q?.trim()
       ? {
           OR: [
             { businessName: { contains: q.trim(), mode: 'insensitive' } },
@@ -283,6 +292,9 @@ export class AdminService {
           ],
         }
       : {};
+    const where: Prisma.SellerWhereInput = includeRejected
+      ? search
+      : { AND: [search, { status: { not: VerificationStatus.REJECTED } }] };
 
     const [items, total] = await Promise.all([
       this.prisma.seller.findMany({

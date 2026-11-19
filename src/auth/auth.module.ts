@@ -23,7 +23,8 @@ import { NotificationsModule } from '../notifications/notifications.module';
       imports: [ConfigModule],
       useFactory: (config: ConfigService): JwtModuleOptions => ({
         secret: config.get<string>('JWT_SECRET'),
-        signOptions: { expiresIn: config.get('JWT_EXPIRES_IN') ?? '7d' },
+        // Long-lived access JWT so buyers/sellers stay signed in for push + daily use.
+        signOptions: { expiresIn: config.get('JWT_EXPIRES_IN') ?? '365d' },
       }),
       inject: [ConfigService],
     }),

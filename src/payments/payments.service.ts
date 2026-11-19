@@ -35,6 +35,8 @@ type PendingPayment = {
   buyerDeliveryFee?: number;
   shippingPayer?: ShippingPayer;
   deliveryProvider: string | null;
+  /** Per-seller actual Delhivery fees (multi-seller cart, B8). */
+  sellerDeliveryFees?: Record<string, number>;
   streamId: string;
   couponId?: string | null;
   couponCode?: string | null;
@@ -200,6 +202,7 @@ export class PaymentsService {
       buyerDeliveryFee: prep.buyerDeliveryFee,
       shippingPayer: prep.shippingPayer,
       deliveryProvider: prep.deliveryProvider,
+      sellerDeliveryFees: prep.sellerDeliveryFees,
       streamId: prep.streamId,
       couponId: prep.couponId,
       couponCode: prep.couponCode,
@@ -253,11 +256,13 @@ export class PaymentsService {
       dto.razorpaySignature,
     );
 
-    const existing = await this.prisma.order.findFirst({
+    // Multi-seller payments create several sibling orders under one payment id.
+    const existing = await this.prisma.order.findMany({
       where: { razorpayPaymentId: dto.razorpayPaymentId },
+      orderBy: { createdAt: 'asc' },
     });
-    if (existing) {
-      return this.orders.toCheckoutResponse(existing);
+    if (existing.length) {
+      return this.orders.toCheckoutResponseMany(existing);
     }
 
     const priorFailure = await this.prisma.paymentCheckoutFailure.findUnique({
@@ -328,6 +333,7 @@ export class PaymentsService {
           razorpayOrderId: dto.razorpayOrderId,
           razorpayPaymentId: dto.razorpayPaymentId,
           deliveryFee: pending.deliveryFee,
+          sellerDeliveryFees: pending.sellerDeliveryFees,
           buyerDeliveryFee,
           shippingPayer: pending.shippingPayer,
           deliveryProvider: pending.deliveryProvider,

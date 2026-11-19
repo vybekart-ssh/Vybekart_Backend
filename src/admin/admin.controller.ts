@@ -333,11 +333,13 @@ export class AdminController {
     @Query('q') q?: string,
     @Query('page') page?: string,
     @Query('limit') limit?: string,
+    @Query('includeRejected') includeRejected?: string,
   ) {
     return this.adminService.listSellerDirectory(
       q,
       page ? parseInt(page, 10) : 1,
       limit ? parseInt(limit, 10) : 20,
+      includeRejected === 'true' || includeRejected === '1',
     );
   }
 

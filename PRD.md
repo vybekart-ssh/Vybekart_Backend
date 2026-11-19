@@ -28,7 +28,7 @@ Provide a secure, India-ready **live-commerce backend**: identity, catalog, Live
 | **Android buyers** | Feed, live tokens, cart, orders, replacements, profile, follow |
 | **Android sellers** | KYC profile, products, streams, fulfillment, dashboard metrics, payout preview |
 | **Android admins** | Seller verification, users, packing videos, replacements, app config |
-| **Ops / cron** | Daily reports, DB backup email, live reminders, cart expiry, storage cleanup |
+| **Ops / cron** | Daily reports, DB backup email, live reminders, storage cleanup (cart sweep is a no-op) |
 | **Marketing / outreach** | Seller interest signed links, welcome/order emails, seller bulk email tools |
 | **Public** | `/public/android-app`, seller-outreach interest page, health |
 
@@ -42,7 +42,7 @@ Landing Next.js apps generally **do not** call commerce APIs (except shared lega
 
 - Register buyer / seller; login; refresh tokens (Redis-backed). **Date of birth is mandatory** on both registrations (`YYYY-MM-DD`); users created before DOB was collected keep the default set by the migration and are never forced to re-enter it (profile updates keep `birthDate` optional).  
 - Phone/email OTP (`OTP_ENV=testing|production`); production SMS via Fast2SMS DLT.  
-- JWT access + role guards (`BUYER`, `SELLER`, `ADMIN`); seller verified guard for sensitive seller routes.  
+- JWT access (default **365d**) + refresh tokens (default **365d**, Redis-backed, rotated on refresh) + role guards (`BUYER`, `SELLER`, `ADMIN`); seller verified guard for sensitive seller routes. Sessions are not meant to drop users after a few days.  
 - FCM device token registration.  
 - Forgot/reset password via OTP.
 - **OTP SMS limits per mobile number** (production SMS only, shared by signup / login / forgot-password): one every 30 s (matches the app's resend timer), max 5 per hour and 10 per day → HTTP 429 with a readable message (`OtpSmsLimiterService`). Signed-in apps send the reset OTP only to the account's own number.
@@ -57,13 +57,14 @@ Landing Next.js apps generally **do not** call commerce APIs (except shared lega
 - Create/schedule/start/stop streams; attach ≤ product set used by app.  
 - LiveKit rooms + viewer tokens; optional egress → storage for replay.  
 - Socket.IO gateway `/streams` (chat, likes, viewer count, events).  
-- Post-live cart eligibility **24 hours** after stream end.  
+- Cart items **never expire** (B7); no post-live cart window. Redis cart TTL is a 90-day safety net only.  
 - **Adaptive replays:** each archive can have a light HLS copy (720p / 480p / 240p) so playback follows the viewer's network; the original HD video is always kept unchanged (`Architecture.md` §7.4a).  
 - Live qualification days for commission reward (Phase 2 rules).
 
 ### 3.4 Commerce
 
 - Cart CRUD; delivery quote; checkout.  
+- **Multi-seller cart (B8):** the cart holds items from any live/seller (no wipe on stream switch; each line stores its `streamId`); adding the same product+variant **increments** quantity. One address + one Razorpay payment covers the whole cart: checkout creates **one Order per seller** sharing the same Razorpay order/payment id; Delhivery fee is quoted per seller and summed; coupon discount is split pro-rata across orders.  
 - Razorpay order create + verify; replacement balance payments.  
 - Orders lifecycle: accept → packing video → request delivery → ship/deliver/cancel.  
 - Invoices PDF (PDFKit).  
